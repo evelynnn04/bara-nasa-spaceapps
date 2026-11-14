@@ -1,0 +1,185 @@
+import { UNUSUAL_SD, anomalyForMonth, anomalyForYear, peakMonthOfYear, recordYears, unusualMonths, type AnomalyResult, type Verdict } from "./analytics";
+import { CHART, lineChart } from "./charts";
+import { MONTHS_LONG, parts } from "./dates";
+import { frame, place, svgHeight, type Cell } from "./export";
+import { escapeXml, fmtInt } from "./format";
+import type { Selection } from "./store";
+
+type Kind = "month" | "year";
+
+const VERDICT: Record<Verdict, { label: string; tone: "critical" | "warning" | "good" }> = {
+  unusual: { label: "Anomaly: unusually high fire activity", tone: "critical" },
+  above: { label: "Above the median, within the usual range", tone: "warning" },
+  usual: { label: "Within the usual range", tone: "good" },
+};
+
+const WARN = `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg>`;
+
+/**
+ * Compares a chosen month or year with its historical average and median and flags unusual activity.
+ * A second card lists every unusually high month in the record; picking one opens it in the comparison.
+ */
+export class AnomalyView {
+  private sel: Selection | null = null;
+  private kind: Kind = "month";
+  private year = 0;
+  private month = 0;
+  private readonly yearSel: HTMLSelectElement;
+  private readonly monthIn: HTMLInputElement;
+  private readonly verdict: HTMLElement;
+  private readonly chart: HTMLElement;
+  private readonly notes: HTMLElement;
+
+  constructor(
+    private readonly root: HTMLElement,
+    private readonly listRoot: HTMLElement,
+  ) {
+    root.innerHTML = `
+      <div class="an-bar">
+        <div class="seg" role="group" aria-label="Compare a month or a year">
+          <button type="button" class="seg-btn" data-kind="month" aria-pressed="true">Month</button>
+          <button type="button" class="seg-btn" data-kind="year" aria-pressed="false">Year</button>
+          <span class="seg-thumb" aria-hidden="true"></span>
+        </div>
+        <label class="field field-inline"><span class="visually-hidden">Month</span><input class="input an-month" type="month" /></label>
+        <label class="field field-inline" hidden><span class="visually-hidden">Year</span><select class="input an-year"></select></label>
+        <p class="verdict" role="status"></p>
+      </div>
+      <div class="chart an-chart"></div>
+      <div class="an-notes"></div>`;
+    listRoot.addEventListener("click", (e) => {
+      const btn = (e.target as Element).closest<HTMLButtonElement>("[data-ym]");
+      if (!btn) return;
+      const [y, m] = btn.dataset.ym!.split("-").map(Number);
+      this.showMonth(y, m);
+      this.root.closest<HTMLElement>(".gc")?.scrollIntoView({ block: "nearest" });
+    });
+    this.yearSel = root.querySelector(".an-year")!;
+    this.monthIn = root.querySelector(".an-month")!;
+    this.verdict = root.querySelector(".verdict")!;
+    this.chart = root.querySelector(".an-chart")!;
+    this.notes = root.querySelector(".an-notes")!;
+
+    root.querySelector(".seg")!.addEventListener("click", (e) => {
+      const btn = (e.target as Element).closest<HTMLButtonElement>("[data-kind]");
+      if (!btn) return;
+      this.kind = btn.dataset.kind as Kind;
+      this.draw();
+    });
+    this.yearSel.addEventListener("change", () => {
+      this.year = +this.yearSel.value;
+      this.draw();
+    });
+    this.monthIn.addEventListener("change", () => {
+      const v = this.monthIn.value;
+      if (!v) return;
+      this.year = +v.slice(0, 4);
+      this.month = +v.slice(5, 7) - 1;
+      this.draw();
+    });
+  }
+
+  /** `resetPeriod` picks the busiest month of the last selected year as the period to compare. */
+  render(sel: Selection, resetPeriod: boolean): void {
+    this.sel = sel;
+    const years = recordYears(sel);
+    if (resetPeriod || !this.year) {
+      this.year = parts(sel.to).year;
+      this.month = Math.max(0, peakMonthOfYear(sel, this.year).peak);
+    }
+    this.yearSel.innerHTML = years.map((y) => `<option value="${y}">${y}</option>`).join("");
+    this.monthIn.min = `${years[0]}-01`;
+    this.monthIn.max = `${years[years.length - 1]}-12`;
+    this.draw();
+    this.renderList();
+  }
+
+  private renderList(): void {
+    const list = unusualMonths(this.sel!);
+    const top = list.slice(0, 3);
+    const title = this.listRoot.closest(".gc")?.querySelector(".gc-title");
+    if (title) title.textContent = list.length ? `Unusual months · ${list.length}` : "Unusual months";
+    this.listRoot.innerHTML = top.length
+      ? `<ul class="alert-list">${top
+          .map(
+            (u) => `<li><button type="button" class="alert" data-ym="${u.year}-${u.month}" title="Compare ${MONTHS_LONG[u.month]} ${u.year} in the anomaly card" aria-label="Compare ${MONTHS_LONG[u.month]} ${u.year}">
+              <span class="alert-ico">${WARN}</span>
+              <span><strong>${MONTHS_LONG[u.month]} ${u.year}</strong> &middot; ${Number.isFinite(u.ratio) ? `${u.ratio.toFixed(1)}&times; usual` : "far above usual"}
+              <span class="mini-note">${fmtInt(u.value)} detections, usually ${fmtInt(u.usual)}</span></span>
+            </button></li>`,
+          )
+          .join("")}</ul>
+`
+      : `<p class="sub-line">No month in this area stands out from its usual level.</p>`;
+  }
+
+  /** Switches to the month comparison for one month picked from the unusual-months list. */
+  private showMonth(year: number, month: number): void {
+    this.kind = "month";
+    this.year = year;
+    this.month = month;
+    this.draw();
+  }
+
+  private result(): AnomalyResult {
+    return this.kind === "month" ? anomalyForMonth(this.sel!, this.year, this.month) : anomalyForYear(this.sel!, this.year);
+  }
+
+  private chartSvg(a: AnomalyResult): string {
+    return lineChart({
+      title: a.title,
+      labels: a.kind === "month" ? a.labels.map((y) => `'${y.slice(2)}`) : a.labels,
+      series: [
+        { name: a.kind === "month" ? "Detections" : `${a.selected.label}`, values: a.values, color: CHART.accent, width: 2 },
+        { name: "Historical average", values: a.mean, color: CHART.ink2, dash: "5 3" },
+        { name: "Historical median", values: a.median, color: CHART.median, dash: "1.5 3" },
+      ],
+      flags: a.unusual,
+      selected: a.selectedIndex,
+      width: 760,
+      height: 170,
+    });
+  }
+
+  private draw(): void {
+    this.root.querySelectorAll<HTMLButtonElement>("[data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === this.kind)));
+    this.monthIn.closest("label")!.hidden = this.kind !== "month";
+    this.yearSel.closest("label")!.hidden = this.kind !== "year";
+    this.monthIn.value = `${this.year}-${String(this.month + 1).padStart(2, "0")}`;
+    this.yearSel.value = String(this.year);
+
+    const a = this.result();
+    const v = VERDICT[a.verdict];
+    this.verdict.className = `verdict is-${v.tone}`;
+    this.verdict.title = `Unusual means more than ${UNUSUAL_SD} standard deviations above the other years. Ringed points on the chart are unusual.`;
+    this.verdict.innerHTML = `<span class="verdict-k">${escapeXml(a.selected.label)}</span> ${v.label}`;
+    this.chart.innerHTML = this.chartSvg(a);
+    const unusualMonths = a.kind === "year" ? a.labels.filter((_, i) => a.unusual[i]) : [];
+    this.notes.innerHTML = `<p class="mini-note">
+      <strong>${fmtInt(a.selected.value)}</strong> detections, average ${fmtInt(a.selected.mean)}, median ${fmtInt(a.selected.median)}.
+      ${unusualMonths.length ? `Unusual months: <strong>${unusualMonths.join(", ")}</strong>.` : ""}
+      Other unusual ${a.kind === "month" ? "years for this month" : "years"}: ${a.history.length ? a.history.join(", ") : "none"}.</p>`;
+  }
+
+  csv(): { header: string[]; rows: Cell[][] } {
+    const a = this.result();
+    const r = (n: number) => Math.round(n * 10) / 10;
+    return {
+      header: [a.kind === "month" ? "year" : "month", "detections", "historical_average", "historical_median", "unusual_threshold", "unusual"],
+      rows: a.labels.map((l, i) => [l, a.values[i], r(a.mean[i]), r(a.median[i]), r(a.threshold[i]), a.unusual[i] ? "yes" : "no"]),
+    };
+  }
+
+  svg(subtitle: string): { svg: string; width: number; height: number } {
+    const a = this.result();
+    const width = 720;
+    const cw = width - 48;
+    const chart = this.chartSvg(a);
+    const tone = CHART[VERDICT[a.verdict].tone];
+    const body = `<text x="24" y="14" fill="${tone}" font-size="13">${escapeXml(`${a.selected.label}: ${VERDICT[a.verdict].label}`)}</text>
+      <text x="24" y="34" fill="${CHART.ink2}" font-size="12">${escapeXml(`${fmtInt(a.selected.value)} detections. Average ${fmtInt(a.selected.mean)}, median ${fmtInt(a.selected.median)}.`)}</text>
+      ${place(chart, 24, 46, cw)}`;
+    const f = frame("Historical anomaly comparison", subtitle, body, width, 56 + svgHeight(chart, cw));
+    return { svg: f.svg, width, height: f.height };
+  }
+}

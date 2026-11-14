@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Burning Activity Calendar</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body class="t3">
+    <a class="skip" href="#g-main">Skip to the results</a>
+
+    <header class="g-top" id="top">
+      <a class="g-brand" href="#overview" aria-label="Burning Activity Calendar, back to the overview">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c1 3 4.5 4.6 4.5 9a4.5 4.5 0 0 1-9 0c0-2 .9-3.3 2.2-4.3.2 1.7 1.1 2.7 2.2 2.7 0-2.7-.9-4.9.1-7.4z" /></svg>      </a>
+      <div class="g-filters" role="group" aria-label="Filters">
+        <div class="hf-area" id="area-picker"></div>
+        <label class="hf hf-date"><span class="hf-k">From</span><input class="hf-input" type="date" id="date-from" /></label>
+        <label class="hf hf-date"><span class="hf-k">To</span><input class="hf-input" type="date" id="date-to" /></label>
+        <div class="hf-palette" id="palette-menu"></div>
+        <div class="seg hf-mode" role="group" aria-label="Area selection mode">
+          <button type="button" class="seg-btn" data-mode="area" aria-pressed="true">Area</button>
+          <button type="button" class="seg-btn" data-mode="polygon" aria-pressed="false">Polygon</button>
+          <span class="seg-thumb" aria-hidden="true"></span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="g-stage" id="overview" aria-label="Overview">
+        <div class="g-map">
+          <div id="map" tabindex="0" aria-label="Map of fire detections for the selected area and dates"></div>
+          <div class="g-shade" aria-hidden="true"></div>
+        </div>
+
+        <div class="g-tools" role="group" aria-label="Map tools">
+          <button type="button" class="pill pill-glass" id="draw-start" hidden>
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18l4-12 10 4-6 9z" /></svg><span id="draw-start-label">Draw polygon</span>
+          </button>
+          <p class="draw-tip" id="draw-tip" role="status" hidden></p>
+          <button type="button" class="pill pill-glass" id="draw-finish" hidden disabled>Finish</button>
+          <button type="button" class="pill pill-glass" id="draw-cancel" hidden>Cancel</button>
+          <button type="button" class="pill pill-glass" id="draw-clear" hidden>Clear polygon</button>
+        </div>
+
+        <button type="button" class="pill map-reset" id="reset-view">
+          <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4 4v5h5" /></svg>Reset view
+        </button>
+
+        <div class="g-main" id="g-main">
+          <div class="g-col g-left">
+            <article class="gc" data-card="analytics" id="analytics-card" aria-labelledby="c-analytics">
+              <div class="gc-head">
+                <h2 class="gc-title" id="c-analytics">Historical analytics</h2>
+                <div class="card-actions">
+                  <button type="button" class="pill pill-xs" data-export="analytics" data-format="csv">CSV</button>
+                  <button type="button" class="pill pill-xs" data-export="analytics" data-format="png">PNG</button>
+                </div>
+              </div>
+              <div class="gc-body" id="an-summary" aria-busy="true"></div>
+            </article>
+            <article class="gc" data-card="peak" aria-labelledby="c-peak">
+              <div class="gc-head"><h2 class="gc-title" id="c-peak">Peak</h2></div>
+              <div class="gc-body" id="an-peak" aria-busy="true"></div>
+            </article>
+            <article class="gc" data-card="patterns" aria-labelledby="c-patterns">
+              <div class="gc-head"><h2 class="gc-title" id="c-patterns">Historical patterns</h2><span class="hint">All years</span></div>
+              <div class="gc-body" id="an-patterns" aria-busy="true"></div>
+            </article>
+          </div>
+
+          <div class="g-col g-right">
+            <article class="gc" data-card="calendar" id="calendar-card" aria-labelledby="c-calendar">
+              <div class="gc-head">
+                <h2 class="gc-title" id="c-calendar">Burning activity calendar</h2>
+                <div class="card-actions">
+                  <button type="button" class="pill pill-xs" data-export="calendar" data-format="csv">CSV</button>
+                  <button type="button" class="pill pill-xs" data-export="calendar" data-format="png">PNG</button>
+                </div>
+              </div>
+              <div class="gc-body" id="calendar" aria-busy="true"></div>
+            </article>
+            <article class="gc" data-card="unusual" aria-labelledby="c-unusual">
+              <div class="gc-head"><h2 class="gc-title" id="c-unusual">Unusual months</h2></div>
+              <div class="gc-body" id="an-unusual" aria-busy="true"></div>
+            </article>
+            <article class="gc" data-card="anomaly" id="anomaly-card" aria-labelledby="c-anomaly">
+              <div class="gc-head">
+                <h2 class="gc-title" id="c-anomaly">Historical anomaly comparison</h2>
+                <div class="card-actions">
+                  <button type="button" class="pill pill-xs" data-export="anomaly" data-format="csv">CSV</button>
+                  <button type="button" class="pill pill-xs" data-export="anomaly" data-format="png">PNG</button>
+                </div>
+              </div>
+              <div class="gc-body" id="anomaly" aria-busy="true"></div>
+            </article>
+          </div>
+
+        </div>
+
+        <div class="g-foot">
+          <div class="map-legend" id="map-legend"></div>
+          <p class="g-caption" id="map-count" aria-live="polite"></p>
+          <p class="dl-note" id="dl-note" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
