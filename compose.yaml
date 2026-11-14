@@ -3,6 +3,11 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
+    environment:
+      DATA_DIR: /data
+    volumes:
+      # Derived tables built on the host with `uv run python -m app all` (read-only here).
+      - ./data:/data:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s

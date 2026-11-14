@@ -52,3 +52,6 @@ out/
 .cache/
 coverage/
 *.tsbuildinfo
+
+# Local data cache (FIRMS downloads and derived tables)
+/data/
