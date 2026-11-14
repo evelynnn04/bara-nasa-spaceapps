@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 
+from .api import router
+
 app = FastAPI(title="Space Apps API")
+app.include_router(router)
 
 
 @app.get("/health")
