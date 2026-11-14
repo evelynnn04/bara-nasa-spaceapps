@@ -88,7 +88,7 @@ export class AgreementView {
     this.yearSel.innerHTML = years
       .slice()
       .reverse()
-      .map((y) => `<option value="${y}"${y === this.year ? " selected" : ""}>${y}${y === 2015 ? " (big fire year)" : ""}</option>`)
+      .map((y) => `<option value="${y}"${y === this.year ? " selected" : ""}>${y}</option>`)
       .join("");
     this.draw();
   }

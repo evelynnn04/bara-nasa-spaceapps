@@ -2486,6 +2486,10 @@ button.cell:focus-visible {
   margin-top: 0;
 }
 
+.ag-year {
+  min-width: 96px;
+}
+
 .ag-verdict {
   font-size: var(--fs-body);
 }
