@@ -818,6 +818,7 @@ body.is-scrolled .g-top {
 }
 
 .pill.map-reset {
+  pointer-events: auto;
   min-height: 36px;
   border-color: var(--glass-line);
   background: var(--glass-bg);
