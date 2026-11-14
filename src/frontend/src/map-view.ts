@@ -78,6 +78,16 @@ export class MapView {
     this.map.touchZoomRotate.disableRotation();
     this.map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
     this.map.addControl(new AttributionControl({ compact: true }), "bottom-left");
+    // Hover and focus reveal the credits, so a click must not close the <details> that holds them
+    el.querySelector(".maplibregl-ctrl-attrib")?.addEventListener(
+      "click",
+      (e) => {
+        if (!(e.target as Element).closest("summary")) return;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      { capture: true },
+    );
     this.map.on("style.load", () => this.installLayers());
     this.map.on("error", (e) => {
       if (!this.map.isStyleLoaded() && String(e.error?.message ?? "").length) this.map.setStyle(FALLBACK);
