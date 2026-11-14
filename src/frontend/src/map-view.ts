@@ -164,15 +164,15 @@ export class MapView {
     this.map.fitBounds(new LngLatBounds([b[0], b[1]], [b[2], b[3]]), { padding: fits ? this.insets : 30, maxZoom: 8.5, duration: 700 });
   }
 
-  /** Pins an ember callout with a leader line to the busiest grid cell, or removes it. */
+  /** Pins an ember callout with a leader line to the busiest grid cell, labelled with its region name, or removes it. */
   setCallout(c: Cell | null, label: string): void {
     this.callout?.remove();
     this.callout = null;
     if (!c) return;
     const el = document.createElement("div");
     el.className = "callout";
-    el.innerHTML = `<div class="callout-box"><span class="callout-row"><span class="callout-v">${c.count.toLocaleString("en-US")}</span><span class="callout-u">detections</span></span>
-      <span class="callout-k">${escapeXml(label)} &middot; ${Math.abs(c.lat).toFixed(2)}&deg;${c.lat < 0 ? "S" : "N"} ${c.lon.toFixed(2)}&deg;E</span></div>
+    el.innerHTML = `<div class="callout-box"><span class="callout-row"><span class="callout-v">${c.count.toLocaleString("en-US")}</span><span class="callout-u">fire points</span></span>
+      <span class="callout-k">Highest intensity hotspot &middot; ${escapeXml(label)}</span></div>
       <span class="callout-line" aria-hidden="true"></span><span class="callout-dot" aria-hidden="true"></span>`;
     this.callout = new Marker({ element: el, anchor: "bottom-left", offset: [-5, 5] }).setLngLat([c.lon, c.lat]).addTo(this.map);
   }

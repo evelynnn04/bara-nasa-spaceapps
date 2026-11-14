@@ -15,7 +15,7 @@ describe("pointInPolygon", () => {
 describe("hottestCell", () => {
   it("returns the centre of the busiest cell", () => {
     const cell = hottestCell([at(101.1, 0.1), at(101.2, 0.2), at(110, -2)]);
-    expect(cell).toEqual({ lon: 101.125, lat: 0.125, count: 2 });
+    expect(cell).toEqual({ lon: 101.125, lat: 0.125, count: 2, regionId: "x" });
   });
 
   it("returns null without detections", () => {

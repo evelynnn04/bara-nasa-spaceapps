@@ -78,9 +78,11 @@ export interface Cell {
   lon: number;
   lat: number;
   count: number;
+  /** Region holding most of the cell's detections. */
+  regionId: string;
 }
 
-/** Centre and count of the grid cell (default 0.25 degrees) with the most detections, or null when empty. */
+/** Centre, count and dominant region of the grid cell (default 0.25 degrees) with the most detections, or null when empty. */
 export function hottestCell(items: Hotspot[], size = 0.25): Cell | null {
   const bins = new Map<string, number>();
   let best: string | null = null;
@@ -96,5 +98,13 @@ export function hottestCell(items: Hotspot[], size = 0.25): Cell | null {
   }
   if (!best) return null;
   const [x, y] = best.split(",").map(Number);
-  return { lon: (x + 0.5) * size, lat: (y + 0.5) * size, count: bestCount };
+  const perRegion = new Map<string, number>();
+  let regionId = "";
+  for (const h of items) {
+    if (Math.floor(h.lon / size) !== x || Math.floor(h.lat / size) !== y) continue;
+    const n = (perRegion.get(h.regionId) ?? 0) + 1;
+    perRegion.set(h.regionId, n);
+    if (n > (perRegion.get(regionId) ?? 0)) regionId = h.regionId;
+  }
+  return { lon: (x + 0.5) * size, lat: (y + 0.5) * size, count: bestCount, regionId };
 }

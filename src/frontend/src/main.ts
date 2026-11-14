@@ -120,8 +120,9 @@ function boot(boundaries: Boundaries): void {
     map.setPolygon(filters.mode === "polygon" ? filters.polygon : null);
     map.setHotspots(sel.items);
     if (opts.fit) fitSelection();
-    map.setCallout(hottestCell(sel.items), "Hottest cell");
-    countText = `Map: ${fmtInt(sel.items.length)} detections, ${areaLabel()}, ${formatRange(sel.from, sel.to)}. Callout marks the 0.25° cell with the most detections.`;
+    const hot = hottestCell(sel.items);
+    map.setCallout(hot, hot ? (store.regions.byId.get(hot.regionId)?.name ?? hot.regionId) : "");
+    countText = `Map: ${fmtInt(sel.items.length)} detections, ${areaLabel()}, ${formatRange(sel.from, sel.to)}. Callout marks the highest intensity hotspot and its region.`;
     syncDrawUi();
 
     calendar.render(sel, ramp);
