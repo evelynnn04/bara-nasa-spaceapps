@@ -212,6 +212,7 @@ def cells(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depe
                any_value(c.regency_id) AS regency_id
         FROM ({weights.observations_sql(where)}) c
         GROUP BY c.cx, c.cy HAVING value > 0
+        ORDER BY c.cx, c.cy
     """).fetchall()
 
     blocks: dict[tuple[int, int], list] = defaultdict(lambda: [0.0, 0, 0, 0.0, defaultdict(float)])
