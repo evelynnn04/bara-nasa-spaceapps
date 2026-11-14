@@ -50,7 +50,41 @@ export interface LineOptions {
   height?: number;
 }
 
+/** Content width of a chart container, or `fallback` while it is hidden. */
+export function chartWidth(el: HTMLElement, fallback: number): number {
+  const s = getComputedStyle(el);
+  return Math.round(el.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight)) || fallback;
+}
+
+/**
+ * Runs `draw(width)` at the container's width, then once more if inserting it changed that width
+ * (a column gaining a scrollbar). Chart heights are fixed, so a second pass cannot change it again.
+ * Returns the width the chart was drawn at.
+ */
+export function drawAtWidth(el: HTMLElement, fallback: number, draw: (width: number) => void): number {
+  const first = chartWidth(el, fallback);
+  draw(first);
+  const settled = chartWidth(el, 0);
+  if (!settled || Math.abs(settled - first) <= 2) return first;
+  draw(settled);
+  return settled;
+}
+
+/**
+ * Redraws a chart whenever its container's width changes, so viewBox units keep matching screen
+ * pixels and chart text stays at its intended size. `drawn` returns the width the chart was last drawn at.
+ */
+export function redrawOnResize(el: HTMLElement, drawn: () => number, redraw: () => void): void {
+  new ResizeObserver(() => {
+    const w = chartWidth(el, 0);
+    if (w && Math.abs(w - drawn()) > 2) redraw();
+  }).observe(el);
+}
+
 const M = { l: 40, r: 10, t: 14, b: 24 };
+/** Chart text sizes in viewBox units; on-screen charts are drawn at about their shown width, so these read as px. */
+const FS = { tick: 11, label: 11, value: 14 };
+const LEGEND_ROW = 16;
 
 function niceMax(v: number): number {
   if (v <= 0) return 1;
@@ -62,10 +96,10 @@ function axes(w: number, h: number, top: number, max: number, labels: string[], 
   const ticks = [0, 0.5, 1].map((t) => {
     const y = top + (h - top - M.b) * (1 - t);
     return `<line x1="${M.l}" x2="${w - M.r}" y1="${y}" y2="${y}" stroke="${CHART.line}" stroke-width="1"/>
-      <text x="${M.l - 6}" y="${y + 3.5}" text-anchor="end" fill="${CHART.ink3}" font-size="10">${fmtCompact(max * t)}</text>`;
+      <text x="${M.l - 6}" y="${y + 3.5}" text-anchor="end" fill="${CHART.ink3}" font-size="${FS.tick}">${fmtCompact(max * t)}</text>`;
   });
   const xl = labels
-    .map((l, i) => (i % every === 0 ? `<text x="${xAt(i)}" y="${h - 7}" text-anchor="middle" fill="${CHART.ink3}" font-size="10">${escapeXml(l)}</text>` : ""))
+    .map((l, i) => (i % every === 0 ? `<text x="${xAt(i)}" y="${h - 7}" text-anchor="middle" fill="${CHART.ink3}" font-size="${FS.tick}">${escapeXml(l)}</text>` : ""))
     .join("");
   return ticks.join("") + xl;
 }
@@ -101,21 +135,31 @@ export function barChart(o: BarOptions): string {
 export function lineChart(o: LineOptions): string {
   const w = o.width ?? 480;
   const h = o.height ?? 210;
-  const top = M.t + 22;
+  // Legend entries flow left to right and wrap onto a new row when the next one would not fit.
+  let lx = M.l;
+  let row = 0;
+  const legend = o.series
+    .map((s) => {
+      const itemW = 21 + s.name.length * FS.label * 0.56;
+      if (lx > M.l && lx + itemW > w - M.r) {
+        lx = M.l;
+        row++;
+      }
+      const x = lx;
+      const y = 9 + row * LEGEND_ROW;
+      lx += itemW + 14;
+      return `<line x1="${x}" x2="${x + 16}" y1="${y}" y2="${y}" stroke="${s.color}" stroke-width="2" ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>
+        <text x="${x + 21}" y="${y + 3.5}" fill="${CHART.ink2}" font-size="${FS.label}">${escapeXml(s.name)}</text>`;
+    })
+    .join("");
+
+  const top = M.t + 22 + row * LEGEND_ROW;
   const n = o.labels.length;
   const max = niceMax(Math.max(...o.series.flatMap((s) => s.values)));
   const step = (w - M.l - M.r - 12) / Math.max(1, n - 1);
   const xAt = (i: number) => M.l + 6 + step * i;
   const yAt = (v: number) => top + (h - top - M.b) * (1 - v / max);
   const every = n > 12 ? 2 : 1;
-
-  const legend = o.series
-    .map((s, i) => {
-      const x = M.l + i * 120;
-      return `<line x1="${x}" x2="${x + 16}" y1="9" y2="9" stroke="${s.color}" stroke-width="2" ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>
-        <text x="${x + 21}" y="12.5" fill="${CHART.ink2}" font-size="10.5">${escapeXml(s.name)}</text>`;
-    })
-    .join("");
 
   const guide =
     o.selected !== undefined && o.selected >= 0
@@ -182,8 +226,8 @@ export function profileChart(o: ProfileOptions): string {
         <circle cx="${px}" cy="${py}" r="7" fill="none" stroke="${CHART.accent}" stroke-width="1.5"/>
         <circle cx="${px}" cy="${py}" r="3" fill="${CHART.ink}"/>
         <rect x="${bx}" y="${by}" width="${bw}" height="40" rx="9" fill="${CHART.panel}" fill-opacity="0.92" stroke="${CHART.line}"/>
-        <text x="${bx + 11}" y="${by + 18}" fill="${CHART.ink}" font-size="14" font-weight="700">${label}</text>
-        <text x="${bx + 11}" y="${by + 32}" fill="${CHART.ink3}" font-size="10">${escapeXml(cap)}</text>`
+        <text x="${bx + 11}" y="${by + 18}" fill="${CHART.ink}" font-size="${FS.value}" font-weight="700">${label}</text>
+        <text x="${bx + 11}" y="${by + 32}" fill="${CHART.ink3}" font-size="${FS.label}">${escapeXml(cap)}</text>`
       : "";
   return `${open(w, h, o.title)}
     <defs><linearGradient id="pf-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${CHART.accent}" stop-opacity="0.32"/><stop offset="1" stop-color="${CHART.accent}" stop-opacity="0"/></linearGradient></defs>

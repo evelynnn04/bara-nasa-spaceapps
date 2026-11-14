@@ -1,5 +1,5 @@
 import { annualTrend, climatology, comparePeriod, peakDayOfMonth, peakMonthOfYear, recordYears, type Breakdown } from "./analytics";
-import { CHART, barChart, profileChart } from "./charts";
+import { CHART, barChart, drawAtWidth, profileChart, redrawOnResize } from "./charts";
 import { MONTHS, MONTHS_LONG, formatRange, parts } from "./dates";
 import { frame, place, svgHeight, type Cell } from "./export";
 import { escapeXml, fmtCompact, fmtInt, fmtPct } from "./format";
@@ -26,6 +26,9 @@ export class AnalyticsView {
   private readonly peakChart: HTMLElement;
   private readonly peakYearSel: HTMLSelectElement;
   private readonly peakMonthIn: HTMLInputElement;
+  /** Widths the peak and pattern charts were last drawn at. */
+  private peakW = 0;
+  private patternsW = 0;
 
   constructor(private readonly roots: AnalyticsRoots) {
     roots.peak.innerHTML = `
@@ -62,6 +65,8 @@ export class AnalyticsView {
       this.peakMonth = +v.slice(5, 7) - 1;
       this.renderPeak();
     });
+    redrawOnResize(this.peakChart, () => this.peakW, () => this.sel && this.renderPeak());
+    redrawOnResize(roots.patterns, () => this.patternsW, () => this.sel && this.renderPatterns());
   }
 
   /** Renders every reading. `resetPeak` moves the peak pickers to the end of the selected dates. */
@@ -120,13 +125,16 @@ export class AnalyticsView {
     this.peakMonthIn.value = `${this.peakYear}-${String(this.peakMonth + 1).padStart(2, "0")}`;
     const { title, data, sentence } = this.peakData();
     this.peakText.innerHTML = sentence;
-    this.peakChart.innerHTML = barChart({
-      title,
-      labels: data.labels,
-      values: data.values,
-      highlight: data.peak >= 0 ? [data.peak] : [],
-      labelEvery: this.peakMode === "day" ? 5 : 1,
-      height: 130,
+    this.peakW = drawAtWidth(this.peakChart, 290, (width) => {
+      this.peakChart.innerHTML = barChart({
+        title,
+        labels: data.labels,
+        values: data.values,
+        highlight: data.peak >= 0 ? [data.peak] : [],
+        labelEvery: this.peakMode === "day" ? 5 : 1,
+        width,
+        height: 120,
+      });
     });
   }
 
@@ -156,9 +164,10 @@ export class AnalyticsView {
     const ranked = c.average.map((v, m) => ({ v, m })).sort((a, b) => b.v - a.v).slice(0, 5);
     const steps = RAMPS[this.ramp].steps;
     const max = ranked[0]?.v || 1;
-    this.roots.patterns.innerHTML = `
+    this.patternsW = drawAtWidth(this.roots.patterns, 290, (width) => {
+      this.roots.patterns.innerHTML = `
       <p class="reading">${p.trendText}</p>
-      <div class="chart">${profileChart({ title: "Detections per year", labels: t.years.map(String), values: t.totals, labelEvery: 4, height: 130, width: 420, peakCaption: (i) => String(t.years[i]) })}</div>
+      <div class="chart">${profileChart({ title: "Detections per year", labels: t.years.map(String), values: t.totals, labelEvery: 4, height: 130, width, peakCaption: (i) => String(t.years[i]) })}</div>
       <p class="d-label">Fire-prone months</p>
       <ol class="rank">${ranked
         .map(
@@ -167,6 +176,7 @@ export class AnalyticsView {
         )
         .join("")}</ol>
       <p class="mini-note">${c.season ? `Average detections per month. Fires usually concentrate between ${MONTHS_LONG[c.season[0]]} and ${MONTHS_LONG[c.season[1]]}.` : "No fires recorded in this area."}</p>`;
+    });
   }
 
   csv(): { header: string[]; rows: Cell[][] } {

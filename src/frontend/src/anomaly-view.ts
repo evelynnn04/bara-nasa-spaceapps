@@ -1,5 +1,5 @@
 import { UNUSUAL_SD, anomalyForMonth, anomalyForYear, peakMonthOfYear, recordYears, unusualMonths, type AnomalyResult, type Verdict } from "./analytics";
-import { CHART, lineChart } from "./charts";
+import { CHART, drawAtWidth, lineChart, redrawOnResize } from "./charts";
 import { MONTHS_LONG, parts } from "./dates";
 import { frame, place, svgHeight, type Cell } from "./export";
 import { escapeXml, fmtInt } from "./format";
@@ -29,6 +29,8 @@ export class AnomalyView {
   private readonly verdict: HTMLElement;
   private readonly chart: HTMLElement;
   private readonly notes: HTMLElement;
+  /** Width the comparison chart was last drawn at. */
+  private chartW = 0;
 
   constructor(
     private readonly root: HTMLElement,
@@ -77,6 +79,7 @@ export class AnomalyView {
       this.month = +v.slice(5, 7) - 1;
       this.draw();
     });
+    redrawOnResize(this.chart, () => this.chartW, () => this.sel && this.draw());
   }
 
   /** `resetPeriod` picks the busiest month of the last selected year as the period to compare. */
@@ -125,7 +128,8 @@ export class AnomalyView {
     return this.kind === "month" ? anomalyForMonth(this.sel!, this.year, this.month) : anomalyForYear(this.sel!, this.year);
   }
 
-  private chartSvg(a: AnomalyResult): string {
+  /** Builds the comparison chart; the card draws it near its shown width, the export at its own. */
+  private chartSvg(a: AnomalyResult, width = 360, height = 140): string {
     return lineChart({
       title: a.title,
       labels: a.kind === "month" ? a.labels.map((y) => `'${y.slice(2)}`) : a.labels,
@@ -136,8 +140,8 @@ export class AnomalyView {
       ],
       flags: a.unusual,
       selected: a.selectedIndex,
-      width: 760,
-      height: 170,
+      width,
+      height,
     });
   }
 
@@ -153,7 +157,7 @@ export class AnomalyView {
     this.verdict.className = `verdict is-${v.tone}`;
     this.verdict.title = `Unusual means more than ${UNUSUAL_SD} standard deviations above the other years. Ringed points on the chart are unusual.`;
     this.verdict.innerHTML = `<span class="verdict-k">${escapeXml(a.selected.label)}</span> ${v.label}`;
-    this.chart.innerHTML = this.chartSvg(a);
+    this.chartW = drawAtWidth(this.chart, 360, (width) => (this.chart.innerHTML = this.chartSvg(a, width)));
     const unusualMonths = a.kind === "year" ? a.labels.filter((_, i) => a.unusual[i]) : [];
     this.notes.innerHTML = `<p class="mini-note">
       <strong>${fmtInt(a.selected.value)}</strong> detections, average ${fmtInt(a.selected.mean)}, median ${fmtInt(a.selected.median)}.
@@ -174,7 +178,7 @@ export class AnomalyView {
     const a = this.result();
     const width = 720;
     const cw = width - 48;
-    const chart = this.chartSvg(a);
+    const chart = this.chartSvg(a, 760, 170);
     const tone = CHART[VERDICT[a.verdict].tone];
     const body = `<text x="24" y="14" fill="${tone}" font-size="13">${escapeXml(`${a.selected.label}: ${VERDICT[a.verdict].label}`)}</text>
       <text x="24" y="34" fill="${CHART.ink2}" font-size="12">${escapeXml(`${fmtInt(a.selected.value)} detections. Average ${fmtInt(a.selected.mean)}, median ${fmtInt(a.selected.median)}.`)}</text>
