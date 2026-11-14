@@ -145,3 +145,13 @@ def test_cells_agreement_events_and_csv(client):
                                  "/api/detections.csv?from=2015-01-01&to=2016-06-01"])
 def test_bad_requests_are_rejected(client, url):
     assert client.get(url).status_code == 400
+
+
+def test_large_responses_are_compressed(client):
+    small = client.get("/api/series", headers={"Accept-Encoding": "gzip"})
+    assert len(small.content) < 1000 and "content-encoding" not in small.headers
+    plain = client.get("/openapi.json", headers={"Accept-Encoding": "identity"})
+    zipped = client.get("/openapi.json", headers={"Accept-Encoding": "gzip"})
+    assert "content-encoding" not in plain.headers
+    assert zipped.headers["content-encoding"] == "gzip"
+    assert zipped.json() == plain.json()
