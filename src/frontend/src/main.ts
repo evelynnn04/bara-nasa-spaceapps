@@ -3,6 +3,7 @@ import { AnalyticsView } from "./analytics-view";
 import { AnomalyView } from "./anomaly-view";
 import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
+import { DatePicker } from "./date-picker";
 import { formatRange } from "./dates";
 import { generateDummy } from "./dummy";
 import { downloadCsv, downloadPng, frame, place, slug, toCsv } from "./export";
@@ -82,12 +83,17 @@ function boot(boundaries: Boundaries): void {
   const picker = new AreaPicker($("#area-picker"), regions, (regionIds) => update({ regionIds }, { fit: true }));
   picker.set(filters.regionIds);
 
-  const fromIn = $<HTMLInputElement>("#date-from");
-  const toIn = $<HTMLInputElement>("#date-to");
-  fromIn.title = toIn.title = `The record covers ${store.data.start.slice(0, 4)}–${store.data.end.slice(0, 4)}`;
+  const onDate = (patch: Partial<Filters>) => {
+    let [a, b] = [patch.start ?? filters.start, patch.end ?? filters.end];
+    if (a > b) [a, b] = [b, a];
+    update({ start: a, end: b });
+  };
+  const range = (): [string, string] => [filters.start, filters.end];
+  const fromIn = new DatePicker($("#date-from"), "From", range, (start) => onDate({ start }));
+  const toIn = new DatePicker($("#date-to"), "To", range, (end) => onDate({ end }));
   for (const el of [fromIn, toIn]) {
-    el.min = store.data.start;
-    el.max = store.data.end;
+    el.setTitle(`The record covers ${store.data.start.slice(0, 4)}–${store.data.end.slice(0, 4)}`);
+    el.setBounds(store.data.start, store.data.end);
   }
 
   function areaLabel(): string {
@@ -104,8 +110,8 @@ function boot(boundaries: Boundaries): void {
   function syncControls(): void {
     document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === filters.mode)));
     picker.setDisabled(filters.mode !== "area", "Drawn on map");
-    fromIn.value = filters.start;
-    toIn.value = filters.end;
+    fromIn.set(filters.start);
+    toIn.set(filters.end);
   }
 
   function update(patch: Partial<Filters>, opts: { fit?: boolean } = {}): void {
@@ -145,13 +151,6 @@ function boot(boundaries: Boundaries): void {
   $("#draw-clear").addEventListener("click", () => map.clearPolygon());
   $("#draw-cancel").addEventListener("click", () => map.cancelDrawing());
 
-  const onDate = () => {
-    let [a, b] = [fromIn.value || store.data.start, toIn.value || store.data.end];
-    if (a > b) [a, b] = [b, a];
-    update({ start: a, end: b });
-  };
-  fromIn.addEventListener("change", onDate);
-  toIn.addEventListener("change", onDate);
   const strip = (name: RampName) =>
     `<span class="ramp-strip" aria-hidden="true">${RAMPS[name].steps.map((c) => `<span style="background:${c}"></span>`).join("")}</span>`;
   const paletteOptions = (Object.keys(RAMPS) as RampName[]).map((name) => ({ value: name, label: RAMPS[name].label, hint: RAMPS[name].hint, preview: strip(name) }));

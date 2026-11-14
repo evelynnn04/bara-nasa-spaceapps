@@ -211,9 +211,11 @@ body.is-scrolled .g-top {
 .hf-palette .sm-button { width: 100%; }
 .hf-mode { width: 176px; }
 
-.hf-date .hf-input {
+.hf-date .dp-value {
   flex: 1;
   min-width: 0;
+  text-align: left;
+  white-space: nowrap;
 }
 
 .hf-palette .sm-current {
@@ -272,27 +274,6 @@ body.is-scrolled .g-top {
   text-transform: uppercase;
 }
 
-.hf-input {
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-size: 13px;
-  outline: none;
-  cursor: pointer;
-}
-
-.hf-input option {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-
-.hf-input::-webkit-calendar-picker-indicator {
-  filter: invert(0.85) sepia(0.4);
-  cursor: pointer;
-}
 
 .hf-area {
   position: relative;
@@ -470,6 +451,193 @@ body.is-scrolled .g-top {
 .sm-current .ramp-strip span {
   width: 4px;
   height: 12px;
+}
+
+/* Glass date picker (From, To) */
+
+.dp {
+  position: relative;
+}
+
+.dp-button {
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dp-ico {
+  color: var(--ink-2);
+}
+
+.dp.is-open .dp-button {
+  border-color: var(--accent);
+}
+
+.dp-pop {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 292px;
+  padding: 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 18px;
+  background: var(--glass-solid);
+  box-shadow: var(--glass-shadow);
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  transform-origin: top left;
+  visibility: hidden;
+  transition:
+    opacity var(--dur-2) var(--ease-out),
+    transform var(--dur-3) var(--ease-out),
+    visibility 0s linear var(--dur-3);
+}
+
+.dp.is-open .dp-pop {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition:
+    opacity var(--dur-2) var(--ease-out),
+    transform var(--dur-3) var(--ease-out),
+    visibility 0s;
+}
+
+.dp-pop:focus {
+  outline: none;
+}
+
+.dp-head {
+  display: grid;
+  grid-template-columns: 32px 1fr 32px;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.dp-nav,
+.dp-title,
+.dp-day,
+.dp-month {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.dp-nav {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.dp-title {
+  justify-self: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dp-title.is-static {
+  cursor: default;
+}
+
+.dp-nav:hover:not(:disabled),
+button.dp-title:hover,
+.dp-month:hover:not(:disabled) {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.dp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  row-gap: 2px;
+}
+
+.dp-wd {
+  padding: 2px 0 6px;
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.dp-day {
+  display: grid;
+  place-items: center;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dp-day.is-outside {
+  color: var(--ink-3);
+  opacity: 0.35;
+}
+
+.dp-day.in-range {
+  border-radius: 0;
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.dp-day.range-start,
+.dp-day.range-end {
+  background: var(--accent-wash-2);
+  color: var(--cream);
+}
+
+.dp-day.range-start { border-radius: 10px 0 0 10px; }
+.dp-day.range-end { border-radius: 0 10px 10px 0; }
+.dp-day.range-start.range-end { border-radius: 10px; }
+
+.dp-day:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--ink);
+}
+
+.dp-months {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.dp-month {
+  height: 40px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.dp-day[aria-pressed="true"],
+.dp-month[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--page);
+  font-weight: 700;
+}
+
+.dp-day:disabled,
+.dp-month:disabled,
+.dp-nav:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.dp-pop button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 
 /* Stage: the map with glass over it */
@@ -1307,8 +1475,18 @@ body.is-scrolled .g-top {
   }
 
   .hf-area,
-  .sm {
+  .sm,
+  .dp {
     position: static;
+  }
+
+  .dp-pop {
+    top: auto;
+    right: 0;
+    left: 0;
+    max-width: calc(100% - 24px);
+    margin: 8px auto 0;
+    transform-origin: top center;
   }
 
   .sm-list {
