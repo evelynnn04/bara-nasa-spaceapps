@@ -882,6 +882,12 @@ button.dp-title:hover,
   scrollbar-color: var(--line-2) transparent;
 }
 
+/* Both columns end above Reset view and the zoom buttons: their height plus the corner gap, less the bottom inset of .g-main */
+.g-left,
+.g-right {
+  margin-bottom: calc(var(--edge) + 36px + 10px - var(--main-bottom, 44px));
+}
+
 .g-left .gc,
 .g-right .gc {
   padding: 14px 16px;
@@ -895,8 +901,6 @@ button.dp-title:hover,
 .g-right {
   grid-column: 3;
   grid-row: 1 / 3;
-  /* Ends above Reset view and the zoom buttons: their height plus the corner gap, less the bottom inset of .g-main */
-  margin-bottom: calc(var(--edge) + 36px + 10px - var(--main-bottom, 44px));
   gap: 12px;
   overflow-y: auto;
   scrollbar-width: thin;
