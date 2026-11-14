@@ -58,7 +58,6 @@ export class MapView {
   private eventBox: GeoFC = EMPTY;
   /** Lower bounds of the colour classes for the current cells. */
   breaks: number[] = [0];
-  private res = 0.05;
   private polygon: LngLat[] | null = null;
   private outlineIds: string[] = [];
   private draft: LngLat[] = [];
@@ -135,7 +134,6 @@ export class MapView {
   /** Shows the active cells of the period, coloured by harmonised value with quantile classes. */
   setCells(c: CellsResponse | null): void {
     const cells = c?.cells;
-    this.res = c?.res_deg ?? 0.05;
     this.breaks = cells ? quantileBreaks(cells.value, RAMPS[this.ramp].steps.length) : [0];
     this.hotspots = {
       type: "FeatureCollection",
@@ -160,20 +158,8 @@ export class MapView {
   }
 
   private syncCellPaint(): void {
-    if (this.map.getLayer("hotspots")) {
-      this.map.setPaintProperty("hotspots", "circle-color", this.colorExpr());
-      this.map.setPaintProperty("hotspots", "circle-radius", this.radiusExpr(1));
-    }
-    if (this.map.getLayer("hotspots-glow")) {
-      this.map.setPaintProperty("hotspots-glow", "circle-color", this.glowColor());
-      this.map.setPaintProperty("hotspots-glow", "circle-radius", this.radiusExpr(4));
-    }
-  }
-
-  /** Circle radius by zoom, scaled so a circle roughly covers its grid cell when zoomed in. */
-  private radiusExpr(k: number): ["interpolate", ["linear"], ["zoom"], ...number[]] {
-    const f = (this.res / 0.05) * k;
-    return ["interpolate", ["linear"], ["zoom"], 3, 1.4 * Math.sqrt(f) + (k > 1 ? 4 : 0), 6, 2.6 * f ** 0.75, 9, 6 * f, 12, 40 * f];
+    if (this.map.getLayer("hotspots")) this.map.setPaintProperty("hotspots", "circle-color", this.colorExpr());
+    if (this.map.getLayer("hotspots-glow")) this.map.setPaintProperty("hotspots-glow", "circle-color", this.glowColor());
   }
 
   /** Outlines the selected areas with their real borders. */
@@ -334,7 +320,7 @@ export class MapView {
       source: "hotspots",
       paint: {
         "circle-color": this.glowColor(),
-        "circle-radius": this.radiusExpr(4),
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 7, 6, 13, 9, 22],
         "circle-blur": 1,
         "circle-opacity": ["interpolate", ["linear"], ["zoom"], 3, 0.1, 8, 0.16],
       },
@@ -346,7 +332,7 @@ export class MapView {
       layout: { "circle-sort-key": ["get", "value"] },
       paint: {
         "circle-color": this.colorExpr(),
-        "circle-radius": this.radiusExpr(1),
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 1.4, 6, 2.6, 9, 6, 12, 30],
         "circle-opacity": 0.9,
         "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 6, 0, 9, 0.6],
         "circle-stroke-color": MAP.background,
@@ -361,11 +347,10 @@ export class MapView {
       const f = e.features?.[0];
       if (!f) return;
       const p = f.properties as { value: number; modis: number; viirs: number; frp: number };
-      const size = this.res === 0.05 ? "0.05° cell" : `${this.res}° block`;
       m.getCanvas().style.cursor = "pointer";
       this.popup
         .setLngLat(e.lngLat)
-        .setHTML(`<strong>${fmtVal(p.value)} ${UNIT_SHORT}</strong> in this ${size}<br>Raw pixels: VIIRS ${fmtInt(p.viirs)} &middot; MODIS ${fmtInt(p.modis)}<br>Highest fire radiative power ${p.frp} MW`)
+        .setHTML(`<strong>${fmtVal(p.value)} ${UNIT_SHORT}</strong> in this 0.05° cell<br>Raw pixels: VIIRS ${fmtInt(p.viirs)} &middot; MODIS ${fmtInt(p.modis)}<br>Highest fire radiative power ${p.frp} MW`)
         .addTo(m);
     });
     m.on("mouseleave", "hotspots", () => {

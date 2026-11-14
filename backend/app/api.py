@@ -40,9 +40,7 @@ router = APIRouter(prefix="/api")
 
 DayNight = Literal["all", "day", "night"]
 
-#: Above this many active cells the map layer is delivered on a coarser grid.
-MAX_MAP_CELLS = 20000
-#: Grid cells per side of a coarse block (0.25°), also used for the most active block.
+#: Grid cells per side of the block (0.25°) used to find the most active spot.
 COARSE = 5
 MAX_CSV_DAYS = 366
 MAX_CSV_ROWS = 200_000
@@ -195,8 +193,9 @@ def cells(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depe
           daynight: DayNight = "all") -> dict:
     """Active cells of the harmonised record in a period, for the map.
 
-    Each cell carries its harmonised value, the raw pixels of each sensor and its highest pixel
-    fire radiative power. Above `MAX_MAP_CELLS` cells the layer is summed onto 0.25° blocks. `top`
+    Each 0.05° cell carries its harmonised value, the raw pixels of each sensor and its highest
+    pixel fire radiative power. Cells are always sent at full resolution, so the map looks the same
+    for every filter; the whole record touches under 50,000 cells, which bounds the response. `top`
     is the most active 0.25° block and the city/regency holding most of it."""
     cur = cursor()
     w, n = weights.weight_sql(daynight), weights.pixels_sql(daynight)
@@ -228,12 +227,8 @@ def cells(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depe
         top = {"lon": round((bx + 0.5) * size, 4), "lat": round((by + 0.5) * size, 4), "size_deg": size,
                "value": _fmt(b[0]), "region_id": max(b[4].items(), key=lambda kv: kv[1])[0]}
 
-    if len(rows) > MAX_MAP_CELLS:
-        res = config.GRID * COARSE
-        out = [(bx, by, b[0], b[1], b[2], b[3]) for (bx, by), b in blocks.items()]
-    else:
-        res = config.GRID
-        out = [r[:6] for r in rows]
+    res = config.GRID
+    out = [r[:6] for r in rows]
     return {
         "res_deg": res, "count": len(out), "active_cells": len(rows),
         "total": _fmt(sum(r[2] for r in rows)),
