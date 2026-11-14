@@ -1707,10 +1707,45 @@ body.is-scrolled .g-top {
 }
 
 .check input {
+  appearance: none;
+  flex: none;
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: var(--accent);
+  border: 1.5px solid var(--line-2);
+  border-radius: 4px;
+  background: transparent center / 12px no-repeat;
+  cursor: inherit;
+  transition:
+    background-color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out);
+}
+
+.check:hover input:not(:disabled) {
+  border-color: var(--ink-3);
+}
+
+.check input:checked,
+.check input:indeterminate {
+  border-color: var(--accent);
+  background-color: var(--accent);
+}
+
+.check input:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2315100d' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+
+.check input:indeterminate {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2315100d' stroke-width='3.5' stroke-linecap='round'%3E%3Cpath d='M6 12h12'/%3E%3C/svg%3E");
+}
+
+.check input:disabled:checked {
+  opacity: 0.55;
+}
+
+.check input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .check:has(input:disabled) {
