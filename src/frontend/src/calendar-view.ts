@@ -72,8 +72,7 @@ export class CalendarView {
     const bounds = stepBounds(max, steps.length);
     this.legend.innerHTML = `
       <span class="legend-k">${days ? "Detections per day" : "Detections per month"}</span>
-      <span class="legend-ramp">${steps.map((c, i) => `<span class="sw" style="background:${c}" title="${fmtInt(bounds[i])}+"></span>`).join("")}</span>
-      <span class="legend-ends"><span>${fmtCompact(bounds[0])}</span><span>${fmtCompact(max)}</span></span>
+      <span class="legend-scale"><span class="legend-end">${fmtCompact(bounds[0])}</span><span class="legend-ramp">${steps.map((c, i) => `<span class="sw" style="background:${c}" title="${fmtInt(bounds[i])}+"></span>`).join("")}</span><span class="legend-end">${fmtCompact(max)}</span></span>
       <span class="legend-item"><span class="sw sw-zero"></span>Zero</span>
       <span class="legend-item"><span class="sw sw-none"></span>No data or outside dates</span>`;
   }
