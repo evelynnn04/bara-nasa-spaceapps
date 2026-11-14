@@ -155,3 +155,27 @@ def test_large_responses_are_compressed(client):
     assert "content-encoding" not in plain.headers
     assert zipped.headers["content-encoding"] == "gzip"
     assert zipped.json() == plain.json()
+
+
+@real
+def test_real_polygons_reusing_the_cache_match_the_direct_path(monkeypatch):
+    import random
+    con = store.connect(weights.load_params())
+    monkeypatch.setattr(queries, "REUSE_MIN_CELLS", 0)
+    monkeypatch.setattr(queries, "REUSE_MIN_SHARE", 0.0)
+    rng = random.Random(7)
+    checked = 0
+    for _ in range(12):
+        x, y = rng.uniform(96, 138), rng.uniform(-10, 5)
+        ring = [(x + rng.uniform(-4, 4), y + rng.uniform(-3, 3)) for _ in range(rng.choice((3, 5, 7)))]
+        n = queries.polygon_cells(con, ring, "sel")
+        if not n:
+            continue
+        for daynight in ("all", "night"):
+            reused = queries.daily_polygon(con, daynight, "sel", n)
+            direct = queries.daily_general(con, daynight, queries.area_filter(cells_table="sel"))
+            assert reused.keys() == direct.keys()
+            for d in direct:
+                assert reused[d] == pytest.approx(direct[d], abs=1e-6)
+        checked += 1
+    assert checked >= 6

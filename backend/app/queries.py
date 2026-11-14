@@ -15,9 +15,11 @@ same columns over paired days only.
 There are two ways to get the daily rows for an area:
 
 - the **fast path** sums the precomputed `region_daily` cache over named areas;
-- the **general path** aggregates the cells of any area (for example a drawn polygon) on demand.
+- the **general path** aggregates the cells of any area on demand;
+- a **drawn polygon** takes the regencies wholly inside it from the cache and aggregates only the
+  remaining cells.
 
-Tests keep the two equal.
+Tests keep all three equal.
 """
 
 from __future__ import annotations
@@ -114,6 +116,46 @@ def daily_cached(con: duckdb.DuckDBPyConnection, daynight: str, ids: list[str]) 
         WHERE daynight = {quote(daynight)} AND region_id IN ({listing}) GROUP BY local_date
     """).fetchall()
     return {r[0]: tuple(r[1:]) for r in rows}
+
+
+#: A drawn area takes regencies from the cache only when it selects at least this many cells and
+#: whole regencies hold at least this share of them. Below that, aggregating the cells directly is
+#: as fast as checking which regencies are whole (measured on the full record).
+REUSE_MIN_CELLS = 3000
+REUSE_MIN_SHARE = 0.5
+
+
+def contained_regencies(con: duckdb.DuckDBPyConnection, cells_table: str) -> tuple[list[str], int]:
+    """Regencies whose every cell is in `cells_table` (their cached rows then equal their part of
+    the selection exactly), and how many of the selected cells they hold."""
+    rows = con.execute(f"""
+        SELECT s.regency_id, s.n FROM (
+            SELECT k.regency_id, count(*) AS n FROM {cells_table} t JOIN cells k USING (cx, cy)
+            WHERE k.regency_id IS NOT NULL GROUP BY 1
+        ) s JOIN regency_size z USING (regency_id)
+        WHERE s.n = z.n ORDER BY 1
+    """).fetchall()
+    return [r[0] for r in rows], sum(r[1] for r in rows)
+
+
+def daily_polygon(con: duckdb.DuckDBPyConnection, daynight: str, cells_table: str, n_cells: int) -> dict[dt.date, tuple]:
+    """Daily sums for a drawn area given as a table of `n_cells` cells.
+
+    For a large area, regencies lying wholly inside it are summed from the region cache and only
+    the remaining cells are aggregated on demand. Both parts sum the same weights over disjoint
+    sets of cells, so the result equals `daily_general` over the whole area."""
+    inside = f"(c.cx, c.cy) IN (SELECT cx, cy FROM {cells_table})"
+    if n_cells < REUSE_MIN_CELLS:
+        return daily_general(con, daynight, inside)
+    full, covered = contained_regencies(con, cells_table)
+    if not full or covered < REUSE_MIN_SHARE * n_cells:
+        return daily_general(con, daynight, inside)
+    listing = ", ".join(quote(i) for i in full)
+    out = daily_cached(con, daynight, full)
+    rest = daily_general(con, daynight, f"{inside} AND (k.regency_id IS NULL OR k.regency_id NOT IN ({listing}))")
+    for d, v in rest.items():
+        out[d] = tuple(a + b for a, b in zip(out[d], v)) if d in out else v
+    return out
 
 
 def day_flags(con: duckdb.DuckDBPyConnection) -> list[tuple[dt.date, str | None, bool]]:

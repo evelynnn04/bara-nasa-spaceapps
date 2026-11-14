@@ -10,8 +10,9 @@ Every endpoint takes the same area selection:
 `daynight` is `all`, `day` or `night`. Values are in MODIS-equivalent active fire cell-days (see
 `docs/harmonisation.md`). A day the record's satellite did not observe is `null`, never 0.
 
-Named areas are answered from the region cache; a polygon is aggregated from its cells on demand.
-Both paths build their numbers from the same weight expression.
+Named areas are answered from the region cache. A polygon reuses the cache for regencies lying
+wholly inside it and aggregates its remaining cells on demand. All paths build their numbers from
+the same weight expression.
 """
 
 from __future__ import annotations
@@ -131,11 +132,13 @@ def _flags() -> list[tuple]:
 
 @lru_cache(maxsize=256)
 def _daily(area: Area, daynight: str) -> dict[dt.date, tuple]:
-    """Daily sums for an area: the region cache for named areas, the cell path for a polygon."""
+    """Daily sums for an area: the region cache for named areas; for a polygon, the cache for the
+    regencies wholly inside it plus the remaining cells."""
     cur = cursor()
     if area.ring is None:
         return queries.daily_cached(cur, daynight, list(area.ids))
-    return queries.daily_general(cur, daynight, area.where(cur))
+    n = queries.polygon_cells(cur, list(area.ring), "sel")
+    return queries.daily_polygon(cur, daynight, "sel", n)
 
 
 def _fmt(v: float | None, digits: int = 4) -> float | None:
