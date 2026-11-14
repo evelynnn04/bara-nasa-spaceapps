@@ -36,10 +36,13 @@ export function weekdayMon(day: number): number {
   return (new Date(day * DAY_MS).getUTCDay() + 6) % 7;
 }
 
-/** Formats a day number as "3 Aug 2015". */
+const DAY_FMT = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+/** Formats a day number as "3 Aug 2015", day first, with the locale's short month name. */
 export function formatDay(day: number): string {
-  const p = parts(day);
-  return `${p.date} ${MONTHS[p.month]} ${p.year}`;
+  const p: Record<string, string> = {};
+  for (const { type, value } of DAY_FMT.formatToParts(new Date(day * DAY_MS))) p[type] = value;
+  return `${p.day} ${p.month} ${p.year}`;
 }
 
 export function formatRange(from: number, to: number): string {

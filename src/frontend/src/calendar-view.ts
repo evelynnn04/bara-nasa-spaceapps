@@ -139,7 +139,7 @@ export class CalendarView {
               return `<span class="cell is-${c.state}" style="${style}" role="img" aria-label="${c.label}: ${text}" title="${c.label}: ${text}">
                 <span class="cell-day">${c.day}</span><span class="cell-v">${c.state === "none" ? "" : fmtCompact(c.value)}</span></span>`;
             }
-            if (c.state === "none") return `<span class="cell is-none" style="${style}" title="${c.label}: outside the selected dates"></span>`;
+            if (c.state === "none") return `<span class="cell is-none" style="${style}" role="img" aria-label="${c.label}: outside the selected dates" title="${c.label}: outside the selected dates"></span>`;
             return `<button type="button" class="cell is-${c.state}" style="${style}" data-y="${c.y}" data-m="${c.m}" aria-label="${c.label}: ${text}. Show days" title="${c.label}: ${text}">
               <span class="cell-v">${fmtCompact(c.value)}</span></button>`;
           })

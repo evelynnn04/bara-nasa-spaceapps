@@ -68,6 +68,15 @@
 
 html {
   scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a,
+input,
+select,
+label {
+  touch-action: manipulation;
 }
 
 html,
@@ -716,6 +725,7 @@ button.dp-title:hover,
 .gc-title {
   min-width: 0;
   overflow-wrap: anywhere;
+  text-wrap: balance;
   line-height: 1.25;
   font-size: var(--fs-title);
   font-weight: 600;
@@ -886,6 +896,7 @@ button.dp-title:hover,
 .g-left,
 .g-right {
   margin-bottom: calc(var(--edge) + 36px + 10px - var(--main-bottom, 44px));
+  overscroll-behavior: contain;
 }
 
 .g-left .gc,
@@ -1844,6 +1855,7 @@ button.dp-title:hover,
 .area-tree {
   max-height: 280px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: 12px;

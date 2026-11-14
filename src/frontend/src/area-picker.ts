@@ -25,7 +25,7 @@ export class AreaPicker {
       <div class="area-pop fold" id="area-pop" inert>
         <div class="fold-inner">
           <label class="visually-hidden" for="area-search">Search areas</label>
-          <input id="area-search" class="input" type="search" placeholder="Search country, province or city" autocomplete="off" />
+          <input id="area-search" class="input" type="search" placeholder="Search country, province or city…" autocomplete="off" />
           <div class="area-tree" role="group" aria-label="Areas"></div>
           <div class="area-foot">
             <button type="button" class="pill" data-act="clear">Clear</button>

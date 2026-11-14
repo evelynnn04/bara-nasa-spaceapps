@@ -16,6 +16,7 @@ import { regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
 import { initCards, measureInsets } from "./screen";
 import { HotspotStore, hottestCell, type Selection } from "./store";
 import type { Filters, SelectionMode } from "./types";
+import { readUrlState, writeUrlState, type ViewState } from "./url-state";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -24,7 +25,7 @@ const DEFAULTS: Filters = { mode: "area", regionIds: ["idn"], polygon: null, sta
 initFx();
 trackHeaderHeight();
 loadBoundaries().then(boot, (err: Error) => {
-  $("#map-count").textContent = `Could not load the area boundaries: ${err.message}`;
+  $("#map-count").textContent = `Could not load the area boundaries (${err.message}). Reload the page to try again.`;
 });
 
 /** Keeps `--top-h` equal to the header height so sticky columns sit under it. */
@@ -44,8 +45,11 @@ function boot(boundaries: Boundaries): void {
   const { regions: regionList, shapes } = regionsFromBoundaries(boundaries);
   const store = new HotspotStore(generateDummy(regionList, shapes));
   const regions = store.regions;
-  let filters: Filters = { ...DEFAULTS };
-  let ramp: RampName = "ember";
+  const defaultView: ViewState = { filters: DEFAULTS, ramp: "ember" };
+  const initial = readUrlState(defaultView, (id) => regions.byId.has(id), store.data.start, store.data.end);
+  let filters: Filters = initial.filters;
+  let ramp: RampName = initial.ramp;
+  const saveUrl = () => writeUrlState({ filters, ramp }, defaultView);
   let sel: Selection;
   let freshTimer = 0;
   let draw = { drawing: false, corners: 0 };
@@ -79,6 +83,7 @@ function boot(boundaries: Boundaries): void {
       syncDrawUi();
     },
   });
+  map.setRamp(ramp);
   if (import.meta.env.DEV) Object.assign(window, { __dash: { map, store } });
   const picker = new AreaPicker($("#area-picker"), regions, (regionIds) => update({ regionIds }, { fit: true }));
   picker.set(filters.regionIds);
@@ -117,6 +122,7 @@ function boot(boundaries: Boundaries): void {
   function update(patch: Partial<Filters>, opts: { fit?: boolean } = {}): void {
     const datesChanged = (patch.start && patch.start !== filters.start) || (patch.end && patch.end !== filters.end);
     filters = { ...filters, ...patch };
+    saveUrl();
     setFresh();
     syncControls();
     syncDrawUi();
@@ -156,6 +162,7 @@ function boot(boundaries: Boundaries): void {
   const paletteOptions = (Object.keys(RAMPS) as RampName[]).map((name) => ({ value: name, label: RAMPS[name].label, hint: RAMPS[name].hint, preview: strip(name) }));
   new SelectMenu($("#palette-menu"), "Palette", paletteOptions, ramp, (value) => {
     ramp = value as RampName;
+    saveUrl();
     map.setRamp(ramp);
     renderMapLegend();
     calendar.render(sel, ramp);
