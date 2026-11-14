@@ -102,3 +102,16 @@ def test_polygon_reuses_cache_only_for_whole_regencies(tmp_path, monkeypatch, da
     assert reused.keys() == direct.keys()
     for d in direct:
         assert reused[d] == pytest.approx(direct[d], abs=1e-9)
+
+
+def test_event_ties_resolve_to_earliest_day_and_first_area(tmp_path):
+    d1, d2 = dt.date(2019, 9, 1), dt.date(2019, 9, 2)
+    cells = [(2020, 10, "Sumatra", "idn-riau", "idn-riau-b"), (2021, 10, "Sumatra", "idn-riau", "idn-riau-a")]
+    celldays = [("viirs", "SNPP", d, cx, cy, 4, 0, 1.0, 1.0) for d in (d2, d1) for cx, cy, *_ in cells]
+    root = write_dataset(tmp_path, celldays, [day_row(d1), day_row(d2)], cells)
+    con = store.connect(reference_params(), root)
+    dest = store.table_path("events", root)
+    for _ in range(3):
+        assert events.build(con, dest) == 1
+        row = con.execute(f"SELECT peak_day, regency_id FROM read_parquet('{dest}')").fetchone()
+        assert row == (d1, "idn-riau-a")

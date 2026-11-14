@@ -31,20 +31,82 @@ Add a dependency with `uv add <package>`, which updates `pyproject.toml` and `uv
 ## Fire data
 The backend serves NASA FIRMS active fire data for Indonesia, harmonised across MODIS and VIIRS
 into one record (see [docs/harmonisation.md](docs/harmonisation.md)). The data lives in `data/`,
-which is not committed.
+which is not committed, so after cloning you either unzip a copy from a teammate (option A, a few
+minutes) or build it yourself (option B, up to three hours).
 
-1. Get a free FIRMS map key at https://firms.modaps.eosdis.nasa.gov/api/map_key/ and put it in
-   `.env` as `FIRMS_MAP_KEY=...` (see `.env.example`). The archive alone needs no key.
-2. Build the data (the first download takes a few hours, mostly the FIRMS API rate limit):
+You need [uv](https://docs.astral.sh/uv/) for the backend and Node.js 20.19+ or 22.12+ for the
+dashboard.
+
+### Option A: unzip the shared data
+Ask a teammate for the data zip, for example `spaceapps-fire-data-2026-11-14.zip` (about 340 MB
+zipped, 915 MB unzipped; the date is the last day it covers). It holds every stage of the data:
+
+- `data/raw/`: the FIRMS downloads as received (country archive per sensor and year, and the 5-day
+  API windows);
+- `data/parquet/`: the cleaned detections, which the raw detections CSV reads;
+- `data/derived/`: the tables the backend serves (cell-days, day status, cell lookup, region cache
+  and fire events).
+
+Unzip it at the repository root:
+
+```bash
+cd spaceapps
+unzip ~/Downloads/spaceapps-fire-data-2026-11-14.zip
+```
+
+On Windows, run `tar -xf spaceapps-fire-data-2026-11-14.zip` in the repository folder instead.
+Double-clicking the zip usually unpacks it into a new folder; in that case move the `data` folder
+inside it to the repository root.
+
+You should now have `spaceapps/data/raw/`, `spaceapps/data/parquet/` and `spaceapps/data/derived/`.
+The backend and dashboard work straight away, with no FIRMS key and no `fit` (the fitted factors
+are committed in `backend/app/harmonise/params.json`). To check the data, run the backend tests;
+the tests on real data run only when the data is present:
 
 ```bash
 cd backend
-uv run python -m app all
+uv sync
+uv run pytest
 ```
 
-Each stage can also run alone: `download` (add `--no-api` to skip the key), `normalise`, `build`,
-`fit` and `cache`. Re-running `download` only fetches what is missing or still provisional.
-`fit` rewrites `backend/app/harmonise/params.json`, which is committed.
+Because the raw downloads are included, you can also rerun any stage to experiment, for example
+changing the cleaning rules and running `normalise`, `build` and `cache` again (about 45 seconds
+in all), without a FIRMS key. Only fetching newer days needs a key (see "Updating and sharing the
+data").
+
+### Option B: build the data yourself
+1. Get a free FIRMS map key at https://firms.modaps.eosdis.nasa.gov/api/map_key/ and put it in
+   `.env` as `FIRMS_MAP_KEY=...` (see `.env.example`).
+2. Download and build the data:
+
+```bash
+cd backend
+uv run python -m app download
+uv run python -m app normalise
+uv run python -m app build
+uv run python -m app cache
+```
+
+| Download | Time | Disk | Covers |
+|---|---|---|---|
+| Archive only (`download --no-api`, no key needed) | about 17 minutes | about 650 MB | 2000 to December 2025, without NOAA-21 |
+| Archive and API (with the key) | about 3 hours | about 870 MB | up to yesterday, with NOAA-21 |
+
+The API part is slow because FIRMS takes over a minute to answer each 5-day request, and most
+requests are for NOAA-21, which the country archive does not include. The download can be stopped
+and run again; it only fetches what is missing or still provisional.
+
+`python -m app all` runs every stage including `fit`, which refits the factors and rewrites the
+committed `params.json`. Run it only when you mean to change the fitted method.
+
+### Updating and sharing the data
+To bring the data up to date, add a FIRMS key to `.env` and run `download`, `normalise`, `build`
+and `cache` again. The download only fetches windows that are new or were still provisional. To
+share the data, zip the whole `data` folder from the repository root:
+
+```bash
+zip -r spaceapps-fire-data-YYYY-MM-DD.zip data
+```
 
 With the data in place, `docker compose up --build` mounts `data/` into the backend. The API is
 documented at `http://localhost:8000/docs`; the main endpoints are `/api/meta`, `/api/series`,
