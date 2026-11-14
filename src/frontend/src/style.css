@@ -2142,8 +2142,11 @@ button.dp-title:hover,
   color: var(--ink-2);
 }
 
+/* Padding holds the hovered cell's scale and ring inside the scroll box; the block margin keeps vertical rhythm */
 .cal-stage {
   display: grid;
+  padding: 6px;
+  margin-block: -6px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
