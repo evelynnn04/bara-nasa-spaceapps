@@ -17,15 +17,15 @@
       <a class="g-brand" href="#overview" aria-label="Burning Activity Calendar, back to the overview">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c1 3 4.5 4.6 4.5 9a4.5 4.5 0 0 1-9 0c0-2 .9-3.3 2.2-4.3.2 1.7 1.1 2.7 2.2 2.7 0-2.7-.9-4.9.1-7.4z" /></svg>      </a>
       <div class="g-filters" role="group" aria-label="Filters">
-        <div class="seg hf-mode" role="group" aria-label="Area selection mode">
-          <button type="button" class="seg-btn" data-mode="area" aria-pressed="true">Area</button>
-          <button type="button" class="seg-btn" data-mode="polygon" aria-pressed="false">Polygon</button>
-          <span class="seg-thumb" aria-hidden="true"></span>
-        </div>
         <div class="seg hf-dn" role="group" aria-label="Detections counted" title="Count detections made by day, by night or both">
           <button type="button" class="seg-btn" data-dn="all" aria-pressed="true">All</button>
           <button type="button" class="seg-btn" data-dn="day" aria-pressed="false">Day</button>
           <button type="button" class="seg-btn" data-dn="night" aria-pressed="false">Night</button>
+          <span class="seg-thumb" aria-hidden="true"></span>
+        </div>
+        <div class="seg hf-mode" role="group" aria-label="Area selection mode">
+          <button type="button" class="seg-btn" data-mode="area" aria-pressed="true">Area</button>
+          <button type="button" class="seg-btn" data-mode="polygon" aria-pressed="false">Polygon</button>
           <span class="seg-thumb" aria-hidden="true"></span>
         </div>
         <div class="hf-area" id="area-picker"></div>
