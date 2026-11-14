@@ -46,6 +46,8 @@ export interface LineOptions {
   flags?: boolean[];
   /** Index of the selected point, drawn with a guide line. */
   selected?: number;
+  /** Shaded range drawn behind the lines, listed first in the legend. */
+  band?: { name: string; lo: number[]; hi: number[]; color: string };
   width?: number;
   height?: number;
 }
@@ -138,7 +140,8 @@ export function lineChart(o: LineOptions): string {
   // Legend entries flow left to right and wrap onto a new row when the next one would not fit.
   let lx = M.l;
   let row = 0;
-  const legend = o.series
+  const entries = [...(o.band ? [{ name: o.band.name, color: o.band.color, area: true, dash: undefined }] : []), ...o.series.map((s) => ({ ...s, area: false }))];
+  const legend = entries
     .map((s) => {
       const itemW = 21 + s.name.length * FS.label * 0.56;
       if (lx > M.l && lx + itemW > w - M.r) {
@@ -148,14 +151,16 @@ export function lineChart(o: LineOptions): string {
       const x = lx;
       const y = 9 + row * LEGEND_ROW;
       lx += itemW + 14;
-      return `<line x1="${x}" x2="${x + 16}" y1="${y}" y2="${y}" stroke="${s.color}" stroke-width="2" ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>
-        <text x="${x + 21}" y="${y + 3.5}" fill="${CHART.ink2}" font-size="${FS.label}">${escapeXml(s.name)}</text>`;
+      const key = s.area
+        ? `<rect x="${x}" y="${y - 5}" width="16" height="10" rx="2" fill="${s.color}"/>`
+        : `<line x1="${x}" x2="${x + 16}" y1="${y}" y2="${y}" stroke="${s.color}" stroke-width="2" ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>`;
+      return `${key}<text x="${x + 21}" y="${y + 3.5}" fill="${CHART.ink2}" font-size="${FS.label}">${escapeXml(s.name)}</text>`;
     })
     .join("");
 
   const top = M.t + 22 + row * LEGEND_ROW;
   const n = o.labels.length;
-  const max = niceMax(Math.max(...o.series.flatMap((s) => s.values)));
+  const max = niceMax(Math.max(...o.series.flatMap((s) => s.values), ...(o.band?.hi ?? [])));
   const step = (w - M.l - M.r - 12) / Math.max(1, n - 1);
   const xAt = (i: number) => M.l + 6 + step * i;
   const yAt = (v: number) => top + (h - top - M.b) * (1 - v / max);
@@ -165,6 +170,13 @@ export function lineChart(o: LineOptions): string {
     o.selected !== undefined && o.selected >= 0
       ? `<line x1="${xAt(o.selected)}" x2="${xAt(o.selected)}" y1="${top}" y2="${h - M.b}" stroke="${CHART.ink3}" stroke-dasharray="2 3"/>`
       : "";
+
+  const band = o.band
+    ? `<path d="${o.band.hi.map((v, i) => `${i ? "L" : "M"}${xAt(i)},${yAt(v)}`).join("")}${o.band.lo
+        .map((v, i) => `L${xAt(i)},${yAt(v)}`)
+        .reverse()
+        .join("")}Z" fill="${o.band.color}"/>`
+    : "";
 
   const lines = o.series
     .map(
@@ -185,7 +197,7 @@ export function lineChart(o: LineOptions): string {
     })
     .join("");
 
-  return `${open(w, h, o.title)}${legend}${axes(w, h, top, max, o.labels, xAt, every)}${guide}${lines}${dots}</svg>`;
+  return `${open(w, h, o.title)}${legend}${axes(w, h, top, max, o.labels, xAt, every)}${band}${guide}${lines}${dots}</svg>`;
 }
 
 export interface ProfileOptions {

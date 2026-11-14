@@ -131,7 +131,7 @@ export class AnalyticsView {
         labels: data.labels,
         values: data.values,
         highlight: data.peak >= 0 ? [data.peak] : [],
-        labelEvery: this.peakMode === "day" ? 5 : 1,
+        labelEvery: this.peakMode === "day" ? 5 : 2,
         width,
         height: 120,
       });

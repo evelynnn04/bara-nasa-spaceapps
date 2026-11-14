@@ -134,7 +134,7 @@ function boot(boundaries: Boundaries): void {
     if (opts.fit) fitSelection();
     const hot = hottestCell(sel.items);
     map.setCallout(hot, hot ? (store.regions.byId.get(hot.regionId)?.name ?? hot.regionId) : "");
-    countText = `Map: ${fmtInt(sel.items.length)} detections, ${areaLabel()}, ${formatRange(sel.from, sel.to)}. Callout marks the highest intensity hotspot and its region.`;
+    countText = `${fmtInt(sel.items.length)} detections · ${areaLabel()} · ${formatRange(sel.from, sel.to)}`;
     syncDrawUi();
 
     calendar.render(sel, ramp);
@@ -172,8 +172,7 @@ function boot(boundaries: Boundaries): void {
   function renderMapLegend(): void {
     const steps = RAMPS[ramp].steps;
     $("#map-legend").innerHTML = `<span class="legend-k">Fire radiative power (MW)</span>
-      <span class="legend-ramp">${steps.map((c) => `<span class="sw" style="background:${c}"></span>`).join("")}</span>
-      <span class="legend-ends"><span>${FRP_BREAKS[0]}</span><span>${FRP_BREAKS[FRP_BREAKS.length - 1]}+</span></span>`;
+      <span class="legend-scale"><span class="legend-end">${FRP_BREAKS[0]}</span><span class="legend-ramp">${steps.map((c) => `<span class="sw" style="background:${c}"></span>`).join("")}</span><span class="legend-end">${FRP_BREAKS[FRP_BREAKS.length - 1]}+</span></span>`;
   }
 
   document.addEventListener("click", async (e) => {
