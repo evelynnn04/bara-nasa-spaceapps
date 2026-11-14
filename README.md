@@ -27,3 +27,32 @@ uv run uvicorn app.main:app --reload
 ```
 
 Add a dependency with `uv add <package>`, which updates `pyproject.toml` and `uv.lock`.
+
+## Fire data
+The backend serves NASA FIRMS active fire data for Indonesia, harmonised across MODIS and VIIRS
+into one record (see [docs/harmonisation.md](docs/harmonisation.md)). The data lives in `data/`,
+which is not committed.
+
+1. Get a free FIRMS map key at https://firms.modaps.eosdis.nasa.gov/api/map_key/ and put it in
+   `.env` as `FIRMS_MAP_KEY=...` (see `.env.example`). The archive alone needs no key.
+2. Build the data (the first download takes a few hours, mostly the FIRMS API rate limit):
+
+```bash
+cd backend
+uv run python -m app all
+```
+
+Each stage can also run alone: `download` (add `--no-api` to skip the key), `normalise`, `build`,
+`fit` and `cache`. Re-running `download` only fetches what is missing or still provisional.
+`fit` rewrites `backend/app/harmonise/params.json`, which is committed.
+
+With the data in place, `docker compose up --build` mounts `data/` into the backend. The API is
+documented at `http://localhost:8000/docs`; the main endpoints are `/api/meta`, `/api/series`,
+`/api/cells`, `/api/agreement`, `/api/events` and `/api/detections.csv`.
+
+Run the backend tests with:
+
+```bash
+cd backend
+uv run pytest
+```
