@@ -776,7 +776,7 @@ body.is-scrolled .g-top {
 /* Bottom-right corner: Reset view, then the zoom buttons side by side */
 .g-map .maplibregl-ctrl-bottom-right {
   right: var(--edge);
-  bottom: 6px;
+  bottom: var(--edge);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1798,6 +1798,32 @@ body.is-scrolled .g-top {
 
 .maplibregl-ctrl-attrib-button {
   filter: invert(0.85);
+}
+
+/* Map credits stay folded to the info icon until hovered or focused */
+.g-map .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib.maplibregl-compact {
+  padding: 2px 24px 2px 0;
+  color: var(--ink-3);
+}
+
+.g-map .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib.maplibregl-compact a {
+  color: var(--ink-2);
+}
+
+.g-map .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner {
+  display: none;
+}
+
+.g-map .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib.maplibregl-compact:is(:hover, :focus-within) {
+  padding: 2px 8px 2px 28px;
+}
+
+.g-map .maplibregl-ctrl-bottom-left:has(> .maplibregl-ctrl-attrib:is(:hover, :focus-within)) {
+  z-index: 6;
+}
+
+.g-map .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib.maplibregl-compact:is(:hover, :focus-within) .maplibregl-ctrl-attrib-inner {
+  display: block;
 }
 
 .hs-popup .maplibregl-popup-content {
