@@ -6,9 +6,9 @@ the connected groups under that rule (union-find).
 
 Descriptors per event:
 
-- **time:** first and last day, duration, peak day;
+- **time:** first and last day, duration, peak day (the earliest of equally active days);
 - **space:** number of distinct cells, centroid weighted by harmonised value, bounding box, and
-  the city/regency and province holding most of it;
+  the city/regency and province holding most of it (ties go to the first id alphabetically);
 - **intensity:** harmonised cell-days, qualifying pixels, maximum pixel fire radiative power.
 """
 
@@ -99,16 +99,20 @@ def build(con: duckdb.DuckDBPyConnection, dest: Path) -> int:
                 FROM labelled GROUP BY event
             ),
             peak AS (
-                SELECT event, arg_max(local_date, s) AS peak_day FROM (
-                    SELECT event, local_date, sum(w) AS s FROM labelled GROUP BY ALL) GROUP BY event
+                SELECT event, first(local_date ORDER BY s DESC, local_date) AS peak_day FROM (
+                    SELECT event, local_date, round(sum(w), 9) AS s FROM labelled GROUP BY ALL) GROUP BY event
             ),
-            place AS (
-                SELECT event, arg_max(regency_id, s) AS regency_id, arg_max(province_id, s) AS province_id FROM (
-                    SELECT event, regency_id, province_id, sum(w) AS s FROM labelled GROUP BY ALL) GROUP BY event
+            regency AS (
+                SELECT event, first(regency_id ORDER BY s DESC, regency_id) AS regency_id FROM (
+                    SELECT event, regency_id, round(sum(w), 9) AS s FROM labelled GROUP BY ALL) GROUP BY event
+            ),
+            province AS (
+                SELECT event, first(province_id ORDER BY s DESC, province_id) AS province_id FROM (
+                    SELECT event, province_id, round(sum(w), 9) AS s FROM labelled GROUP BY ALL) GROUP BY event
             )
             SELECT e.*, datediff('day', e.start, e."end") + 1 AS duration_days, peak.peak_day,
-                   place.regency_id, place.province_id
-            FROM e JOIN peak USING (event) JOIN place USING (event)
+                   regency.regency_id, province.province_id
+            FROM e JOIN peak USING (event) JOIN regency USING (event) JOIN province USING (event)
             ORDER BY harmonised DESC
         ) TO {quote(str(dest))} (FORMAT parquet, COMPRESSION zstd)
     """)
