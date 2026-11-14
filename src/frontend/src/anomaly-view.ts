@@ -138,6 +138,12 @@ export class AnomalyView {
         { name: "Historical average", values: a.mean, color: CHART.ink2, dash: "5 3" },
         { name: "Historical median", values: a.median, color: CHART.median, dash: "1.5 3" },
       ],
+      band: {
+        name: "Usual range",
+        lo: a.mean.map((m, i) => Math.max(0, 2 * m - a.threshold[i])),
+        hi: a.threshold,
+        color: "rgba(205, 187, 168, 0.13)",
+      },
       flags: a.unusual,
       selected: a.selectedIndex,
       width,

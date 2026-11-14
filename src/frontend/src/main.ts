@@ -134,7 +134,7 @@ function boot(boundaries: Boundaries): void {
     if (opts.fit) fitSelection();
     const hot = hottestCell(sel.items);
     map.setCallout(hot, hot ? (store.regions.byId.get(hot.regionId)?.name ?? hot.regionId) : "");
-    countText = `Map: ${fmtInt(sel.items.length)} detections, ${areaLabel()}, ${formatRange(sel.from, sel.to)}. Callout marks the highest intensity hotspot and its region.`;
+    countText = `${fmtInt(sel.items.length)} detections · ${areaLabel()} · ${formatRange(sel.from, sel.to)}`;
     syncDrawUi();
 
     calendar.render(sel, ramp);
