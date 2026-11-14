@@ -70,7 +70,28 @@ export function colorFor(value: number, max: number, ramp: RampName): string | n
   return i < 0 ? null : steps[i];
 }
 
-/** Lower bound of each ramp step, for the legend. */
+/** Lower bound of each ramp step, for the legend: whole numbers from a maximum of 10 up, else tenths. */
 export function stepBounds(max: number, steps: number): number[] {
-  return Array.from({ length: steps }, (_, i) => Math.max(1, Math.ceil(max * (i / steps) ** 2)));
+  return Array.from({ length: steps }, (_, i) => {
+    const b = max * (i / steps) ** 2;
+    return max >= 10 ? Math.max(1, Math.ceil(b)) : Math.max(0.1, Math.ceil(b * 10) / 10);
+  });
+}
+
+/**
+ * Lower bounds of `steps` colour classes for skewed values (most map cells are small, a few are
+ * very large): quantile breaks, rounded to two significant digits and strictly increasing.
+ */
+export function quantileBreaks(values: number[], steps: number): number[] {
+  const sorted = values.filter((v) => v > 0).sort((a, b) => a - b);
+  if (!sorted.length) return [0];
+  const qs = [0, 0.35, 0.55, 0.7, 0.8, 0.88, 0.94, 0.98, 0.995].slice(0, steps);
+  const out = [0];
+  for (const q of qs.slice(1)) {
+    const v = sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+    const p = 10 ** (Math.floor(Math.log10(v)) - 1);
+    const nice = Math.round(v / p) * p;
+    if (nice > out[out.length - 1]) out.push(+nice.toPrecision(2));
+  }
+  return out;
 }

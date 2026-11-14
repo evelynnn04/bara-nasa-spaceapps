@@ -2,7 +2,7 @@ import { monthOutsideRecord, sum } from "./analytics";
 import { CHART } from "./charts";
 import { MONTHS, MONTHS_LONG, daysInMonth, fromDay, monthStart, parts, weekdayMon } from "./dates";
 import type { Cell } from "./export";
-import { escapeXml, fmtCompact, fmtInt } from "./format";
+import { UNIT_SHORT, escapeXml, fmtCompact, fmtVal } from "./format";
 import { reducedMotion } from "./fx";
 import { RAMPS, colorFor, inkOn, stepBounds, type RampName } from "./ramps";
 import type { Selection } from "./store";
@@ -12,9 +12,11 @@ type Level = { kind: "years" } | { kind: "days"; year: number; month: number };
 interface CellData {
   label: string;
   value: number;
-  /** "data" has a count, "zero" has none, "none" is outside the record or the selected dates. */
-  state: "data" | "zero" | "none";
+  /** "data" has activity, "zero" has none, "missed" was not observed, "none" is outside the record or the selected dates. */
+  state: "data" | "zero" | "missed" | "none";
 }
+
+const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const SPRING = "cubic-bezier(0.34, 1.56, 0.64, 1)";
@@ -71,10 +73,10 @@ export class CalendarView {
     const steps = RAMPS[this.ramp].steps;
     const bounds = stepBounds(max, steps.length);
     this.legend.innerHTML = `
-      <span class="legend-k">${days ? "Detections per day" : "Detections per month"}</span>
-      <span class="legend-scale"><span class="legend-end">${fmtCompact(bounds[0])}</span><span class="legend-ramp">${steps.map((c, i) => `<span class="sw" style="background:${c}" title="${fmtInt(bounds[i])}+"></span>`).join("")}</span><span class="legend-end">${fmtCompact(max)}</span></span>
+      <span class="legend-k">${days ? `${UNIT_SHORT} per day` : `${UNIT_SHORT} per month`}</span>
+      <span class="legend-scale"><span class="legend-end">${fmtCompact(bounds[0])}</span><span class="legend-ramp">${steps.map((c, i) => `<span class="sw" style="background:${c}" title="${fmtVal(bounds[i])}+"></span>`).join("")}</span><span class="legend-end">${fmtCompact(max)}</span></span>
       <span class="legend-item"><span class="sw sw-zero"></span>Zero</span>
-      <span class="legend-item"><span class="sw sw-none"></span>No data or outside dates</span>`;
+      <span class="legend-item"><span class="sw sw-none"></span>Not observed or outside dates</span>`;
   }
 
   /** Cell values for the current level. Rows are years (or weeks), columns months (or weekdays). */
@@ -106,9 +108,11 @@ export class CalendarView {
       for (let d = 0; d < n; d++) {
         const day = start + d;
         const outside = day < sel.from || day > sel.to || day < sel.firstDay || day > sel.lastDay;
+        const missed = !outside && sel.missing[day - sel.firstDay] === 1;
         const value = outside ? 0 : sel.daily[day - sel.firstDay];
         if (!outside) max = Math.max(max, value);
-        week.push({ y: year, m: month, day: d + 1, label: `${d + 1} ${MONTHS_LONG[month]} ${year}`, value, state: outside ? "none" : value ? "data" : "zero" });
+        const state = outside ? "none" : missed ? "missed" : value ? "data" : "zero";
+        week.push({ y: year, m: month, day: d + 1, label: `${d + 1} ${MONTHS_LONG[month]} ${year}`, value, state });
         if (week.length === 7) {
           rows.push({ label: "", cells: week });
           week = [];
@@ -132,11 +136,12 @@ export class CalendarView {
           .map((c, i) => {
             const fill = c.state === "data" ? colorFor(c.value, max, this.ramp)! : "";
             const style = `--d:${r + i}${fill ? `;background:${fill};color:${inkOn(fill)}` : ""}`;
-            const text = c.state === "none" ? "no data" : `${fmtInt(c.value)} detections`;
+            const text = c.state === "none" ? "outside the selected dates" : c.state === "missed" ? "not observed by the satellite" : `${fmtVal(c.value)} ${UNIT_SHORT}`;
             if (days) {
               if (!c.day) return `<span class="cell is-blank" aria-hidden="true"></span>`;
-              return `<span class="cell is-${c.state}" style="${style}" role="img" aria-label="${c.label}: ${text}" title="${c.label}: ${text}">
-                <span class="cell-day">${c.day}</span><span class="cell-v">${c.state === "none" ? "" : fmtCompact(c.value)}</span></span>`;
+              const cls = c.state === "missed" ? "none" : c.state;
+              return `<span class="cell is-${cls}" style="${style}" role="img" aria-label="${c.label}: ${text}" title="${c.label}: ${text}">
+                <span class="cell-day">${c.day}</span><span class="cell-v">${c.state === "none" || c.state === "missed" ? "" : fmtCompact(c.value)}</span></span>`;
             }
             if (c.state === "none") return `<span class="cell is-none" style="${style}" role="img" aria-label="${c.label}: outside the selected dates" title="${c.label}: outside the selected dates"></span>`;
             return `<button type="button" class="cell is-${c.state}" style="${style}" data-y="${c.y}" data-m="${c.m}" aria-label="${c.label}: ${text}. Show days" title="${c.label}: ${text}">
@@ -209,13 +214,17 @@ export class CalendarView {
     const flat = rows.flatMap((r) => r.cells).filter((c) => this.level.kind === "years" || c.day);
     if (this.level.kind === "years") {
       return {
-        header: ["year", "month", "detections", "status"],
-        rows: flat.map((c) => [c.y, MONTHS[c.m], c.state === "none" ? "" : c.value, c.state === "none" ? "outside dates" : c.state]),
+        header: ["year", "month", "fire_cell_days", "status"],
+        rows: flat.map((c) => [c.y, MONTHS[c.m], c.state === "none" ? "" : round4(c.value), c.state === "none" ? "outside dates" : c.state]),
       };
     }
     return {
-      header: ["date", "detections", "status"],
-      rows: flat.map((c) => [fromDay(monthStart(c.y, c.m) + c.day! - 1), c.state === "none" ? "" : c.value, c.state === "none" ? "outside dates" : c.state]),
+      header: ["date", "fire_cell_days", "status"],
+      rows: flat.map((c) => [
+        fromDay(monthStart(c.y, c.m) + c.day! - 1),
+        c.state === "none" || c.state === "missed" ? "" : round4(c.value),
+        c.state === "none" ? "outside dates" : c.state === "missed" ? "not observed" : c.state,
+      ]),
     };
   }
 
@@ -244,7 +253,7 @@ export class CalendarView {
             .map((c, i) => {
               const x = left + i * (cw + gap);
               if (days && !c.day) return "";
-              if (c.state === "none") return `<rect x="${x}" y="${y}" width="${cw}" height="${ch}" rx="4" fill="url(#hatch)"/>`;
+              if (c.state === "none" || c.state === "missed") return `<rect x="${x}" y="${y}" width="${cw}" height="${ch}" rx="4" fill="url(#hatch)"/>`;
               if (c.state === "zero") return `<rect x="${x + 0.5}" y="${y + 0.5}" width="${cw - 1}" height="${ch - 1}" rx="4" fill="none" stroke="${CHART.line}" stroke-width="1"/>`;
               const fill = colorFor(c.value, max, this.ramp)!;
               const ink = inkOn(fill);
@@ -261,7 +270,7 @@ export class CalendarView {
       `<text x="${left}" y="${ly + 24}" fill="${CHART.ink3}" font-size="10">${fmtCompact(stepBounds(max, steps.length)[0])}</text>` +
       `<text x="${left + steps.length * 18 - 2}" y="${ly + 24}" text-anchor="end" fill="${CHART.ink3}" font-size="10">${fmtCompact(max)}</text>` +
       `<rect x="${left + steps.length * 18 + 16}" y="${ly}" width="16" height="10" rx="2" fill="none" stroke="${CHART.line}"/><text x="${left + steps.length * 18 + 38}" y="${ly + 9}" fill="${CHART.ink3}" font-size="10">Zero</text>` +
-      `<rect x="${left + steps.length * 18 + 80}" y="${ly}" width="16" height="10" rx="2" fill="url(#hatch)"/><text x="${left + steps.length * 18 + 102}" y="${ly + 9}" fill="${CHART.ink3}" font-size="10">No data / outside dates</text>`;
+      `<rect x="${left + steps.length * 18 + 80}" y="${ly}" width="16" height="10" rx="2" fill="url(#hatch)"/><text x="${left + steps.length * 18 + 102}" y="${ly + 9}" fill="${CHART.ink3}" font-size="10">Not observed / outside dates</text>`;
     const defs = `<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#1a1310"/><line x1="0" y1="0" x2="0" y2="6" stroke="${CHART.line}" stroke-width="2"/></pattern></defs>`;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="100%">${defs}<g transform="translate(24 0)">${head}${body}${legend}</g></svg>`;
     return { svg, width, height };

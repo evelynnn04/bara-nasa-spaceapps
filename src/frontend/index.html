@@ -22,6 +22,12 @@
           <button type="button" class="seg-btn" data-mode="polygon" aria-pressed="false">Polygon</button>
           <span class="seg-thumb" aria-hidden="true"></span>
         </div>
+        <div class="seg hf-dn" role="group" aria-label="Detections counted" title="Count detections made by day, by night or both">
+          <button type="button" class="seg-btn" data-dn="all" aria-pressed="true">All</button>
+          <button type="button" class="seg-btn" data-dn="day" aria-pressed="false">Day</button>
+          <button type="button" class="seg-btn" data-dn="night" aria-pressed="false">Night</button>
+          <span class="seg-thumb" aria-hidden="true"></span>
+        </div>
         <div class="hf-area" id="area-picker"></div>
         <div id="date-from"></div>
         <div id="date-to"></div>
@@ -33,7 +39,7 @@
       <h1 class="visually-hidden">Burning Activity Calendar</h1>
       <section class="g-stage" id="overview" aria-label="Overview">
         <div class="g-map">
-          <div id="map" tabindex="0" aria-label="Map of fire detections for the selected area and dates"></div>
+          <div id="map" tabindex="0" aria-label="Map of active fire cells for the selected area and dates"></div>
           <div class="g-shade" aria-hidden="true"></div>
         </div>
 
@@ -71,6 +77,10 @@
               <div class="gc-head"><h2 class="gc-title" id="c-patterns">Historical patterns</h2><span class="hint">All years</span></div>
               <div class="gc-body" id="an-patterns" aria-busy="true"></div>
             </article>
+            <article class="gc" data-card="agreement" aria-labelledby="c-agreement">
+              <div class="gc-head"><h2 class="gc-title" id="c-agreement">Do MODIS and VIIRS agree here?</h2><span class="hint">Selected area</span></div>
+              <div class="gc-body" id="agreement" aria-busy="true"></div>
+            </article>
           </div>
 
           <div class="g-col g-right">
@@ -98,6 +108,10 @@
               </div>
               <div class="gc-body" id="anomaly" aria-busy="true"></div>
             </article>
+            <article class="gc" data-card="events" aria-labelledby="c-events">
+              <div class="gc-head"><h2 class="gc-title" id="c-events">Largest fire events</h2><span class="hint">Selected dates</span></div>
+              <div class="gc-body" id="events" aria-busy="true"></div>
+            </article>
           </div>
 
         </div>
@@ -105,6 +119,7 @@
         <div class="g-foot">
           <div class="map-legend" id="map-legend"></div>
           <p class="g-caption" id="map-count" aria-live="polite"></p>
+          <button type="button" class="pill pill-xs" id="dl-detections" title="Every satellite detection in the selected area and dates, with its source">Raw detections CSV</button>
           <p class="dl-note" id="dl-note" role="status" aria-live="polite"></p>
         </div>
       </section>

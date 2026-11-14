@@ -1,31 +1,36 @@
 import "./style.css";
+import { AgreementView } from "./agreement-view";
 import { AnalyticsView } from "./analytics-view";
 import { AnomalyView } from "./anomaly-view";
+import { Api, type FireEvent, type Meta } from "./api";
 import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
-import { formatRange } from "./dates";
-import { generateDummy } from "./dummy";
+import { formatRange, parts, toDay } from "./dates";
+import { EventsView } from "./events-view";
 import { downloadCsv, downloadPng, frame, place, slug, toCsv } from "./export";
-import { fmtInt } from "./format";
+import { UNIT, UNIT_SHORT, fmtCompact, fmtInt, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
-import { FRP_BREAKS, MapView } from "./map-view";
+import { MapView } from "./map-view";
 import { RAMPS, type RampName } from "./ramps";
 import { SelectMenu } from "./select-menu";
-import { regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
+import { RegionIndex, regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
 import { initCards, measureInsets } from "./screen";
-import { HotspotStore, hottestCell, type Selection } from "./store";
-import type { Filters, SelectionMode } from "./types";
+import { select, unobserved, type Selection } from "./store";
+import type { DayNight, Filters, SelectionMode } from "./types";
 import { readUrlState, writeUrlState, type ViewState } from "./url-state";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
-const DEFAULTS: Filters = { mode: "area", regionIds: ["idn"], polygon: null, start: "2025-01-01", end: "2025-12-31" };
+const DAYNIGHT_LABEL: Record<DayNight, string> = { all: "Day and night", day: "Daytime only", night: "Night-time only" };
+const DATASET = "NASA FIRMS MODIS (Aqua) and VIIRS (S-NPP, NOAA-20, NOAA-21), harmonised";
+
+const api = new Api();
 
 initFx();
 trackHeaderHeight();
-loadBoundaries().then(boot, (err: Error) => {
-  $("#map-count").textContent = `Could not load the area boundaries (${err.message}). Reload the page to try again.`;
+Promise.all([loadBoundaries(), api.meta()]).then(([b, meta]) => boot(b, meta), (err: Error) => {
+  $("#map-count").textContent = `Could not load the fire data (${err.message}). Check that the backend is running, then reload the page.`;
 });
 
 /** Keeps `--top-h` equal to the header height so sticky columns sit under it. */
@@ -34,26 +39,33 @@ function trackHeaderHeight(): void {
   new ResizeObserver(() => document.documentElement.style.setProperty("--top-h", `${header.offsetHeight}px`)).observe(header);
 }
 
-/** Fetches the real country, province and city/regency outlines that the area list and dummy data are built from. */
+/** Fetches the country, province and city/regency outlines that the area list is built from. */
 async function loadBoundaries(): Promise<Boundaries> {
   const res = await fetch(`${import.meta.env.BASE_URL}boundaries.geojson`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`boundaries: HTTP ${res.status}`);
   return res.json();
 }
 
-function boot(boundaries: Boundaries): void {
-  const { regions: regionList, shapes } = regionsFromBoundaries(boundaries);
-  const store = new HotspotStore(generateDummy(regionList, shapes));
-  const regions = store.regions;
-  const defaultView: ViewState = { filters: DEFAULTS, ramp: "ember" };
-  const initial = readUrlState(defaultView, (id) => regions.byId.has(id), store.data.start, store.data.end);
+function boot(boundaries: Boundaries, meta: Meta): void {
+  const regions = new RegionIndex(regionsFromBoundaries(boundaries).regions);
+  const recordStart = meta.record.start;
+  const recordEnd = meta.record.end;
+  const defaults: ViewState = {
+    filters: { mode: "area", regionIds: ["idn"], polygon: null, start: `${recordEnd.slice(0, 4)}-01-01`, end: recordEnd },
+    ramp: "ember",
+    daynight: "all",
+  };
+  const initial = readUrlState(defaults, (id) => regions.byId.has(id), recordStart, recordEnd);
   let filters: Filters = initial.filters;
   let ramp: RampName = initial.ramp;
-  const saveUrl = () => writeUrlState({ filters, ramp }, defaultView);
-  let sel: Selection;
+  let daynight: DayNight = initial.daynight;
+  const saveUrl = () => writeUrlState({ filters, ramp, daynight }, defaults);
+  let sel: Selection | null = null;
   let freshTimer = 0;
   let draw = { drawing: false, corners: 0 };
-  let countText = "";
+  let countText = "Loading fire data…";
+  let generation = 0;
+  let periodRequests: AbortController | null = null;
 
   /** Updates the polygon tools and the on-map instruction from the drawing state. */
   function syncDrawUi(): void {
@@ -76,6 +88,7 @@ function boot(boundaries: Boundaries): void {
   const calendar = new CalendarView($("#calendar"));
   const analytics = new AnalyticsView({ summary: $("#an-summary"), peak: $("#an-peak"), patterns: $("#an-patterns") });
   const anomaly = new AnomalyView($("#anomaly"), $("#an-unusual"));
+  const agreement = new AgreementView($("#agreement"));
   const map = new MapView($("#map"), {
     onPolygon: (polygon) => update({ polygon }),
     onDrawState: (drawing, corners) => {
@@ -83,8 +96,13 @@ function boot(boundaries: Boundaries): void {
       syncDrawUi();
     },
   });
+  const events = new EventsView($("#events"), regions, (e: FireEvent) => {
+    map.setInsets(measureInsets());
+    map.setEventBox(e.bbox);
+    map.fitBBox(e.bbox);
+  });
   map.setRamp(ramp);
-  if (import.meta.env.DEV) Object.assign(window, { __dash: { map, store } });
+  if (import.meta.env.DEV) Object.assign(window, { __dash: { map, api } });
   const picker = new AreaPicker($("#area-picker"), regions, (regionIds) => update({ regionIds }, { fit: true }));
   picker.set(filters.regionIds);
 
@@ -97,8 +115,8 @@ function boot(boundaries: Boundaries): void {
   const fromIn = new DatePicker($("#date-from"), "From", range, (start) => onDate({ start }));
   const toIn = new DatePicker($("#date-to"), "To", range, (end) => onDate({ end }));
   for (const el of [fromIn, toIn]) {
-    el.setTitle(`The record covers ${store.data.start.slice(0, 4)}–${store.data.end.slice(0, 4)}`);
-    el.setBounds(store.data.start, store.data.end);
+    el.setTitle(`The harmonised record covers ${recordStart.slice(0, 4)}–${recordEnd.slice(0, 4)}`);
+    el.setBounds(recordStart, recordEnd);
   }
 
   function areaLabel(): string {
@@ -112,44 +130,99 @@ function boot(boundaries: Boundaries): void {
     freshTimer = window.setTimeout(() => document.body.classList.remove("is-fresh"), 1100);
   }
 
+  function setBusy(ids: string[], busy: boolean): void {
+    for (const id of ids) document.getElementById(id)?.setAttribute("aria-busy", String(busy));
+  }
+
   function syncControls(): void {
-    document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === filters.mode)));
+    document.querySelectorAll<HTMLButtonElement>(".hf-mode [data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === filters.mode)));
+    document.querySelectorAll<HTMLButtonElement>("[data-dn]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.dn === daynight)));
     picker.setDisabled(filters.mode !== "area", "Drawn on map");
     fromIn.set(filters.start);
     toIn.set(filters.end);
   }
 
-  function update(patch: Partial<Filters>, opts: { fit?: boolean } = {}): void {
-    const datesChanged = (patch.start && patch.start !== filters.start) || (patch.end && patch.end !== filters.end);
+  function showError(what: string, err: Error): void {
+    if (err.name === "AbortError") return;
+    $("#dl-note").textContent = `Could not load ${what}: ${err.message}`;
+  }
+
+  function updateCount(total: number | null, cells: number | null): void {
+    const parts: string[] = [];
+    if (total !== null && cells !== null) parts.push(`${fmtVal(total)} ${UNIT_SHORT} in ${fmtInt(cells)} cells`);
+    parts.push(areaLabel(), formatRange(toDay(filters.start), toDay(filters.end)));
+    if (daynight !== "all") parts.push(DAYNIGHT_LABEL[daynight]);
+    if (sel) {
+      const missing = unobserved(sel, sel.from, sel.to);
+      if (missing) parts.push(`${missing} day${missing === 1 ? "" : "s"} not observed`);
+    }
+    countText = parts.join(" · ");
+    syncDrawUi();
+  }
+
+  function update(patch: Partial<Filters>, opts: { fit?: boolean; datesChanged?: boolean } = {}): void {
+    const datesChanged = opts.datesChanged || (patch.start && patch.start !== filters.start) || (patch.end && patch.end !== filters.end);
     filters = { ...filters, ...patch };
     saveUrl();
     setFresh();
     syncControls();
-    syncDrawUi();
-    sel = store.select(filters);
-
     map.setOutlines(filters.mode === "area" ? regions.normalise(filters.regionIds) : []);
     map.setPolygon(filters.mode === "polygon" ? filters.polygon : null);
-    map.setHotspots(sel.items);
+    map.setEventBox(null);
     if (opts.fit) fitSelection();
-    const hot = hottestCell(sel.items);
-    map.setCallout(hot, hot ? (store.regions.byId.get(hot.regionId)?.name ?? hot.regionId) : "");
-    countText = `${fmtInt(sel.items.length)} detections · ${areaLabel()} · ${formatRange(sel.from, sel.to)}`;
-    syncDrawUi();
+    const g = ++generation;
+    const current = () => g === generation;
+    updateCount(null, null);
 
-    calendar.render(sel, ramp);
-    analytics.render(sel, Boolean(datesChanged), ramp);
-    anomaly.render(sel, Boolean(datesChanged));
-    document.querySelectorAll("#g-main [aria-busy]").forEach((el) => el.setAttribute("aria-busy", "false"));
+    setBusy(["calendar", "an-summary", "an-peak", "an-patterns", "an-unusual", "anomaly"], true);
+    api.series(filters, daynight).then((s) => {
+      if (!current()) return;
+      sel = select(s, filters.start, filters.end);
+      calendar.render(sel, ramp);
+      analytics.render(sel, Boolean(datesChanged), ramp);
+      anomaly.render(sel, Boolean(datesChanged));
+      setBusy(["calendar", "an-summary", "an-peak", "an-patterns", "an-unusual", "anomaly"], false);
+    }, (err) => showError("the daily record", err));
+
+    setBusy(["agreement"], true);
+    api.agreement(filters, daynight).then((a) => {
+      if (!current()) return;
+      agreement.render(a, meta.verdict, parts(toDay(filters.end)).year);
+      setBusy(["agreement"], false);
+    }, (err) => showError("the sensor comparison", err));
+
+    periodRequests?.abort();
+    const ctl = (periodRequests = new AbortController());
+    setBusy(["events"], true);
+    api.cells(filters, daynight, ctl.signal).then((c) => {
+      if (!current()) return;
+      map.setCells(c);
+      map.setCallout(c.top, c.top ? (regions.byId.get(c.top.region_id)?.name ?? "") : "");
+      renderMapLegend();
+      updateCount(c.total, c.active_cells);
+    }, (err) => showError("the map cells", err));
+    api.events(filters, ctl.signal).then((r) => {
+      if (!current()) return;
+      events.render(r.events);
+      setBusy(["events"], false);
+    }, (err) => showError("the fire events", err));
   }
 
-  document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((b) =>
+  document.querySelectorAll<HTMLButtonElement>(".hf-mode [data-mode]").forEach((b) =>
     b.addEventListener("click", () => {
       const mode = b.dataset.mode as SelectionMode;
       if (mode === filters.mode) return;
       if (mode === "area") map.cancelDrawing();
       update({ mode }, { fit: mode === "area" });
       if (mode === "polygon") map.startDrawing();
+    }),
+  );
+  document.querySelectorAll<HTMLButtonElement>("[data-dn]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const dn = b.dataset.dn as DayNight;
+      if (dn === daynight) return;
+      daynight = dn;
+      update({}, { datesChanged: true });
     }),
   );
   $("#draw-start").addEventListener("click", () => map.startDrawing());
@@ -165,32 +238,43 @@ function boot(boundaries: Boundaries): void {
     saveUrl();
     map.setRamp(ramp);
     renderMapLegend();
+    if (!sel) return;
     calendar.render(sel, ramp);
     analytics.render(sel, false, ramp);
   });
 
   function renderMapLegend(): void {
     const steps = RAMPS[ramp].steps;
-    $("#map-legend").innerHTML = `<span class="legend-k">Fire radiative power (MW)</span>
-      <span class="legend-scale"><span class="legend-end">${FRP_BREAKS[0]}</span><span class="legend-ramp">${steps.map((c) => `<span class="sw" style="background:${c}"></span>`).join("")}</span><span class="legend-end">${FRP_BREAKS[FRP_BREAKS.length - 1]}+</span></span>`;
+    const b = map.breaks;
+    const used = steps.slice(steps.length - b.length);
+    const first = b.length > 1 ? b[1] : 0;
+    $("#map-legend").innerHTML = `<span class="legend-k">${UNIT_SHORT} per cell</span>
+      <span class="legend-scale"><span class="legend-end">&lt;${fmtCompact(first)}</span><span class="legend-ramp">${used.map((c, i) => `<span class="sw" style="background:${c}" title="${i ? `${fmtVal(b[i])}+` : `under ${fmtVal(first)}`}"></span>`).join("")}</span><span class="legend-end">${fmtCompact(b[b.length - 1])}+</span></span>`;
+  }
+
+  function exportMeta(): [string, string][] {
+    return [
+      ["area", areaLabel()],
+      ["from", filters.start],
+      ["to", filters.end],
+      ["detections", DAYNIGHT_LABEL[daynight]],
+      ["unit", UNIT],
+      ["dataset", DATASET],
+      ["unobserved_days_in_range", sel ? String(unobserved(sel, sel.from, sel.to)) : ""],
+    ];
   }
 
   document.addEventListener("click", async (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>("[data-export]");
-    if (!btn) return;
+    if (!btn || !sel) return;
     const kind = btn.dataset.export as "calendar" | "analytics" | "anomaly";
     const format = btn.dataset.format as "csv" | "png";
-    const name = `${kind}_${slug(areaLabel())}_${filters.start}_${filters.end}.${format}`;
-    const subtitle = `${areaLabel()} · ${formatRange(sel.from, sel.to)} · Dummy data`;
+    const name = `${kind}_${slug(areaLabel())}_${filters.start}_${filters.end}${daynight === "all" ? "" : `_${daynight}`}.${format}`;
+    const subtitle = `${areaLabel()} · ${formatRange(sel.from, sel.to)} · ${DAYNIGHT_LABEL[daynight]} · ${UNIT}`;
     pulse(btn);
     try {
       if (format === "csv") {
-        const meta: [string, string][] = [
-          ["area", areaLabel()],
-          ["from", filters.start],
-          ["to", filters.end],
-          ["dataset", "dummy data"],
-        ];
+        const meta = exportMeta();
         const view = kind === "calendar" ? calendar : kind === "analytics" ? analytics : anomaly;
         if (kind === "calendar") meta.push(["granularity", calendar.granularity]);
         const { header, rows } = view.csv();
@@ -209,6 +293,31 @@ function boot(boundaries: Boundaries): void {
     }
   });
 
+  $("#dl-detections").addEventListener("click", async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    pulse(btn);
+    btn.disabled = true;
+    $("#dl-note").textContent = "Preparing the raw detections…";
+    try {
+      const r = await api.detections(filters, daynight);
+      const url = URL.createObjectURL(r.blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = r.name;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      $("#dl-note").textContent = r.total > r.limit
+        ? `Saved ${r.name}: the first ${fmtInt(r.limit)} of ${fmtInt(r.total)} detections. Pick a shorter period for all of them.`
+        : `Saved ${r.name} (${fmtInt(r.total)} detections)`;
+    } catch (err) {
+      $("#dl-note").textContent = `Could not save the raw detections: ${(err as Error).message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   /** Frames the selected areas (or every area) between the floating cards. */
   function fitSelection(): void {
     const selected = filters.mode === "area" ? regions.normalise(filters.regionIds).map((id) => regions.byId.get(id)!) : [];
@@ -222,7 +331,10 @@ function boot(boundaries: Boundaries): void {
   }
 
   map.addCornerControl($("#reset-view"));
-  $("#reset-view").addEventListener("click", fitSelection);
+  $("#reset-view").addEventListener("click", () => {
+    map.setEventBox(null);
+    fitSelection();
+  });
   initCards(fitSelection);
   window.addEventListener("resize", () => map.setInsets(measureInsets()));
 

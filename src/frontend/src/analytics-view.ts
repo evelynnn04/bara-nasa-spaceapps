@@ -2,7 +2,7 @@ import { annualTrend, climatology, comparePeriod, peakDayOfMonth, peakMonthOfYea
 import { CHART, barChart, drawAtWidth, profileChart, redrawOnResize } from "./charts";
 import { MONTHS, MONTHS_LONG, formatRange, parts } from "./dates";
 import { frame, place, svgHeight, type Cell } from "./export";
-import { escapeXml, fmtCompact, fmtInt, fmtPct } from "./format";
+import { UNIT_SHORT, escapeXml, fmtCompact, fmtPct, fmtVal } from "./format";
 import { countUp } from "./fx";
 import { RAMPS, type RampName } from "./ramps";
 import type { Selection } from "./store";
@@ -93,28 +93,28 @@ export class AnalyticsView {
     const row = (label: string, value: string, note: string) =>
       `<li><span class="dev-k">${label}</span><span class="dev-v">${value}</span><span class="mini-note">${note}</span></li>`;
     this.roots.summary.innerHTML = `
-      <p class="tile-label">Total fires</p>
+      <p class="tile-label">Total fire cell-days</p>
       <p class="big" data-count></p>
       <p class="sub-line">${escapeXml(formatRange(sel.from, sel.to))}</p>
       <ul class="dev-list">
-        ${row("vs previous period", fmtPct(c.vsPrevious), c.previous === null ? "Before the record starts" : `${fmtInt(c.previous)} in ${escapeXml(formatRange(c.previousFrom, c.previousTo))}`)}
-        ${row("vs historical average", fmtPct(c.vsMean), c.historicalMean === null ? "No other years to compare" : `Average ${fmtInt(c.historicalMean)} over ${c.historicalWindows} other years`)}
-        ${row("vs historical median", fmtPct(c.vsMedian), c.historicalMedian === null ? "No other years to compare" : `Median ${fmtInt(c.historicalMedian)}`)}
+        ${row("vs previous period", fmtPct(c.vsPrevious), c.previous === null ? "Before the record starts" : `${fmtVal(c.previous)} in ${escapeXml(formatRange(c.previousFrom, c.previousTo))}`)}
+        ${row("vs historical average", fmtPct(c.vsMean), c.historicalMean === null ? "No other years to compare" : `Average ${fmtVal(c.historicalMean)} over ${c.historicalWindows} other years`)}
+        ${row("vs historical median", fmtPct(c.vsMedian), c.historicalMedian === null ? "No other years to compare" : `Median ${fmtVal(c.historicalMedian)}`)}
       </ul>`;
-    countUp(this.roots.summary.querySelector<HTMLElement>("[data-count]")!, c.total, fmtInt);
+    countUp(this.roots.summary.querySelector<HTMLElement>("[data-count]")!, c.total, fmtVal);
   }
 
   private peakData(): { title: string; data: Breakdown; sentence: string } {
     const sel = this.sel!;
     if (this.peakMode === "month") {
       const data = peakMonthOfYear(sel, this.peakYear);
-      const sentence = data.peak < 0 ? `No fires recorded in ${this.peakYear}.` : `Peak month of ${this.peakYear}: <strong>${MONTHS_LONG[data.peak]}</strong>, ${fmtInt(data.values[data.peak])} detections.`;
-      return { title: `Detections per month in ${this.peakYear}`, data, sentence };
+      const sentence = data.peak < 0 ? `No fires recorded in ${this.peakYear}.` : `Peak month of ${this.peakYear}: <strong>${MONTHS_LONG[data.peak]}</strong>, ${fmtVal(data.values[data.peak])} ${UNIT_SHORT}.`;
+      return { title: `Fire cell-days per month in ${this.peakYear}`, data, sentence };
     }
     const data = peakDayOfMonth(sel, this.peakYear, this.peakMonth);
     const name = `${MONTHS_LONG[this.peakMonth]} ${this.peakYear}`;
-    const sentence = data.peak < 0 ? `No fires recorded in ${name}.` : `Peak day of ${name}: <strong>${data.peak + 1} ${MONTHS[this.peakMonth]}</strong>, ${fmtInt(data.values[data.peak])} detections.`;
-    return { title: `Detections per day in ${name}`, data, sentence };
+    const sentence = data.peak < 0 ? `No fires recorded in ${name}.` : `Peak day of ${name}: <strong>${data.peak + 1} ${MONTHS[this.peakMonth]}</strong>, ${fmtVal(data.values[data.peak])} ${UNIT_SHORT}.`;
+    return { title: `Fire cell-days per day in ${name}`, data, sentence };
   }
 
   private renderPeak(): void {
@@ -144,15 +144,15 @@ export class AnalyticsView {
     const c = climatology(sel);
     const dir = Math.abs(t.percentPerYear) < 1 ? "roughly flat" : t.percentPerYear > 0 ? "rising" : "falling";
     const peakYear = t.years[t.totals.indexOf(Math.max(...t.totals))];
-    const trendText = `Annual detections are ${dir} (${fmtPct(t.percentPerYear)} per year, ${t.years[0]}–${t.years[t.years.length - 1]}). Biggest year: <strong>${peakYear}</strong>.`;
+    const trendText = `Annual fire activity is ${dir} (${fmtPct(t.percentPerYear)} per year, ${t.years[0]}–${t.years[t.years.length - 1]}). Biggest year: <strong>${peakYear}</strong>.`;
     const climText = c.season
       ? `Fire-prone months: <strong>${c.top.map((m) => MONTHS_LONG[m]).join(", ")}</strong>. Fires usually concentrate between ${MONTHS_LONG[c.season[0]]} and ${MONTHS_LONG[c.season[1]]}.`
       : "No fires recorded in this area.";
     return {
       trendText,
-      trendSvg: barChart({ title: "Detections per year with trend", labels: t.years.map((y) => `'${String(y).slice(2)}`), values: t.totals, overlay: t.fitted, highlight: [t.years.indexOf(peakYear)], height: 150 }),
+      trendSvg: barChart({ title: "Fire cell-days per year with trend", labels: t.years.map((y) => `'${String(y).slice(2)}`), values: t.totals, overlay: t.fitted, highlight: [t.years.indexOf(peakYear)], height: 150 }),
       climText,
-      climSvg: barChart({ title: "Average detections per calendar month", labels: MONTHS.map((m) => m[0]), values: c.average, highlight: c.top, height: 130 }),
+      climSvg: barChart({ title: `Average ${UNIT_SHORT} per calendar month`, labels: MONTHS.map((m) => m[0]), values: c.average, highlight: c.top, height: 130 }),
     };
   }
 
@@ -167,7 +167,7 @@ export class AnalyticsView {
     this.patternsW = drawAtWidth(this.roots.patterns, 290, (width) => {
       this.roots.patterns.innerHTML = `
       <p class="reading">${p.trendText}</p>
-      <div class="chart">${profileChart({ title: "Detections per year", labels: t.years.map(String), values: t.totals, labelEvery: 4, height: 130, width, peakCaption: (i) => String(t.years[i]) })}</div>
+      <div class="chart">${profileChart({ title: "Fire cell-days per year", labels: t.years.map(String), values: t.totals, labelEvery: 4, height: 130, width, peakCaption: (i) => String(t.years[i]) })}</div>
       <p class="d-label">Fire-prone months</p>
       <ol class="rank">${ranked
         .map(
@@ -175,7 +175,7 @@ export class AnalyticsView {
             <span class="rank-v">${fmtCompact(r.v)}</span><span class="dot" style="background:${steps[Math.max(0, Math.round((r.v / max) * (steps.length - 1)))]}"></span></li>`,
         )
         .join("")}</ol>
-      <p class="mini-note">${c.season ? `Average detections per month. Fires usually concentrate between ${MONTHS_LONG[c.season[0]]} and ${MONTHS_LONG[c.season[1]]}.` : "No fires recorded in this area."}</p>`;
+      <p class="mini-note">${c.season ? `Average ${UNIT_SHORT} per month. Fires usually concentrate between ${MONTHS_LONG[c.season[0]]} and ${MONTHS_LONG[c.season[1]]}.` : "No fires recorded in this area."}</p>`;
     });
   }
 
@@ -187,15 +187,15 @@ export class AnalyticsView {
     const cl = climatology(sel);
     const r = (n: number | null) => (n === null ? "" : Math.round(n * 10) / 10);
     const rows: Cell[][] = [
-      ["total", "detections", c.total],
+      ["total", "fire_cell_days", Math.round(c.total * 1e4) / 1e4],
       ["total", "previous_period", r(c.previous)],
       ["total", "vs_previous_pct", r(c.vsPrevious)],
       ["total", "historical_mean", r(c.historicalMean)],
       ["total", "vs_mean_pct", r(c.vsMean)],
       ["total", "historical_median", r(c.historicalMedian)],
       ["total", "vs_median_pct", r(c.vsMedian)],
-      ...data.values.map<Cell[]>((v, i) => [`peak_${this.peakMode === "month" ? `months_${this.peakYear}` : `days_${this.peakYear}-${String(this.peakMonth + 1).padStart(2, "0")}`}`, data.labels[i], v]),
-      ...t.years.map<Cell[]>((y, i) => ["annual_total", y, t.totals[i]]),
+      ...data.values.map<Cell[]>((v, i) => [`peak_${this.peakMode === "month" ? `months_${this.peakYear}` : `days_${this.peakYear}-${String(this.peakMonth + 1).padStart(2, "0")}`}`, data.labels[i], r(v)]),
+      ...t.years.map<Cell[]>((y, i) => ["annual_total", y, r(t.totals[i])]),
       ["annual_trend", "pct_per_year", r(t.percentPerYear)],
       ...cl.average.map<Cell[]>((v, m) => ["monthly_average", MONTHS[m], r(v)]),
     ];
@@ -207,7 +207,7 @@ export class AnalyticsView {
     const c = comparePeriod(sel, sel.from, sel.to);
     const width = 720;
     const tiles = [
-      ["TOTAL FIRES", fmtInt(c.total)],
+      ["TOTAL FIRE CELL-DAYS", fmtVal(c.total)],
       ["VS PREVIOUS PERIOD", fmtPct(c.vsPrevious)],
       ["VS HISTORICAL AVERAGE", fmtPct(c.vsMean)],
       ["VS HISTORICAL MEDIAN", fmtPct(c.vsMedian)],
