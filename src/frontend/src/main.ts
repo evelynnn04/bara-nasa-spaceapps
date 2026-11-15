@@ -7,7 +7,7 @@ import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
 import { formatRange, parts, toDay } from "./dates";
-import type { Cause } from "./attribution";
+import { CAUSES, causeLabel, type Cause } from "./attribution";
 import { EventsView } from "./events-view";
 import { downloadCsv, downloadPng, slug, toCsv } from "./export";
 import { UNIT, UNIT_SHORT, fmtCompact, fmtInt, fmtVal } from "./format";
@@ -246,9 +246,12 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       renderMapLegend();
       showError("the map cells", err);
     });
-    api.events(filters, hotspots, ctl.signal, 5, cause).then((r) => {
+    // The cause filter is only sent once the attribution is known to be built; the backend refuses it before.
+    const info = api.attribution();
+    info.then((i) => api.events(filters, hotspots, ctl.signal, 5, i.available ? cause : null)).then(async (r) => {
+      const i = await info;
       if (!current()) return;
-      events.render(r.events);
+      events.render(r.events, { disclaimer: r.attribution_disclaimer ?? i.disclaimer, sources: i.sources, cause: i.available ? cause : null });
       setLoad(["events"], "ready");
     }, (err) => {
       if (!current()) return;
@@ -363,6 +366,17 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     if (!record) return;
     calendar.render(record, ramp);
     anomaly.render(record, ramp, false);
+  });
+
+  api.attribution().then((info) => {
+    if (!info.available) return;
+    const label = (c: Cause) => (c === "unknown" ? "Unclear" : causeLabel(c));
+    const causeOptions = [{ value: "", label: "All causes" }, ...CAUSES.map((c) => ({ value: c, label: label(c) }))];
+    $("#cause-menu").hidden = false;
+    new SelectMenu($("#cause-menu"), "Cause", causeOptions, cause ?? "", (value) => {
+      cause = (value || null) as Cause | null;
+      update({});
+    });
   });
 
   function renderMapLegend(): void {

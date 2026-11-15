@@ -39,6 +39,10 @@
   --good: #7fd69a;
   --warning: #ffc04d;
   --critical: #ff6b5e;
+  --cause-clearing: #ffb27a;
+  --cause-agri: #e8c46a;
+  --cause-wild: #ff6b5e;
+  --cause-unclear: #a39383;
   --hatch-a: #1a1310;
   --ember-clear: rgba(255, 122, 46, 0);
   --overlay: rgba(14, 9, 7, 0.82);
@@ -3149,6 +3153,217 @@ button.cal-month:focus-visible {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+/* Likely cause of each fire event: badge, "Why" drawer and disclaimer */
+
+.ev-row {
+  display: grid;
+  gap: 4px;
+}
+
+[data-cause="land_clearing"] { --cause: var(--cause-clearing); }
+[data-cause="agricultural_burning"] { --cause: var(--cause-agri); }
+[data-cause="wildfire"] { --cause: var(--cause-wild); }
+[data-cause="unknown"] { --cause: var(--cause-unclear); }
+
+.ev-cause {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 33px;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
+
+.ev-cause.is-none {
+  color: var(--ink-3);
+}
+
+.ev-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--cause, var(--line-2));
+  border-radius: 50%;
+  background: var(--cause, transparent);
+}
+
+.ev-cause-text {
+  display: grid;
+  min-width: 0;
+}
+
+.ev-cause-label {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.ev-cause[data-cause="unknown"] .ev-cause-label {
+  color: var(--ink-2);
+}
+
+.ev-why-btn {
+  margin-left: auto;
+}
+
+.ev-why-btn .ico {
+  transition: transform var(--dur-3) var(--ease-spring);
+}
+
+.ev-why-btn[aria-expanded="true"] .ico {
+  transform: rotate(180deg);
+}
+
+.ev-why {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 6px 33px;
+  padding: 10px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: var(--fs-small);
+  line-height: 1.4;
+  animation: rise var(--dur-3) var(--ease-out) backwards;
+}
+
+.ev-why[hidden] {
+  display: none;
+}
+
+.ev-why-k {
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.ev-why-k:not(:first-child) {
+  margin-top: 6px;
+}
+
+.ev-groups,
+.ev-inds,
+.ev-sources {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ev-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.ev-score {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.ev-inds {
+  gap: 3px;
+  padding-left: 14px;
+}
+
+.ev-ind {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  gap: 6px;
+  color: var(--ink-2);
+}
+
+.ev-mark {
+  font-weight: 700;
+  text-align: center;
+}
+
+.ev-ind[data-state="met"] .ev-mark { color: var(--good); }
+.ev-ind[data-state="no"] { color: var(--ink-3); }
+.ev-ind[data-state="na"] { color: var(--ink-3); }
+.ev-ind[data-state="na"] .ev-mark { color: var(--warning); }
+
+.ev-na {
+  color: var(--warning);
+  font-style: italic;
+}
+
+.ev-ind-text .ev-na {
+  margin-left: 6px;
+}
+
+.ev-pts {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.ev-ind[data-state="met"] .ev-pts {
+  color: var(--ink);
+}
+
+.ev-ref {
+  margin-left: 2px;
+  color: var(--accent-ink);
+  font-size: 9px;
+}
+
+.ev-evidence {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 12px;
+  margin: 0;
+}
+
+.ev-evidence dt {
+  color: var(--ink-3);
+}
+
+.ev-evidence dd {
+  margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.ev-sources {
+  gap: 3px;
+  padding-left: 18px;
+  list-style: decimal;
+  color: var(--ink-3);
+}
+
+.ev-sources a {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.ev-sources a:hover {
+  color: var(--accent-ink);
+}
+
+.ev-disclaimer {
+  margin: 10px 0 6px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--warning);
+  border-radius: 0 8px 8px 0;
+  background: var(--accent-wash);
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  line-height: 1.4;
+}
+
+.gc .ev-cause-menu .sm-list {
+  right: 0;
+  left: auto;
+  width: 200px;
+  transform-origin: top right;
 }
 
 #dl-detections {
