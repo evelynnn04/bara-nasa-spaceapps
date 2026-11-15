@@ -1837,7 +1837,8 @@ select.input {
   animation: sheen 1.4s linear infinite;
 }
 
-[aria-busy="true"]:not(:empty) {
+[aria-busy="true"]:not(:empty),
+[data-stale="true"] {
   opacity: 0.6;
 }
 

@@ -60,7 +60,10 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   let ramp: RampName = initial.ramp;
   let daynight: DayNight = initial.daynight;
   const saveUrl = () => writeUrlState({ filters, ramp, daynight }, defaults);
+  /** The selected area's daily record for the current filters; null while it loads or after it failed. */
   let sel: Selection | null = null;
+  /** Map totals for the current filters; null while they load or after they failed. */
+  let mapTotals: { total: number; cells: number } | null = null;
   let freshTimer = 0;
   let draw = { drawing: false, corners: 0 };
   let countText = "Loading fire data…";
@@ -130,8 +133,23 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     freshTimer = window.setTimeout(() => document.body.classList.remove("is-fresh"), 1100);
   }
 
-  function setBusy(ids: string[], busy: boolean): void {
-    for (const id of ids) document.getElementById(id)?.setAttribute("aria-busy", String(busy));
+  /** Marks cards as loading, ready, or stale (their content is for earlier filters because loading failed). */
+  function setLoad(ids: string[], state: "busy" | "ready" | "stale"): void {
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      el.setAttribute("aria-busy", String(state === "busy"));
+      if (state === "stale") el.dataset.stale = "true";
+      else delete el.dataset.stale;
+    }
+  }
+
+  /** Writes the footer note; a load error is cleared again by the next filter change. */
+  function setNote(text: string, loadError = false): void {
+    const note = $("#dl-note");
+    note.textContent = text;
+    if (loadError) note.dataset.loadError = "true";
+    else delete note.dataset.loadError;
   }
 
   function syncControls(): void {
@@ -144,12 +162,12 @@ function boot(boundaries: Boundaries, meta: Meta): void {
 
   function showError(what: string, err: Error): void {
     if (err.name === "AbortError") return;
-    $("#dl-note").textContent = `Could not load ${what}: ${err.message}`;
+    setNote(`Could not load ${what}: ${err.message}`, true);
   }
 
-  function updateCount(total: number | null, cells: number | null): void {
+  function updateCount(): void {
     const parts: string[] = [];
-    if (total !== null && cells !== null) parts.push(`${fmtVal(total)} ${UNIT_SHORT} in ${fmtInt(cells)} cells`);
+    if (mapTotals) parts.push(`${fmtVal(mapTotals.total)} ${UNIT_SHORT} in ${fmtInt(mapTotals.cells)} cells`);
     parts.push(areaLabel(), formatRange(toDay(filters.start), toDay(filters.end)));
     if (daynight !== "all") parts.push(DAYNIGHT_LABEL[daynight]);
     if (sel) {
@@ -172,40 +190,64 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     if (opts.fit) fitSelection();
     const g = ++generation;
     const current = () => g === generation;
-    updateCount(null, null);
+    sel = null;
+    mapTotals = null;
+    if ($("#dl-note").dataset.loadError) setNote("");
+    updateCount();
 
-    setBusy(["calendar", "an-summary", "an-peak", "an-patterns", "an-unusual", "anomaly"], true);
+    const seriesCards = ["calendar", "an-summary", "an-peak", "an-patterns", "an-unusual", "anomaly"];
+    setLoad(seriesCards, "busy");
     api.series(filters, daynight).then((s) => {
       if (!current()) return;
       sel = select(s, filters.start, filters.end);
       calendar.render(sel, ramp);
       analytics.render(sel, Boolean(datesChanged), ramp);
       anomaly.render(sel, Boolean(datesChanged));
-      setBusy(["calendar", "an-summary", "an-peak", "an-patterns", "an-unusual", "anomaly"], false);
-    }, (err) => showError("the daily record", err));
+      setLoad(seriesCards, "ready");
+      updateCount();
+    }, (err) => {
+      if (!current()) return;
+      setLoad(seriesCards, "stale");
+      showError("the daily record", err);
+    });
 
-    setBusy(["agreement"], true);
+    setLoad(["agreement"], "busy");
     api.agreement(filters, daynight).then((a) => {
       if (!current()) return;
       agreement.render(a, meta.verdict, parts(toDay(filters.end)).year);
-      setBusy(["agreement"], false);
-    }, (err) => showError("the sensor comparison", err));
+      setLoad(["agreement"], "ready");
+    }, (err) => {
+      if (!current()) return;
+      setLoad(["agreement"], "stale");
+      showError("the sensor comparison", err);
+    });
 
     periodRequests?.abort();
     const ctl = (periodRequests = new AbortController());
-    setBusy(["events"], true);
+    setLoad(["events"], "busy");
     api.cells(filters, daynight, ctl.signal).then((c) => {
       if (!current()) return;
       map.setCells(c);
       map.setCallout(c.top, c.top ? (regions.byId.get(c.top.region_id)?.name ?? "") : "");
       renderMapLegend();
-      updateCount(c.total, c.active_cells);
-    }, (err) => showError("the map cells", err));
+      mapTotals = { total: c.total, cells: c.active_cells };
+      updateCount();
+    }, (err) => {
+      if (!current()) return;
+      map.setCells(null);
+      map.setCallout(null, "");
+      renderMapLegend();
+      showError("the map cells", err);
+    });
     api.events(filters, ctl.signal).then((r) => {
       if (!current()) return;
       events.render(r.events);
-      setBusy(["events"], false);
-    }, (err) => showError("the fire events", err));
+      setLoad(["events"], "ready");
+    }, (err) => {
+      if (!current()) return;
+      setLoad(["events"], "stale");
+      showError("the fire events", err);
+    });
   }
 
   document.querySelectorAll<HTMLButtonElement>(".hf-mode [data-mode]").forEach((b) =>
@@ -266,7 +308,11 @@ function boot(boundaries: Boundaries, meta: Meta): void {
 
   document.addEventListener("click", async (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>("[data-export]");
-    if (!btn || !sel) return;
+    if (!btn) return;
+    if (!sel) {
+      setNote("The daily record for these filters is not loaded yet, so there is nothing to save.");
+      return;
+    }
     const kind = btn.dataset.export as "calendar" | "analytics" | "anomaly";
     const format = btn.dataset.format as "csv" | "png";
     const name = `${kind}_${slug(areaLabel())}_${filters.start}_${filters.end}${daynight === "all" ? "" : `_${daynight}`}.${format}`;
@@ -287,9 +333,9 @@ function boot(boundaries: Boundaries, meta: Meta): void {
         const v = (kind === "analytics" ? analytics : anomaly).svg(subtitle);
         await downloadPng(name, v.svg, v.width, v.height);
       }
-      $("#dl-note").textContent = `Saved ${name}`;
+      setNote(`Saved ${name}`);
     } catch (err) {
-      $("#dl-note").textContent = `Could not save ${name}: ${(err as Error).message}`;
+      setNote(`Could not save ${name}: ${(err as Error).message}`);
     }
   });
 
@@ -297,7 +343,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     const btn = e.currentTarget as HTMLButtonElement;
     pulse(btn);
     btn.disabled = true;
-    $("#dl-note").textContent = "Preparing the raw detections…";
+    setNote("Preparing the raw detections…");
     try {
       const r = await api.detections(filters, daynight);
       const url = URL.createObjectURL(r.blob);
@@ -308,11 +354,11 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      $("#dl-note").textContent = r.total > r.limit
+      setNote(r.total > r.limit
         ? `Saved ${r.name}: the first ${fmtInt(r.limit)} of ${fmtInt(r.total)} detections. Pick a shorter period for all of them.`
-        : `Saved ${r.name} (${fmtInt(r.total)} detections)`;
+        : `Saved ${r.name} (${fmtInt(r.total)} detections)`);
     } catch (err) {
-      $("#dl-note").textContent = `Could not save the raw detections: ${(err as Error).message}`;
+      setNote(`Could not save the raw detections: ${(err as Error).message}`);
     } finally {
       btn.disabled = false;
     }
