@@ -19,6 +19,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("cache", help="region cache and fire events (needs params.json from fit)")
     every = sub.add_parser("all", help="download, normalise, build, fit, cache")
     every.add_argument("--no-api", action="store_true")
+    sub.add_parser("validate-critical", help="check the critical-period definition on the full record")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s",
@@ -41,4 +42,7 @@ def main(argv: list[str] | None = None) -> None:
         from .pipeline import aggregate, events
         aggregate.run()
         events.run()
+    if args.cmd == "validate-critical":
+        from . import critical_validation
+        critical_validation.run()
     logging.getLogger("app").info("done in %.0f s", time.time() - t0)

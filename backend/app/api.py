@@ -31,7 +31,7 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from . import config, geo, queries, store
+from . import config, critical, geo, queries, store
 from .db import quote
 from .harmonise import fit, weights
 from .pipeline.celldays import cell_expr, qualifying_sql
@@ -209,6 +209,23 @@ def series(area: Area = Depends(area_param), daynight: DayNight = "all") -> dict
     values = queries.record_series(_daily(area, daynight), flags)
     return {"start": flags[0][0], "end": flags[-1][0], "unit": fit.UNIT, "daynight": daynight,
             "values": [_fmt(v) for v in values]}
+
+
+@router.get("/critical")
+def critical_periods(area: Area = Depends(area_param), daynight: DayNight = "all") -> dict:
+    """Calendar months and ISO weeks that historically hold elevated fire activity in an area.
+
+    Each period of each complete year is compared with its own year: its intensity is its mean
+    daily value over the year's mean daily value. A period is `critical` when its mean intensity
+    over the active years is at least `method.ratio_min` and it was above its year's average in at
+    least `method.recurrence_min` of them; a week is measured over a centred window of
+    `method.week_window` weeks. `activity.confidence` rates how far the result can be trusted from
+    the area's mean annual activity (see `docs/critical-periods.md`). `values` and `expected`
+    follow `years`: the period's value in that year, and what it would hold at its year's average
+    rate; both are `null` when the period does not occur that year (ISO week 53)."""
+    flags = _flags()
+    values = queries.record_series(_daily(area, daynight), flags)
+    return {"unit": fit.UNIT, "daynight": daynight, **critical.critical_periods([f[0] for f in flags], values)}
 
 
 @router.get("/cells")
