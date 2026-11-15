@@ -42,6 +42,18 @@ def weight_sql(daynight: str = "all", k: str | None = None, c: str = "c") -> str
             f"ELSE sqrt(CAST({n} AS DOUBLE)) / {k} END")
 
 
+#: Cell-day FRP column under each day/night filter.
+FRP_COLUMN = {"all": "frp_sum", "day": "frp_day", "night": "frp_night"}
+
+
+def frp_sql(daynight: str = "all", c: str = "c") -> str:
+    """Harmonised fire radiative power of a cell-day (MODIS-equivalent MW) under the day/night
+    filter: Aqua FRP as it is, VIIRS FRP divided by the FRP factor `kf` of the relation. NULL when no
+    FRP factors were fitted. The factors are fitted on day and night together, like `k`."""
+    col = f"{c}.{FRP_COLUMN[daynight]}"
+    return f"CASE WHEN {c}.sensor = 'modis' THEN {col} ELSE {col} / {c}.kf END"
+
+
 def load_params(path: Path | None = None) -> dict:
     """The fitted parameters written by `python -m app fit`."""
     path = path or config.params_path()
@@ -51,9 +63,16 @@ def load_params(path: Path | None = None) -> dict:
 
 
 def register_factors(con: duckdb.DuckDBPyConnection, params: dict) -> None:
-    """Creates table `factor(region, month, k)` from the fitted parameters (72 rows)."""
-    rows = ", ".join(f"({quote(r['region'])}, {int(r['month'])}, {float(r['k'])!r})" for r in params["k_table"])
-    con.execute(f"CREATE OR REPLACE TABLE factor AS SELECT * FROM (VALUES {rows}) AS t(region, month, k)")
+    """Creates table `factor(region, month, k, kf)` from the fitted parameters (72 rows). `kf`, the
+    FRP factor, is NULL when the parameters have none."""
+    kf = {(r["region"], int(r["month"])): float(r["k"]) for r in params.get("frp", {}).get("k_table", [])}
+    rows = []
+    for r in params["k_table"]:
+        key = (r["region"], int(r["month"]))
+        f = repr(kf[key]) if key in kf else "NULL"
+        rows.append(f"({quote(key[0])}, {key[1]}, {float(r['k'])!r}, {f})")
+    rows = ", ".join(rows)
+    con.execute(f"CREATE OR REPLACE TABLE factor AS SELECT * FROM (VALUES {rows}) AS t(region, month, k, kf)")
 
 
 def observations_sql(where: str = "TRUE") -> str:
@@ -65,7 +84,7 @@ def observations_sql(where: str = "TRUE") -> str:
     return f"""
         SELECT c.*, CASE WHEN c.platform = 'Aqua' THEN 'a' ELSE 'b' END AS side,
                d.aqua, d.viirs_ref, d.record_platform,
-               k.island_group, k.province_id, k.regency_id, f.k
+               k.island_group, k.province_id, k.regency_id, f.k, CAST(f.kf AS DOUBLE) AS kf
         FROM celldays c
         JOIN days d ON d.local_date = c.local_date AND (c.platform = 'Aqua' OR c.platform = d.viirs_ref)
         JOIN cells k ON k.cx = c.cx AND k.cy = c.cy
