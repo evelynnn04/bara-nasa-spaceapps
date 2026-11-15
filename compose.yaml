@@ -12,3 +12,17 @@ services:
       timeout: 3s
       retries: 3
     restart: unless-stopped
+
+  # Keeps the data current: `docker compose --profile refresh up`. Every hour it downloads the
+  # recent FIRMS data, rebuilds the tables and swaps them in; `app` notices and reloads. It needs
+  # FIRMS_MAP_KEY (from `.env` or the shell) and writes to `./data`, so it runs as root.
+  updater:
+    build: .
+    profiles: ["refresh"]
+    user: root
+    command: ["python", "-m", "app", "update", "--every", "60"]
+    environment:
+      FIRMS_MAP_KEY: ${FIRMS_MAP_KEY:-}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

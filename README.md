@@ -100,9 +100,23 @@ and run again; it only fetches what is missing or still provisional.
 committed `params.json`. Run it only when you mean to change the fitted method.
 
 ### Updating and sharing the data
-To bring the data up to date, add a FIRMS key to `.env` and run `download`, `normalise`, `build`
-and `cache` again. The download only fetches windows that are new or were still provisional. To
-share the data, zip the whole `data` folder from the repository root:
+To bring the data up to date, add a FIRMS key to `.env` and run one command:
+
+```bash
+cd src/backend
+uv run python -m app update              # once
+uv run python -m app update --every 60   # again every hour, until stopped
+```
+
+It downloads the windows that are new or were still provisional, rebuilds the tables in a staging
+folder with the same stages as a first build (`normalise`, `build`, `cache`), checks them and only
+then swaps them in. A running backend notices within half a minute and serves the new data without
+a restart; an open dashboard says that newer data has arrived. If a download or a stage fails, the
+data being served stays as it was. With Docker, `docker compose --profile refresh up` runs the
+hourly update next to the app. The rules (which days count as finished, how overlapping downloads
+are resolved, what a failed update leaves behind) are in [docs/recent-data.md](docs/recent-data.md).
+
+To share the data, zip the whole `data` folder from the repository root:
 
 ```bash
 zip -r spaceapps-fire-data-YYYY-MM-DD.zip data
@@ -169,5 +183,16 @@ gcloud run deploy SERVICE --source . --region REGION --allow-unauthenticated \
 To deploy on every push instead, connect the service to the repository in the Cloud Run console
 with build type Dockerfile and source location `/Dockerfile`, and set the same volume, mount and
 `DATA_DIR` under the container settings. `https://SERVICE_URL/api/meta` returns the record dates
-once the data is found. After refreshing the data, copy `data/derived/` and `data/parquet/` to the
-bucket again; the service reads the new files on its next start.
+once the data is found.
+
+After `python -m app update`, send the new tables to the bucket, the version marker last, so the
+service reloads only once everything is in place:
+
+```bash
+gcloud storage rsync -r data/parquet gs://BUCKET/data/parquet
+gcloud storage rsync -r data/derived gs://BUCKET/data/derived --exclude "_version\.json$"
+gcloud storage cp data/derived/_version.json gs://BUCKET/data/derived/
+```
+
+The service looks at the marker every half minute and reopens the tables when it has changed, so
+no redeploy is needed (the bucket mount may take a minute or so longer to show the new marker).
