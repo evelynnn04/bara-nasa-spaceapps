@@ -24,7 +24,7 @@ describe("dataChanged", () => {
 });
 
 describe("watchData", () => {
-  it("reports a change once, skips hidden tabs and survives a failed check", async () => {
+  it("reports each change once, skips hidden tabs, survives a failed check and stops on request", async () => {
     vi.useFakeTimers();
     const tab = { visibilityState: "hidden" };
     vi.stubGlobal("document", tab);
@@ -32,19 +32,24 @@ describe("watchData", () => {
       async () => meta("2026-11-14", null),
       async () => { throw new Error("down"); },
       async () => meta("2026-11-15", "2026-11-16T13:05:00+00:00"),
-      async () => meta("2026-11-16", "x"),
+      async () => meta("2026-11-15", "2026-11-16T13:05:00+00:00"),
+      async () => meta("2026-11-16", "2026-11-17T13:05:00+00:00"),
+      async () => meta("2026-11-17", "2026-11-18T13:05:00+00:00"),
     ];
     const fetchMeta = vi.fn(() => answers.shift()!());
     const seen: string[] = [];
-    watchData(fetchMeta, meta("2026-11-14", null), (now) => seen.push(now.record.end), 1000);
+    const stop = watchData(fetchMeta, meta("2026-11-14", null), (now) => seen.push(now.record.end), 1000);
 
     await vi.advanceTimersByTimeAsync(1000);
     expect(fetchMeta).not.toHaveBeenCalled();
     tab.visibilityState = "visible";
     await vi.advanceTimersByTimeAsync(3000);
     expect(seen).toEqual(["2026-11-15"]);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(seen).toEqual(["2026-11-15", "2026-11-16"]);
+    stop();
     await vi.advanceTimersByTimeAsync(5000);
-    expect(fetchMeta).toHaveBeenCalledTimes(3);
-    expect(seen).toEqual(["2026-11-15"]);
+    expect(fetchMeta).toHaveBeenCalledTimes(5);
+    expect(seen).toEqual(["2026-11-15", "2026-11-16"]);
   });
 });

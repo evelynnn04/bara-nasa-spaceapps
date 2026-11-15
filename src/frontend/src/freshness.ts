@@ -9,19 +9,23 @@ export function dataChanged(loaded: Meta, now: Meta): boolean {
 }
 
 /**
- * Asks the backend every few minutes, while the tab is visible, whether its data changed since
- * `loaded`, and calls `onChange` once with the new description. A failed check is tried again.
+ * Asks the backend every few minutes, while the tab is visible, whether its data changed, and
+ * calls `onChange` with the new description each time it has: first against `loaded`, then
+ * against the last change reported. A failed check is tried again. Returns a function that stops
+ * watching.
  */
-export function watchData(fetchMeta: () => Promise<Meta>, loaded: Meta, onChange: (now: Meta) => void, everyMs = CHECK_EVERY_MS): void {
+export function watchData(fetchMeta: () => Promise<Meta>, loaded: Meta, onChange: (now: Meta) => void, everyMs = CHECK_EVERY_MS): () => void {
+  let last = loaded;
   const timer = setInterval(async () => {
     if (document.visibilityState !== "visible") return;
     try {
       const now = await fetchMeta();
-      if (!dataChanged(loaded, now)) return;
-      clearInterval(timer);
+      if (!dataChanged(last, now)) return;
+      last = now;
       onChange(now);
     } catch {
       /* the backend may be restarting; the next round asks again */
     }
   }, everyMs);
+  return () => clearInterval(timer);
 }

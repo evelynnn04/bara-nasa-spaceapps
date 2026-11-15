@@ -458,6 +458,9 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   renderMapLegend();
   update({}, { fit: false });
   map.map.once("load", fitSelection);
-  watchData(() => api.meta(), meta, (now) =>
-    setNote(`Newer fire data has arrived, up to ${formatDay(toDay(now.record.end))}. Reload the page to see it.`));
+  $("#data-notice-reload").addEventListener("click", () => location.reload());
+  watchData(() => api.meta(), meta, (now) => {
+    $("#data-notice-text").textContent = `Newer fire data has arrived, up to ${formatDay(toDay(now.record.end))}.`;
+    $("#data-notice").hidden = false;
+  });
 }

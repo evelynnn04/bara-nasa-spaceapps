@@ -14,18 +14,27 @@ on disk, without a key. The code is `src/backend/app/pipeline/update.py`.
 
 ## What an update does
 
-1. **Download.** The FIRMS windows that are new or not settled yet are fetched into `data/raw`.
-2. **Rebuild.** The processed tables are rebuilt in a staging folder (`data/.staging`) by the same
-   stages as a first build: `normalise` (cleaning, overlaps, static-source mask), `build`
-   (cell-days, day status, cell lookup) and `cache` (region cache, fire events, the fire outlook and
-   whatever else `cache` builds). The factors are not refitted: new data is harmonised with the committed
-   `params.json`.
-3. **Check.** The rebuilt tables must be complete, hold at least 98 % of the detections being
-   served and end no more than two days earlier.
-4. **Swap.** The tables are replaced file by file, and `data/derived/_version.json` is written
-   last.
+1. **Download.** The FIRMS windows that are new or not settled yet are fetched into `data/raw`. A
+   file whose content has not changed is left untouched.
+2. **Decide.** When no raw file, no completed day (see below) and no code has changed since the
+   release being served, the round stops here: nothing is rebuilt, nothing is published and no
+   dashboard is told about new data. Most hourly rounds end here.
+3. **Rebuild.** The processed tables are built into a new release folder,
+   `data/releases/<time>/parquet` and `.../derived`, by the same stages as a first build:
+   `normalise` (cleaning, overlaps, static-source mask), `build` (cell-days, day status, cell
+   lookup) and `cache` (region cache, fire events, the fire outlook and whatever else `cache`
+   builds). A product (MODIS, S-NPP, NOAA-20, NOAA-21) whose raw files have not changed is copied
+   from the release being served instead of being normalised again. `build` and `cache` always
+   cover the whole record, because fire events and the outlook depend on every day. The factors are
+   not refitted: new data is harmonised with the committed `params.json`.
+4. **Check.** The new release must be complete, hold at least 98 % of the detections being served
+   and end no more than two days earlier.
+5. **Publish.** `data/current.json`, which names the release being served, is replaced in one
+   step. The release before it is kept, for requests still reading it; older ones are removed.
 
-Nothing the API serves changes before step 4.
+Nothing the API serves changes before step 5. Tables built by hand (`data/derived` and
+`data/parquet`, from a zip or from the individual commands) are served until the first update
+publishes a release, which then replaces them.
 
 ## Which days are in the record
 
@@ -86,12 +95,16 @@ The download keeps the raw folder tidy as well:
   the region cache, the fire events and the fire outlook (issued from the new last data day and
   month), and so every figure computed from them: series, map cells, sensor agreement, anomaly
   scores, critical periods and the forecast timeline.
-- **The running API.** It looks at `_version.json` every 30 seconds. When an update has replaced the
-  tables it reopens them and drops its cached answers, without a restart. `GET /api/meta` reports
-  the new record end and, under `data`, when the tables were replaced (`updated`) and when each
-  stream was last fetched (`fetched`).
-- **An open dashboard** asks `/api/meta` every five minutes while its tab is visible, and says when
-  newer data has arrived. Reloading the page shows it; a page opened later starts from the new
+- **The running API.** It looks at `current.json` every 5 seconds, and when a new release has been
+  published it opens that release, without a restart. Each opening reads the files of one release
+  only and keeps its own cached answers, and every request uses one opening from start to end. So a
+  request sees either the old tables or the new ones, never a mix, and nothing computed on the old
+  release is served once the new one is open. `GET /api/meta` reports the new record end and, under
+  `data`, when the release was published (`updated`) and when each stream was last fetched
+  (`fetched`).
+- **An open dashboard** asks `/api/meta` every five minutes while its tab is visible. When newer
+  data has arrived it shows a notice with a Reload button, on a line of its own that other messages
+  do not replace, and keeps watching for the next update. A page opened later starts from the new
   record end.
 
 ## When something fails
@@ -100,9 +113,9 @@ The download keeps the raw folder tidy as well:
 |---|---|
 | FIRMS cannot be reached, or the key is missing | The update stops before touching anything |
 | One request fails or returns something that is not a detection table | The file it would have replaced is kept, the update carries on, and that stream's newest days stay out of the record until a later fetch succeeds |
-| A stage fails (for example rows that do not pass validation) | The staging folder is discarded |
-| The rebuilt tables fail the checks | The staging folder is discarded |
-| Two updates start on the same folder | The second stops at once (`data/.update.lock`; a lock older than six hours is taken to be left over) |
+| A stage fails (for example rows that do not pass validation) | The unfinished release is removed |
+| The new release fails the checks | The unfinished release is removed |
+| Two updates start on the same folder | The second stops at once. The lock on `data/.update.lock` is held by the operating system for as long as the first update's process runs, however long, and released when it ends, even if it crashes |
 
 In every case the data being served stays as it was. With `--every`, the failure is logged and the
 next round tries again.
@@ -112,11 +125,12 @@ next round tries again.
 - **A terminal or a server:** `uv run python -m app update --every 60`.
 - **Docker Compose:** `docker compose --profile refresh up` starts the app and an `updater`
   service that runs the hourly update on the shared `./data` folder. It reads `FIRMS_MAP_KEY` from
-  `.env`.
+  `.env` and runs as your own user, so the files it writes stay yours and the commands keep working
+  on the host. If `id -u` and `id -g` are not 1000, add `HOST_UID` and `HOST_GID` to `.env`.
 - **Cron:** call `python -m app update` once per run; overlapping runs are refused by the lock.
 - **Cloud Run:** the service reads the bucket read-only, so run the update where the data folder
-  lives and copy the tables to the bucket, the version marker last (see "Deploying to Cloud Run" in
-  the README).
+  lives and copy the new release to the bucket, `current.json` last (see "Deploying to Cloud Run"
+  in the README).
 
 ## What one update costs
 
@@ -130,4 +144,4 @@ plus the standard product when it has advanced. Measured on 15 November 2026, on
 
 The first update added 15 November (1,333 detections, fetched at 14:28 UTC) and left every earlier
 day of the national record unchanged. No detection was counted twice, and no satellite and day
-mixed two sources. A server running throughout showed the new record end right after each swap.
+mixed two sources. A server running throughout showed the new record end right after each update.

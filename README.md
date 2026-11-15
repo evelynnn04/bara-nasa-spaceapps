@@ -108,12 +108,13 @@ uv run python -m app update              # once
 uv run python -m app update --every 60   # again every hour, until stopped
 ```
 
-It downloads the windows that are new or were still provisional, rebuilds the tables in a staging
-folder with the same stages as a first build (`normalise`, `build`, `cache`), checks them and only
-then swaps them in. A running backend notices within half a minute and serves the new data without
-a restart; an open dashboard says that newer data has arrived. If a download or a stage fails, the
-data being served stays as it was. With Docker, `docker compose --profile refresh up` runs the
-hourly update next to the app. The rules (which days count as finished, how overlapping downloads
+It downloads the windows that are new or were still provisional and, when anything changed,
+builds the tables into a new release folder (`data/releases/`) with the same stages as a first
+build (`normalise`, `build`, `cache`), checks them and only then publishes them by updating
+`data/current.json`. A round without new data rebuilds nothing. A running backend switches to the
+new release within seconds, without a restart; an open dashboard says that newer data has arrived.
+If a download or a stage fails, the data being served stays as it was. With Docker,
+`docker compose --profile refresh up` runs the hourly update next to the app. The rules (which days count as finished, how overlapping downloads
 are resolved, what a failed update leaves behind) are in [docs/recent-data.md](docs/recent-data.md).
 
 To share the data, zip the whole `data` folder from the repository root:
@@ -189,14 +190,13 @@ with build type Dockerfile and source location `/Dockerfile`, and set the same v
 `DATA_DIR` under the container settings. `https://SERVICE_URL/api/meta` returns the record dates
 once the data is found.
 
-After `python -m app update`, send the new tables to the bucket, the version marker last, so the
-service reloads only once everything is in place:
+After `python -m app update`, send the releases to the bucket, then `current.json`, so the service
+switches only once the new release is complete:
 
 ```bash
-gcloud storage rsync -r data/parquet gs://BUCKET/data/parquet
-gcloud storage rsync -r data/derived gs://BUCKET/data/derived --exclude "_version\.json$"
-gcloud storage cp data/derived/_version.json gs://BUCKET/data/derived/
+gcloud storage rsync -r --delete-unmatched-destination-objects data/releases gs://BUCKET/data/releases
+gcloud storage cp data/current.json gs://BUCKET/data/
 ```
 
-The service looks at the marker every half minute and reopens the tables when it has changed, so
-no redeploy is needed (the bucket mount may take a minute or so longer to show the new marker).
+The service looks at `current.json` every few seconds and opens the new release when it has
+changed, so no redeploy is needed (the bucket mount may take a minute or so longer to show it).
