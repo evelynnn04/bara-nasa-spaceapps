@@ -28,6 +28,10 @@ def main(argv: list[str] | None = None) -> None:
     every.add_argument("--no-api", action="store_true")
     sub.add_parser("validate-critical", help="check the critical-period definition on the full record")
     sub.add_parser("validate-outlook", help="score the fire outlook per cell on held-out years")
+    al = sub.add_parser("alerts", help="send the email alerts due now, or replay past days into the outbox")
+    al.add_argument("--replay", metavar="FROM:TO", help="step the last data day over these dates (YYYY-MM-DD:YYYY-MM-DD)")
+    al.add_argument("--regions", default="idn", help="regions of the imaginary subscriber in a replay, comma-separated")
+    al.add_argument("--step", type=int, default=1, help="days between replayed dates")
     up = sub.add_parser("update", help="download recent data, rebuild the tables and swap them in if they pass")
     up.add_argument("--every", type=float, metavar="MINUTES", help="repeat every so many minutes")
     up.add_argument("--no-download", action="store_true", help="rebuild from the files on disk (no FIRMS key needed)")
@@ -77,6 +81,18 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "validate-outlook":
         from . import outlook_validation
         outlook_validation.run()
+    if args.cmd == "alerts":
+        from .alerts import detect
+        if args.replay:
+            import datetime as dt
+            first, _, last = args.replay.partition(":")
+            found = detect.replay(dt.date.fromisoformat(first), dt.date.fromisoformat(last),
+                                  args.regions.split(","), args.step)
+            for a in found:
+                print(f"{a['day']}  {a['region']:<28} {a['month']}  {a['label']:<10} {a['activity']:>10.1f}  {a['email']}")
+            print(f"{len(found)} alert(s) in {len({a['email'] for a in found})} email(s)")
+        else:
+            detect.run()
     if args.cmd == "update":
         from .pipeline import update
         update.run(args.every, fetch=not args.no_download)
