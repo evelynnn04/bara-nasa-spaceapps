@@ -2417,9 +2417,68 @@ select.input {
   animation: sheen 1.4s linear infinite;
 }
 
-[aria-busy="true"]:not(:empty),
+/* While a card reloads, its earlier content is hidden behind the skeleton, keeping its height so the page does not jump */
+[aria-busy="true"]:not(:empty) {
+  position: relative;
+  min-height: 180px;
+}
+
+[aria-busy="true"]:not(:empty) > * {
+  visibility: hidden;
+}
+
+[aria-busy="true"]:not(:empty)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: linear-gradient(100deg, var(--surface-2) 30%, var(--surface-3) 50%, var(--surface-2) 70%) 0 0 / 300% 100%;
+  animation: sheen 1.4s linear infinite;
+}
+
 [data-stale="true"] {
   opacity: 0.6;
+}
+
+/* Tooltips, in the same glass as the dropdown menus */
+
+.tip {
+  position: fixed;
+  z-index: 1000;
+  top: 0;
+  left: 0;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 7px 11px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--glass-solid);
+  box-shadow: var(--glass-shadow);
+  color: var(--ink);
+  font-size: var(--fs-small);
+  line-height: 1.4;
+  white-space: pre-line;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+  visibility: hidden;
+  transition:
+    opacity var(--dur-2) var(--ease-out),
+    transform var(--dur-3) var(--ease-spring),
+    visibility 0s linear var(--dur-3);
+}
+
+.tip[data-side="below"] {
+  transform: translateY(-4px) scale(0.98);
+}
+
+.tip.is-open {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition:
+    opacity var(--dur-2) var(--ease-out),
+    transform var(--dur-3) var(--ease-spring),
+    visibility 0s;
 }
 
 @keyframes sheen {
@@ -2671,13 +2730,13 @@ select.input {
 }
 
 .hs-popup .maplibregl-popup-content {
-  padding: 8px 10px;
-  border: 1px solid var(--hair);
-  border-radius: 10px;
-  background: var(--surface-2);
+  padding: 8px 11px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--glass-solid);
   color: var(--ink);
   font-size: var(--fs-small);
-  box-shadow: 0 6px 24px var(--shadow);
+  box-shadow: var(--glass-shadow);
 }
 
 .hs-popup .maplibregl-popup-tip {
@@ -3184,8 +3243,14 @@ button.cal-month:focus-visible {
     animation: none !important;
   }
 
-  .view-body[aria-busy="true"]:empty {
+  .view-body[aria-busy="true"]:empty,
+  [aria-busy="true"]:empty,
+  [aria-busy="true"]:not(:empty)::after {
     animation: none;
+  }
+
+  .tip {
+    transition: none;
   }
 
   .draw-tip::before {

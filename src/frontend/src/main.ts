@@ -11,14 +11,15 @@ import { EventsView } from "./events-view";
 import { downloadCsv, downloadPng, slug, toCsv } from "./export";
 import { UNIT, UNIT_SHORT, fmtCompact, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
+import { initTooltips } from "./tooltip";
 import { MapView } from "./map-view";
-import { RAMPS, type RampName } from "./ramps";
+import { RAMPS, breaksFrom, type RampName } from "./ramps";
 import { SelectMenu } from "./select-menu";
 import { RegionIndex, loadBoundaries, regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
 import { initCards, measureInsets } from "./screen";
 import { select, unobserved, type Selection } from "./store";
 import { Timeline } from "./time-slider";
-import { sharedScale, type Frame } from "./timeline";
+import type { Frame, Interval } from "./timeline";
 import type { DayNight, Filters, Hotspots, SelectionMode } from "./types";
 import { readUrlState, writeUrlState, type ViewState } from "./url-state";
 
@@ -31,6 +32,7 @@ const DATASET = "NASA FIRMS MODIS (Aqua) and VIIRS (S-NPP, NOAA-20, NOAA-21), ha
 const api = new Api();
 
 initFx();
+initTooltips();
 trackHeaderHeight();
 Promise.all([loadBoundaries(), api.meta()]).then(([b, meta]) => boot(b, meta), (err: Error) => {
   $("#dl-note").textContent = `Could not load the fire data (${err.message}). Check that the backend is running, then reload the page.`;
@@ -51,14 +53,16 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     ramp: "ember",
     daynight: "all",
     hotspots: meta.default_hotspots ?? "vegetation",
+    step: null,
   };
   const initial = readUrlState(defaults, (id) => regions.byId.has(id), recordStart, recordEnd);
   let filters: Filters = initial.filters;
   let ramp: RampName = initial.ramp;
   let daynight: DayNight = initial.daynight;
   let hotspots: Hotspots = initial.hotspots;
+  let step: Interval | null = initial.step;
   const counting = () => ({ daynight, hotspots });
-  const saveUrl = () => writeUrlState({ filters, ramp, daynight, hotspots }, defaults);
+  const saveUrl = () => writeUrlState({ filters, ramp, daynight, hotspots, step }, defaults);
   /** The selected area's daily record for the current filters; null while it loads or after it failed. */
   let sel: Selection | null = null;
   /** The same record over all its dates, for the cards that do not follow the date picker. */
@@ -73,6 +77,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   let wantedFrame: Frame | null = null;
   /** Cells of timeline steps already asked for, for the current filters. */
   const stepCache = new Map<string, Promise<CellsResponse>>();
+  /** Value quantiles of one step of each interval over the whole record, keyed by area, counting and interval. */
+  const scaleCache = new Map<string, Promise<number[]>>();
   let timeRequests: AbortController | null = null;
 
   /** Updates the polygon tools and the on-map instruction from the drawing state. */
@@ -293,8 +299,24 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     return hit;
   }
 
+  /**
+   * Quantiles of one step of an interval over the area's whole record, so a step gets the same colour scale and
+   * legend whatever dates are selected. Resolves to null when they could not be loaded.
+   */
+  function stepQuantiles(interval: Interval): Promise<number[] | null> {
+    const key = JSON.stringify([filters.mode, filters.regionIds, filters.polygon, daynight, hotspots, interval]);
+    let hit = scaleCache.get(key);
+    if (!hit) {
+      hit = api.cellScale(filters, interval, counting()).then((r) => r.values);
+      hit.catch(() => scaleCache.delete(key));
+      scaleCache.set(key, hit);
+      if (scaleCache.size > 60) scaleCache.delete(scaleCache.keys().next().value!);
+    }
+    return hit.catch(() => null);
+  }
+
   const timeline = new Timeline($("#time-slider"), {
-    async show(frame, scale) {
+    async show(frame) {
       wantedFrame = frame;
       if (!frame) {
         if (fullCells) showCells(fullCells);
@@ -302,30 +324,34 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       }
       const g = generation;
       try {
-        const c = await stepCells(frame);
-        if (g === generation && wantedFrame === frame) showCells(c, frame, scale);
+        const [c, q] = await Promise.all([stepCells(frame), stepQuantiles(frame.interval)]);
+        // Without the record's scale the step falls back to quantiles of its own cells
+        const breaks = q?.length ? breaksFrom(q, RAMPS[ramp].steps.length) : undefined;
+        if (g === generation && wantedFrame === frame) showCells(c, frame, breaks);
       } catch (err) {
         if (g !== generation || (err as Error).name === "AbortError") return;
         showError("the map timeline", err as Error);
       }
     },
     async prepare(list, progress) {
-      const out: CellsResponse[] = new Array(list.length);
       let next = 0;
       let done = 0;
       const worker = async () => {
         while (next < list.length) {
-          const i = next++;
-          out[i] = await stepCells(list[i]);
+          await stepCells(list[next++]);
           progress(++done);
         }
       };
       await Promise.all(Array.from({ length: 4 }, worker));
-      return sharedScale(out, RAMPS[ramp].steps.length);
     },
     preview: showDates,
     pick: (start, end) => update({ start, end }),
+    pickInterval: (interval) => {
+      step = interval;
+      saveUrl();
+    },
   }, recordStart, recordEnd);
+  timeline.usePicked(step);
 
   /** Drops the timeline steps loaded for earlier filters and lays the timeline over the new dates. */
   function resetTimeline(): void {

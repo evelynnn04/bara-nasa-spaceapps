@@ -85,10 +85,17 @@ export function stepBounds(max: number, steps: number): number[] {
 export function quantileBreaks(values: number[], steps: number): number[] {
   const sorted = values.filter((v) => v > 0).sort((a, b) => a - b);
   if (!sorted.length) return [0];
-  const qs = [0, 0.35, 0.55, 0.7, 0.8, 0.88, 0.94, 0.98, 0.995].slice(0, steps);
+  return breaksFrom(QUANTILES.slice(0, steps - 1).map((q) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]), steps);
+}
+
+/** Quantiles of the colour classes above the first; the backend's `/cells/scale` uses the same ones. */
+export const QUANTILES = [0.35, 0.55, 0.7, 0.8, 0.88, 0.94, 0.98, 0.995];
+
+/** Colour class lower bounds from value quantiles at `QUANTILES`, rounded to two significant digits and strictly increasing. */
+export function breaksFrom(quantiles: number[], steps: number): number[] {
   const out = [0];
-  for (const q of qs.slice(1)) {
-    const v = sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+  for (const v of quantiles.slice(0, steps - 1)) {
+    if (!(v > 0)) continue;
     const p = 10 ** (Math.floor(Math.log10(v)) - 1);
     const nice = +(Math.round(v / p) * p).toPrecision(2);
     if (nice > out[out.length - 1]) out.push(nice);

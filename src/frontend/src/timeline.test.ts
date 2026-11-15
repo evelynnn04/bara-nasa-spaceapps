@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CellsResponse } from "./api";
-import { defaultInterval, labelledTicks, sharedScale, timeFrames } from "./timeline";
+import { defaultInterval, labelledTicks, timeFrames } from "./timeline";
 
 describe("defaultInterval", () => {
   it("opens in days, months or years by the length of the selected dates", () => {
@@ -14,9 +13,9 @@ describe("defaultInterval", () => {
 describe("timeFrames", () => {
   it("steps by day, each tick with its month", () => {
     expect(timeFrames("2015-08-31", "2015-09-02", "day")).toEqual([
-      { from: "2015-08-31", to: "2015-08-31", label: "31 Aug 2015", tick: "31 Aug" },
-      { from: "2015-09-01", to: "2015-09-01", label: "1 Sep 2015", tick: "1 Sep" },
-      { from: "2015-09-02", to: "2015-09-02", label: "2 Sep 2015", tick: "2 Sep" },
+      { interval: "day", from: "2015-08-31", to: "2015-08-31", label: "31 Aug 2015", tick: "31 Aug" },
+      { interval: "day", from: "2015-09-01", to: "2015-09-01", label: "1 Sep 2015", tick: "1 Sep" },
+      { interval: "day", from: "2015-09-02", to: "2015-09-02", label: "2 Sep 2015", tick: "2 Sep" },
     ]);
   });
 
@@ -32,8 +31,8 @@ describe("timeFrames", () => {
   it("steps by calendar year", () => {
     const frames = timeFrames("2002-07-04", "2026-11-14", "year");
     expect(frames).toHaveLength(25);
-    expect(frames[0]).toEqual({ from: "2002-07-04", to: "2002-12-31", label: "2002", tick: "2002" });
-    expect(frames[24]).toEqual({ from: "2026-01-01", to: "2026-11-14", label: "2026", tick: "2026" });
+    expect(frames[0]).toEqual({ interval: "year", from: "2002-07-04", to: "2002-12-31", label: "2002", tick: "2002" });
+    expect(frames[24]).toEqual({ interval: "year", from: "2026-01-01", to: "2026-11-14", label: "2026", tick: "2026" });
   });
 });
 
@@ -44,18 +43,5 @@ describe("labelledTicks", () => {
     expect(labelledTicks(25, 6)).toEqual([0, 5, 10, 15, 20, 24]);
     expect(labelledTicks(23, 6)).toEqual([0, 5, 10, 15, 22]);
     expect(labelledTicks(0, 6)).toEqual([]);
-  });
-});
-
-describe("sharedScale", () => {
-  const layer = (value: number[]): CellsResponse => ({
-    res_deg: 0.05, count: value.length, active_cells: value.length, total: 0, top: null,
-    cells: { lon: value.map(() => 100), lat: value.map(() => 0), value, modis_px: [], viirs_px: [], frp_max: [] },
-  });
-  it("pools the cell values of every step", () => {
-    const one = sharedScale([layer([1, 2, 3])], 8);
-    const both = sharedScale([layer([1, 2, 3]), layer([100, 200, 300])], 8);
-    expect(one[0]).toBe(0);
-    expect(both[both.length - 1]).toBeGreaterThan(one[one.length - 1]);
   });
 });

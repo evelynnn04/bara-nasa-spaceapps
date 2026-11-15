@@ -79,6 +79,7 @@ def configure(con: duckdb.DuckDBPyConnection | None, params: dict | None) -> Non
         _daily.cache_clear()
         _flags.cache_clear()
         _parents.cache_clear()
+        _step_scale.cache_clear()
 
 
 def _ready() -> dict:
@@ -314,6 +315,36 @@ def cells(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depe
         },
         "top": top,
     }
+
+
+#: Quantiles of the map's colour classes, matching `quantileBreaks` in the frontend's ramps.ts.
+SCALE_QUANTILES = (0.35, 0.55, 0.7, 0.8, 0.88, 0.94, 0.98, 0.995)
+_STEP_SQL = {"day": "c.local_date", "month": "date_trunc('month', c.local_date)",
+             "year": "date_trunc('year', c.local_date)"}
+
+
+@lru_cache(maxsize=128)
+def _step_scale(area: Area, interval: str, daynight: str, hotspots: str) -> list[float]:
+    cur = cursor()
+    w = weights.weight_sql(daynight, hotspots)
+    row = cur.execute(f"""
+        SELECT quantile_disc(value, {list(SCALE_QUANTILES)}) FROM (
+            SELECT sum(CASE WHEN c.platform = c.record_platform THEN {w} ELSE 0 END) AS value
+            FROM ({weights.observations_sql(area.where(cur), hotspots)}) c
+            GROUP BY c.cx, c.cy, {_STEP_SQL[interval]} HAVING value > 0
+        )
+    """).fetchone()
+    return [round(v, 4) for v in row[0]] if row and row[0] else []
+
+
+@router.get("/cells/scale")
+def cells_scale(area: Area = Depends(area_param), interval: Literal["day", "month", "year"] = "month",
+                daynight: DayNight = "all", hotspots: Hotspots = "vegetation") -> dict:
+    """Value quantiles of one map cell over one timeline step, pooled over every step of the
+    record, so each step of an interval is coloured on the same scale whatever dates are
+    selected. `values` follow `quantiles`; empty when the area has no active cell."""
+    return {"interval": interval, "quantiles": list(SCALE_QUANTILES),
+            "values": _step_scale(area, interval, daynight, hotspots)}
 
 
 @router.get("/agreement")

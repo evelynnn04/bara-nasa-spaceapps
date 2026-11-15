@@ -145,6 +145,13 @@ def test_cells_agreement_events_and_csv(client):
     assert cells["top"]["region_id"] == ("idn-riau-a" if cells["cells"]["lon"][hottest] > 100 and cells["cells"]["lat"][hottest] > 0
                                          else "idn-bali-a")
     assert cells["total"] == pytest.approx(sum(cells["cells"]["value"]), abs=1e-2)
+    # One scale per interval over the whole record, whatever dates are on the map
+    month = client.get("/api/cells/scale?interval=month").json()
+    day = client.get("/api/cells/scale?interval=day").json()
+    assert len(month["values"]) == len(month["quantiles"]) == 8
+    assert month["values"] == sorted(month["values"]) and day["values"] == sorted(day["values"])
+    assert month["values"][-1] > day["values"][-1]
+    assert client.get("/api/cells/scale?interval=week").status_code == 422
     agreement = client.get("/api/agreement").json()
     assert [m["month"] for m in agreement["months"]] == [8, 9, 10]
     assert agreement["months"][1]["paired_days"] == 29

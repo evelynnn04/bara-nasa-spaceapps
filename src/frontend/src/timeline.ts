@@ -1,12 +1,11 @@
-import type { CellsResponse } from "./api";
 import { MONTHS, formatDay, fromDay, monthStart, parts, toDay } from "./dates";
-import { quantileBreaks } from "./ramps";
 
 /** Length of one step of the map timeline. */
 export type Interval = "day" | "month" | "year";
 
 /** One step of the map timeline: a period inside the selected dates, its label and its short tick label. */
 export interface Frame {
+  interval: Interval;
   from: string;
   to: string;
   label: string;
@@ -36,14 +35,14 @@ export function timeFrames(start: string, end: string, interval: Interval): Fram
   if (interval === "day") {
     for (let d = a; d <= b; d++) {
       const p = parts(d);
-      frames.push({ from: fromDay(d), to: fromDay(d), label: formatDay(d), tick: `${p.date} ${MONTHS[p.month]}` });
+      frames.push({ interval, from: fromDay(d), to: fromDay(d), label: formatDay(d), tick: `${p.date} ${MONTHS[p.month]}` });
     }
     return frames;
   }
   const pa = parts(a);
   const pb = parts(b);
   const clip = (from: number, to: number, label: string, tick: string) =>
-    frames.push({ from: fromDay(Math.max(from, a)), to: fromDay(Math.min(to, b)), label, tick });
+    frames.push({ interval, from: fromDay(Math.max(from, a)), to: fromDay(Math.min(to, b)), label, tick });
   if (interval === "month") {
     const months = (pb.year - pa.year) * 12 + pb.month - pa.month + 1;
     for (let i = 0; i < months; i++) {
@@ -69,11 +68,4 @@ export function labelledTicks(count: number, max: number): number[] {
   if (count - 1 - out[out.length - 1] < every / 2) out.pop();
   out.push(count - 1);
   return out;
-}
-
-/** Colour classes shared by several steps, from all their cell values pooled, so an animation compares like with like. */
-export function sharedScale(steps: CellsResponse[], classes: number): number[] {
-  const values: number[] = [];
-  for (const s of steps) for (const v of s.cells.value) values.push(v);
-  return quantileBreaks(values, classes);
 }

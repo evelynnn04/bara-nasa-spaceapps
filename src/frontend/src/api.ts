@@ -194,6 +194,11 @@ export class Api {
     return getJson("cells", { ...areaParams(f), from: f.start, to: f.end, ...c }, signal);
   }
 
+  /** Value quantiles of one cell over one timeline step, pooled over the whole record of the area. */
+  cellScale(f: Filters, interval: string, c: Counting): Promise<{ quantiles: number[]; values: number[] }> {
+    return getJson("cells/scale", { ...areaParams(f), interval, ...c });
+  }
+
   events(f: Filters, hotspots: Hotspots, signal?: AbortSignal, limit = 5): Promise<{ events: FireEvent[] }> {
     return getJson("events", { ...areaParams(f), from: f.start, to: f.end, hotspots, limit: String(limit) }, signal);
   }
