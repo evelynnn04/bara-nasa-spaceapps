@@ -80,12 +80,12 @@ def build(con: duckdb.DuckDBPyConnection, dest: Path) -> int:
     labels = label(rows)
     tmp = dest.with_suffix(".labels.csv")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp.write_text("event\n" + "\n".join(map(str, labels)) + "\n")
+    tmp.write_text("i,event\n" + "".join(f"{i},{e}\n" for i, e in enumerate(labels)))
     g = config.GRID
     con.execute(f"""
         CREATE OR REPLACE TEMP TABLE labelled AS
         SELECT a.*, l.event FROM active a
-        JOIN (SELECT row_number() OVER () - 1 AS i, event FROM read_csv({quote(str(tmp))}, header=true)) l USING (i)
+        JOIN read_csv({quote(str(tmp))}, header=true, columns={{'i': 'BIGINT', 'event': 'BIGINT'}}) l USING (i)
     """)
     con.execute(f"""
         COPY (
