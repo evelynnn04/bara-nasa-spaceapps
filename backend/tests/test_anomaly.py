@@ -100,7 +100,12 @@ def test_endpoint_flags_the_unusual_grid_and_keeps_the_usual_one_normal(client):
     assert riau["hotspot_count"] == 250 and riau["summed_frp_mw"] == 2000.0
     assert riau["label"] == "elevated" and riau["hotspot_at_ceiling"] and riau["sparse_history"]
     assert riau["environmental_context"]["province_id"] == "idn-riau"
-    assert bali["label"] == "normal" and not bali["sparse_history"]
+    assert "usually has no fire" in riau["disclaimer"] and "250 hotspots" in riau["disclaimer"]
+    assert bali["label"] == "normal" and not bali["sparse_history"] and bali["disclaimer"] is None
+    years = body["area"]["years"]
+    assert [y["year"] for y in years] == list(range(2012, 2019)) and [y["target"] for y in years].count(True) == 1
+    assert sum(y["hotspot_count"] for y in years if y["target"]) == body["area"]["hotspot_count"]
+    assert "years" not in riau
     assert body["counts"]["elevated"] == 1 and body["counts"]["normal"] == 1
     assert body["area"]["hotspot_count"] == riau["hotspot_count"] + bali["hotspot_count"]
 

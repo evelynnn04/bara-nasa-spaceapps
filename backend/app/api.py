@@ -353,7 +353,7 @@ def anomalies(area: Area = Depends(area_param),
     labels = {k: 0 for k in (*anomaly.LABELS, anomaly.INSUFFICIENT)}
     for r in out:
         labels[r["label"]] += 1
-    whole = anomaly.record(anomaly.area_totals(cur, b, "agrid_cells"), b)
+    whole = anomaly.record(anomaly.area_totals(cur, b, "agrid_cells"), b, years=True)
     return {
         "period": {"year": year, "month": month, "start": b.target.start, "end": b.target.end,
                    "provisional": b.provisional},

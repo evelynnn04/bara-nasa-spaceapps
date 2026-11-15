@@ -21,7 +21,8 @@ The method (see `docs/anomaly.md`):
    The highest attainable score is n / (n + 1), so with too few reference years some labels cannot
    be reached; the response says which, and a score at that ceiling is a lower bound. Below
    `MIN_REFERENCE` years no label is given at all. A unit whose reference median is zero is flagged
-   `sparse_history`: a few hotspots already rank above every reference year there.
+   `sparse_history`, and an alert there carries a `disclaimer`: a few hotspots already rank above
+   every reference year.
 
 The thresholds are provisional and uncalibrated; `evaluate` measures how often each label fires
 when every year is held out in turn.
@@ -344,22 +345,40 @@ def area_totals(con: duckdb.DuckDBPyConnection, b: Baseline, cells_table: str) -
 # --- records ---------------------------------------------------------------------------------------
 
 
-def record(values: dict[int, tuple[float, float]], b: Baseline) -> dict:
-    """The anomaly record of one unit (grid cell or area) from its yearly window totals."""
+def sparse_disclaimer(n: int, hotspots: int) -> str:
+    """Caution shown with an alert in a unit that usually has no fire in the month."""
+    return (f"This place usually has no fire in this month (no hotspots in at least half of the {n} reference "
+            f"years). Only {hotspots} hotspot{'s' if hotspots != 1 else ''} already rank above most of those years, "
+            "so the label reflects a few detections in a normally empty place, not a large fire.")
+
+
+def record(values: dict[int, tuple[float, float]], b: Baseline, years: bool = False) -> dict:
+    """The anomaly record of one unit (grid cell or area) from its yearly window totals.
+
+    `disclaimer` is set when an alert comes from a unit whose reference median is zero. With
+    `years`, `years` lists the window totals of the target and every reference year, oldest first,
+    for charts."""
     fc, frp = values.get(b.target.year, (0.0, 0.0))
     ref_fc = [values.get(y, (0.0, 0.0))[0] for y in b.years]
     ref_frp = [values.get(y, (0.0, 0.0))[1] for y in b.years]
     h, f = assess(fc, ref_fc), assess(frp, ref_frp)
     label, dominant = combine(h, f)
-    return {
+    sparse = bool(ref_fc) and quantile(sorted(ref_fc), 0.5) == 0
+    out = {
         "hotspot_count": int(round(fc)), "summed_frp_mw": round(frp, 1),
         "hotspot_score": _r(h["score"]), "frp_score": _r(f["score"]),
         "hotspot_label": h["label"], "frp_label": f["label"],
         "hotspot_at_ceiling": h["at_ceiling"], "frp_at_ceiling": f["at_ceiling"],
         "label": label, "dominant_indicator": dominant,
-        "sparse_history": bool(ref_fc) and quantile(sorted(ref_fc), 0.5) == 0,
+        "sparse_history": sparse,
+        "disclaimer": sparse_disclaimer(len(ref_fc), int(round(fc))) if sparse and RANK.get(label, 0) > 0 else None,
         "history": {"hotspot": _rounded(summary(ref_fc)), "frp": _rounded(summary(ref_frp))},
     }
+    if years:
+        out["years"] = [{"year": y, "hotspot_count": int(round(values.get(y, (0.0, 0.0))[0])),
+                         "summed_frp_mw": round(values.get(y, (0.0, 0.0))[1], 1), "target": y == b.target.year}
+                        for y in sorted([b.target.year, *b.years])]
+    return out
 
 
 def _r(v: float | None, digits: int = 4) -> float | None:

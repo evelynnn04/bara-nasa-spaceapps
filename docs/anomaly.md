@@ -17,6 +17,20 @@ else NOAA-20, else NOAA-21), from 1 February 2012. MODIS is not mixed in, becaus
 detect fires of different sizes (see [harmonisation.md](harmonisation.md)), so their raw counts are
 not comparable across years.
 
+**Why not the harmonised record?** The harmonised record would add the Aqua years 2002–2011, but
+its factors are fitted per island group and month. At that scale it ranks years almost exactly like
+MODIS: on paired days 2012–2025, the Spearman correlation of national monthly totals across years is
+0.91 to 1.00 for every month. At the 0.25° cell level it does not. Scoring each cell-month once from
+Aqua cell-days and once from harmonised VIIRS (leave one year out, 399,242 grid-month-years):
+
+- only 57 % of the cell-months MODIS labels `elevated` or higher get such a label from harmonised
+  VIIRS, and harmonised VIIRS raises 1.8 times as many alerts;
+- the median rank correlation across years within a cell and month is 0.72 (lower quartile 0.54).
+
+A cell's pre-2012 history would therefore come from a sensor that ranks its years differently, and
+its label would partly depend on which sensor saw which year. The harmonised record also has no
+FRP. It stays the right record for the national and island-group charts.
+
 A pixel counts under the same rule as the rest of the record: presumed vegetation fires only (FIRMS
 `type = 0`), all confidence classes, exact duplicates removed. Untyped near-real-time pixels on the
 static-source mask (volcanoes, gas flares, other industrial sources) are removed. A day the reference
@@ -98,9 +112,11 @@ misleading `normal`.
 ### Sparse cells
 
 Where a cell usually has no fire in that month, a handful of hotspots already beats every reference
-year and scores at the ceiling. Records whose reference median is zero carry `sparse_history: true`.
-In November 2026 about two thirds of the `anomalous` grid cells are sparse in this sense. The flag
-does not change the score.
+year and scores at the ceiling. Records whose reference median is zero carry `sparse_history: true`,
+and when such a record is `elevated` or higher it also carries a `disclaimer` saying that the label
+comes from only a few detections in a place that usually has none. In November 2026 about two
+thirds of the `anomalous` grid cells are sparse in this sense. Neither the flag nor the disclaimer
+changes the score or the label.
 
 ## Endpoint
 
@@ -129,10 +145,27 @@ A grid record also has `grid_id`, its centre, `bbox`, `in_area_share` and `envir
 A grid cell can cross area borders, so its values always cover the whole cell, and `in_area_share`
 gives the share of its hotspots inside the selection.
 
+The `area` record also lists `years`: the window totals of the target year and every reference
+year, oldest first, so a chart can plot the month against its history.
+
 `environmental_context` reports the cell's main island group, province and city/regency, its active
 0.05° cells, the night share of its hotspots and its highest pixel FRP. It sits beside the score
 and never changes it. Forest cover and wind are not available yet; they are `null` and listed in
 `unavailable`.
+
+## Regional anomalies
+
+A region's anomaly is **not** built from its cells' labels. The `area` record sums the hotspots and
+FRP of every 0.05° cell inside the selection into one monthly total per year, and scores that total
+against the same region's totals in the reference years, with the same score and labels as a grid
+cell. Summing first keeps every cell of the region and avoids border cells, which the 0.25° grid
+splits between regions.
+
+The share of a region's cells that are unusual is a different measure, of spatial extent. `counts`
+gives it: the number of active grid cells touching the selection under each label. A region can be
+`normal` overall while a few of its cells are `anomalous` (November 2026 nationally: area `normal`,
+473 of 1,382 active cells `anomalous`). The other way round, a region can be `anomalous` while most
+of its cells are `normal`, when its fire is spread over many cells.
 
 ## Evaluation
 
@@ -147,14 +180,37 @@ Result on the record up to 14 November 2026 (427,697 grid-months):
 | Hotspot count | 85.6 % | 8.6 % | 5.8 % | 0 % | 14.4 % | 5.8 % |
 | FRP | 83.6 % | 9.6 % | 6.8 % | 0 % | 16.4 % | 6.8 % |
 
-The hotspot rates also stay below nominal in each calendar month, because many cell-months tie at zero. Among
-grid-months with at least one hotspot, 33 % (count) and 38 % (FRP) are `elevated` or higher, so
+With 14 reference years the score takes only the values k / 15, so the thresholds act as ranks:
+`elevated` or higher means the month ranks in the top 3 of 15, and `anomalous` means it beats every
+reference year. For untied values the expected rates are therefore 20 % and 6.7 %, not 20 % and
+10 %. The observed rates are close to this and lower, because many cell-months tie at zero, and the
+hotspot rates also stay below nominal in each calendar month. Among grid-months with at least one hotspot, 33 % (count) and 38 % (FRP) are `elevated` or higher, so
 active cells are flagged more often than the nominal rates suggest.
+
+### Known fire seasons
+
+The `area` labels for September and October 2012–2025 match the large documented fire seasons:
+
+| Area | Elevated or higher |
+|---|---|
+| Indonesia | Sep 2015 (A), Oct 2015 (A), Sep 2019 (E), Oct 2014 (E) |
+| Riau | 2015 (Sep E, Oct A), Sep 2019 (A), Sep 2012, Oct 2013, Oct 2014 |
+| South Sumatra | 2015 (A both months), Sep 2012, 2014 (both months) |
+| Central Kalimantan | 2015 (A both months), Sep 2019, Oct 2014 |
+| West Kalimantan | 2015 (E both months), Sep 2019 (A), Oct 2014 |
+
+(A: anomalous, E: elevated.) All other years are `normal`. The El Niño season of 2023 is `normal`
+everywhere: it ranks between 4th and 11th of 15 years (scores 0.33–0.73), below 2015, 2019 and 2014. It was
+an active season, but not one of the largest in the VIIRS record.
+
+The alert rates and these seasons give no reason to move the thresholds. Lowering `elevated` to
+catch 2023 would tune the method to one event. What the check does show is that, with 14 years,
+`normal` covers everything below the top three years, including clearly active seasons.
 
 ## Limits
 
-- The thresholds are uncalibrated. The table above checks alert rates only, not whether alerts
-  match documented fire events.
+- The thresholds are uncalibrated. The checks above cover alert rates and a handful of known
+  seasons, not a systematic comparison with documented fire events.
 - Coverage is counted per day for the whole country. Cloud cover over a single cell is unknown and
   can hide fires.
 - The VIIRS reference satellite changes on S-NPP outage days (63 NOAA-20 days so far). The record
