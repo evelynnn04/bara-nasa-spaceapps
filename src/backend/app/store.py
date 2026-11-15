@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 
 import duckdb
@@ -12,7 +14,7 @@ from .harmonise import weights
 from .harmonise.regions import GROUPS
 from .pipeline.normalise import detections_dir, detections_glob, static_mask_path
 
-TABLES = ("celldays", "days", "cells", "region_daily", "events", "outlook")
+TABLES = ("celldays", "days", "cells", "region_daily", "events", "event_cells", "event_attribution", "outlook")
 
 
 def table_path(name: str, root: Path | None = None) -> Path:
@@ -31,8 +33,15 @@ def connect(params: dict | None = None, root: Path | None = None) -> duckdb.Duck
 
     With the default `root`, views `detections` (normalised detections) and `static_mask` are added
     when those files exist, and table `regency_size` (cells per regency) when `cells` does.
-    Cursors of the connection share the views and tables."""
-    con = duckdb.connect()
+    Cursors of the connection share the views and tables. DuckDB's memory is capped at
+    `DUCKDB_MEMORY_LIMIT` (default 1GB, so a small Cloud Run instance is not starved), spilling to the
+    system temporary folder beyond it; Parquet metadata is cached between queries, which keeps the
+    month-by-month raw detections export fast."""
+    con = duckdb.connect(config={
+        "memory_limit": os.environ.get("DUCKDB_MEMORY_LIMIT", "1GB"),
+        "temp_directory": str(Path(tempfile.gettempdir()) / "duckdb"),
+        "enable_object_cache": True,
+    })
     for name in TABLES:
         path = table_path(name, root)
         if path.is_file():

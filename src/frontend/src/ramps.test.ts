@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RAMPS, SURFACE, contrast, inkOn, luminance, quantileBreaks, stepFor } from "./ramps";
+import { RAMPS, SURFACE, breaksFrom, contrast, inkOn, luminance, quantileBreaks, stepFor } from "./ramps";
 
 describe("sequential ramps", () => {
   for (const [name, ramp] of Object.entries(RAMPS)) {
@@ -47,5 +47,14 @@ describe("quantileBreaks", () => {
 
   it("has a single class without positive values", () => {
     expect(quantileBreaks([0, 0], 8)).toEqual([0]);
+  });
+});
+
+describe("breaksFrom", () => {
+  it("rounds quantiles from the backend the same way as quantileBreaks", () => {
+    const values = Array.from({ length: 1000 }, (_, i) => 0.1 * 1.01 ** i);
+    const qs = [0.35, 0.55, 0.7, 0.8, 0.88, 0.94, 0.98, 0.995].map((q) => values[Math.floor(q * values.length)]);
+    expect(breaksFrom(qs, 8)).toEqual(quantileBreaks(values, 8));
+    expect(breaksFrom([], 8)).toEqual([0]);
   });
 });

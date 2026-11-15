@@ -153,16 +153,38 @@ def params_path() -> Path:
     return Path(__file__).resolve().parent / "harmonise" / "params.json"
 
 
-def map_key() -> str:
-    """FIRMS map key from the environment or the repository `.env`. Never logged."""
-    key = os.environ.get("FIRMS_MAP_KEY", "").strip()
-    if not key:
+def context_dir() -> Path:
+    """Environmental context layers reduced to the 0.05° grid (land cover, forest loss, peat,
+    rainfall, climate indices), written by `python -m app context`."""
+    return data_dir() / "context"
+
+
+def _secret(var: str) -> str:
+    """A secret from the environment or the repository `.env`, or "" when unset. Never logged."""
+    value = os.environ.get(var, "").strip()
+    if not value:
         env = REPO_DIR / ".env"
         if env.is_file():
             for line in env.read_text(encoding="utf-8").splitlines():
-                name, _, value = line.partition("=")
-                if name.strip() == "FIRMS_MAP_KEY":
-                    key = value.strip().strip('"').strip("'")
+                name, _, v = line.partition("=")
+                if name.strip() == var:
+                    value = v.strip().strip('"').strip("'")
+    return value
+
+
+def map_key() -> str:
+    """FIRMS map key from the environment or the repository `.env`. Never logged."""
+    key = _secret("FIRMS_MAP_KEY")
     if not key:
         raise RuntimeError("FIRMS_MAP_KEY is not set. Add it to .env (see .env.example).")
     return key
+
+
+def earthdata_token() -> str:
+    """NASA Earthdata login token (https://urs.earthdata.nasa.gov, "Generate Token") from the
+    environment or the repository `.env`. Only the MODIS land cover and GPM IMERG rainfall downloads
+    of `python -m app context` use it. Never logged."""
+    token = _secret("EARTHDATA_TOKEN")
+    if not token:
+        raise RuntimeError("EARTHDATA_TOKEN is not set. Add it to .env (see .env.example).")
+    return token

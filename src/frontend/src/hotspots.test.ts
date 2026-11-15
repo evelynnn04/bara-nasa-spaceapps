@@ -9,6 +9,7 @@ const defaults: ViewState = {
   ramp: "ember",
   daynight: "all",
   hotspots: "vegetation",
+  step: null,
 };
 
 /** Points `location` and `history` at a fake page URL and returns what `replaceState` was given. */
@@ -41,6 +42,18 @@ describe("hotspot type in the URL", () => {
     writeUrlState({ ...defaults, hotspots: "all" }, defaults);
     writeUrlState(defaults, defaults);
     expect(page.replaced).toEqual(["/?ht=all"]);
+  });
+});
+
+describe("timeline step in the URL", () => {
+  it("keeps a picked step across reloads and ignores unknown ones", () => {
+    const page = fakePage("");
+    writeUrlState({ ...defaults, step: "day" }, defaults);
+    expect(page.replaced).toEqual(["/?step=day"]);
+    fakePage("?step=day");
+    expect(readUrlState(defaults, () => true, "2002-07-04", "2026-11-14").step).toBe("day");
+    fakePage("?step=week");
+    expect(readUrlState(defaults, () => true, "2002-07-04", "2026-11-14").step).toBeNull();
   });
 });
 
