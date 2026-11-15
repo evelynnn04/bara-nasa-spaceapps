@@ -110,6 +110,11 @@ export class AnomalyView {
     });
   }
 
+  /** Short in its column; taller when the card is open in the larger view. */
+  private chartHeight(width: number): number {
+    return this.root.closest(".is-expanded") ? Math.round(Math.min(340, Math.max(160, width * 0.38))) : 140;
+  }
+
   private draw(): void {
     this.root.querySelectorAll<HTMLButtonElement>("[data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === this.kind)));
     this.monthIn.closest("label")!.hidden = this.kind !== "month";
@@ -122,7 +127,7 @@ export class AnomalyView {
     this.verdict.className = `verdict is-${v.tone}`;
     this.verdict.title = `Unusual means more than ${UNUSUAL_SD} standard deviations above the other years. Ringed points on the chart are unusual.`;
     this.verdict.innerHTML = `<span class="verdict-k">${escapeXml(a.selected.label)}</span> ${v.label}`;
-    this.chartW = drawAtWidth(this.chart, 360, (width) => (this.chart.innerHTML = this.chartSvg(a, width)));
+    this.chartW = drawAtWidth(this.chart, 360, (width) => (this.chart.innerHTML = this.chartSvg(a, width, this.chartHeight(width))));
     const unusualMonths = a.kind === "year" ? a.labels.filter((_, i) => a.unusual[i]) : [];
     this.notes.innerHTML = `<p class="mini-note">
       <strong>${fmtVal(a.selected.value)}</strong> ${UNIT_SHORT}, average ${fmtVal(a.selected.mean)}, median ${fmtVal(a.selected.median)}.

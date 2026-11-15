@@ -1035,9 +1035,92 @@ button.dp-title:hover,
   margin-left: auto;
 }
 
+.gc-head .card-actions + .expand-btn,
 .gc-head .card-actions + .fold-btn,
 .gc-head .hint + .fold-btn {
   margin-left: 0;
+}
+
+.gc-head .expand-btn + .fold-btn {
+  margin-left: -6px;
+}
+
+/* Larger view of a card, opened from its header */
+
+.card-dialog {
+  width: min(960px, calc(100vw - 48px));
+  max-width: none;
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  overflow: visible;
+}
+
+.card-dialog::backdrop {
+  background: rgba(12, 8, 6, 0.64);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: fade var(--dur-3) var(--ease-out);
+}
+
+.card-dialog .gc {
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 22px 26px 24px;
+  background: var(--glass-solid);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55), inset 0 1px 0 var(--glass-hi);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+  animation: card-open var(--dur-3) var(--ease-out) both;
+}
+
+.card-dialog .gc-title {
+  font-size: var(--fs-heading);
+}
+
+.card-dialog .gc .fold-inner > .gc-body {
+  padding-top: 16px;
+}
+
+.gc.is-expanded .fold-btn {
+  display: none;
+}
+
+.gc-slot {
+  flex: none;
+  border: 1px dashed var(--glass-line);
+  border-radius: var(--radius);
+}
+
+body:has(.card-dialog[open]) {
+  overflow: hidden;
+}
+
+@keyframes card-open {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+}
+
+@media (max-width: 640px) {
+  .gc:not(.is-expanded) .expand-btn {
+    display: none;
+  }
+
+  .card-dialog {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .card-dialog .gc {
+    max-height: calc(100dvh - 24px);
+    padding: 16px;
+  }
 }
 
 .card-actions {
