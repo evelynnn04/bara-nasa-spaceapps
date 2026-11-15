@@ -34,6 +34,8 @@
   --accent-glow: rgba(255, 122, 46, 0.35);
   --accent-wash: rgba(255, 122, 46, 0.08);
   --accent-wash-2: rgba(255, 122, 46, 0.16);
+  --forecast: #9a948f;
+  --forecast-ink: #d9d4cf;
   --focus: #ffc04d;
 
   --good: #7fd69a;
@@ -1416,6 +1418,34 @@ button.dp-title:hover,
 
 .tl-track.is-dragging .tl-head {
   cursor: grabbing;
+}
+
+/* After the record the strip runs on over the forecast, whose bars stand on a grey band */
+.tl-activity .fc-band {
+  fill: var(--forecast);
+  opacity: 0.3;
+}
+
+.tl-activity .fc-hit {
+  fill: transparent;
+}
+
+.tl-clear[hidden] {
+  display: none;
+}
+
+.tl-now.is-forecast {
+  background: color-mix(in srgb, var(--forecast) 26%, transparent);
+  color: var(--forecast-ink);
+}
+
+.legend-fc {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--forecast) 26%, transparent);
+  color: var(--forecast-ink);
+  font-weight: 600;
+  cursor: help;
 }
 
 .tl-head[hidden],

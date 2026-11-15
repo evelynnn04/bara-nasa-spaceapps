@@ -186,6 +186,18 @@
             <p class="mini-note"><i>x̄</i>, <i>s</i> and the median are taken over the same month (or months) in the other years of the record.</p>
           </section>
 
+          <section class="help-sec" aria-labelledby="h-forecast">
+            <h3 class="d-label" id="h-forecast">Forecast steps</h3>
+            <p>The part of the timeline on a grey background after the record is a forecast, not observed data: 30 days, 12 months or 5 years after the last data, by the step size. The selected dates can reach to its end; the cards still count observed days only. Its bars show the cells with fire expected, on a scale of their own. Each cell gets the chance that it holds at least one vegetation-fire hotspot:</p>
+            <div class="fx">
+              <p><span class="fx-k">Chance</span> share of past cases in the same group that burned at that lead</p>
+              <p><span class="fx-k">Group, day</span> the cell's usual fire frequency in that month, fire on the last day, fire days in the last 7 days, burning neighbours</p>
+              <p><span class="fx-k">Group, month</span> the cell's usual share of years with fire in that month, fire in the last month, burning neighbours</p>
+              <p><span class="fx-k">Expected cells</span> Σ chance over the cells of the area</p>
+            </div>
+            <p class="mini-note">On held-out years recent fire improves on the usual chance for days 1 to 3 and the next month (forecast), a little up to day 10 and month 2 (weak forecast); later steps show the usual chance for that time of year (seasonal), and years show each cell's share of past years with fire (baseline). Chances run somewhat high, as recent years burned less than the years they were counted on.</p>
+          </section>
+
           <section class="help-sec" aria-labelledby="h-agree">
             <h3 class="d-label" id="h-agree">Agreement between the sensors</h3>
             <p>Monthly totals on days both observed, <i>a</i> for Aqua and <i>b</i> for harmonised VIIRS:</p>

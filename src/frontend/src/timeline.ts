@@ -3,13 +3,29 @@ import { MONTHS, daysInMonth, formatDay, fromDay, monthStart, parts, toDay } fro
 /** Length of one step of the map timeline. */
 export type Interval = "day" | "month" | "year";
 
-/** One step of the map timeline: a period inside the selected dates, its label and its short tick label. */
+/** How far a forecast lead can be trusted, from the held-out evaluation in docs/fire-outlook.md. */
+export type OutlookLabel = "forecast" | "weak forecast" | "seasonal" | "baseline";
+
+/**
+ * One step of the map timeline: a period inside the selected dates, its label and its short tick label. A step
+ * after the record is a forecast and carries its `lead` (steps after the issue date) and trust label.
+ */
 export interface Frame {
   interval: Interval;
   from: string;
   to: string;
   label: string;
   tick: string;
+  lead?: number;
+  outlook?: OutlookLabel;
+}
+
+/** One lead of the fire outlook as `/api/outlook` lists it. */
+export interface OutlookLead {
+  lead: number;
+  /** `YYYY-MM-DD` for a day, `YYYY-MM` for a month, `YYYY` for a year. */
+  target: string;
+  label: OutlookLabel;
 }
 
 /** Longest range, in days, that opens the timeline in days. */
@@ -55,6 +71,34 @@ export function timeFrames(start: string, end: string, interval: Interval): Fram
   }
   for (let y = pa.year; y <= pb.year; y++) clip(monthStart(y, 0), monthStart(y + 1, 0) - 1, String(y), String(y));
   return frames;
+}
+
+/** Timeline steps of the forecast leads of one interval: the whole target day, month or year of each lead. */
+export function outlookFrames(interval: Interval, leads: OutlookLead[]): Frame[] {
+  return leads.map(({ lead, target, label: outlook }) => {
+    const y = +target.slice(0, 4);
+    let from: number;
+    let to: number;
+    let label: string;
+    let tick: string;
+    if (interval === "day") {
+      from = to = toDay(target);
+      const p = parts(from);
+      label = formatDay(from);
+      tick = `${p.date} ${MONTHS[p.month]}`;
+    } else if (interval === "month") {
+      const m = +target.slice(5, 7) - 1;
+      from = monthStart(y, m);
+      to = monthStart(y, m + 1) - 1;
+      label = `${MONTHS[m]} ${y}`;
+      tick = MONTHS[m];
+    } else {
+      from = monthStart(y, 0);
+      to = monthStart(y + 1, 0) - 1;
+      label = tick = String(y);
+    }
+    return { interval, from: fromDay(from), to: fromDay(to), label, tick, lead, outlook };
+  });
 }
 
 /** Indexes of the steps that get a tick label: the first, the last, and evenly spaced ones between, at most `max`. */

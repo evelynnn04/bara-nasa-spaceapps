@@ -1,6 +1,8 @@
 /**
  * Sequential ramps for "amount of burning", darkest first. Each step must be brighter than the last, so every ramp
- * also reads by lightness alone. The hues are chosen so each colour-vision type keeps a clear ramp. `accent` and
+ * also reads by lightness alone. The hues are chosen so each colour-vision type keeps a clear ramp. `forecast` and
+ * `forecastInk` colour the forecast part of the timeline in a neutral grey, set apart from the accent of the
+ * observed record (for the grey palette, by lightness). `accent` and
  * `accentInk` colour the rest of the dashboard (buttons, highlights, chart lines, area outlines) in the same hue;
  * `alert` marks unusual points in charts and `ref` the median line, each picked to stand out for that vision type.
  */
@@ -9,6 +11,8 @@ export const RAMPS = {
     label: "Default",
     hint: "Typical colour vision",
     steps: ["#3a1a10", "#5a2410", "#80300f", "#a8400e", "#cf5a12", "#ef7d26", "#ffa65a", "#ffd39c"],
+    forecast: "#9a948f",
+    forecastInk: "#d9d4cf",
     accent: "#ff7a2e",
     accentInk: "#ffb27a",
     alert: "#ff6b5e",
@@ -18,6 +22,8 @@ export const RAMPS = {
     label: "Protanopia & deuteranopia",
     hint: "Red-green colour blindness",
     steps: ["#1b2a4a", "#2b3d63", "#45506e", "#646575", "#857c72", "#a99467", "#d0ae55", "#fbd13c"],
+    forecast: "#9a9a9a",
+    forecastInk: "#dcdcdc",
     accent: "#d0ae55",
     accentInk: "#fbd13c",
     alert: "#7cb1ff",
@@ -27,6 +33,8 @@ export const RAMPS = {
     label: "Tritanopia",
     hint: "Blue-yellow colour blindness",
     steps: ["#3d1424", "#5e1a34", "#842244", "#a52f55", "#cc5574", "#e57f96", "#f2abbb", "#fbd8e0"],
+    forecast: "#9a9a9a",
+    forecastInk: "#dcdcdc",
     accent: "#e57f96",
     accentInk: "#f2abbb",
     alert: "#ff3355",
@@ -36,6 +44,8 @@ export const RAMPS = {
     label: "Achromatopsia",
     hint: "No colour vision",
     steps: ["#2c2c2c", "#404040", "#535353", "#646464", "#8f8f8f", "#ababab", "#cbcbcb", "#ececec"],
+    forecast: "#6e6e6e",
+    forecastInk: "#e0e0e0",
     accent: "#cbcbcb",
     accentInk: "#ececec",
     alert: "#ffffff",
@@ -106,6 +116,9 @@ export function quantileBreaks(values: number[], steps: number): number[] {
   return breaksFrom(QUANTILES.slice(0, steps - 1).map((q) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]), steps);
 }
 
+/** Lower bounds of the colour classes of forecast chances, fixed so every lead shares one legend. */
+export const CHANCE_BREAKS = [0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7];
+
 /** Quantiles of the colour classes above the first; the backend's `/cells/scale` uses the same ones. */
 export const QUANTILES = [0.35, 0.55, 0.7, 0.8, 0.88, 0.94, 0.98, 0.995];
 
@@ -126,7 +139,7 @@ export function breaksFrom(quantiles: number[], steps: number): number[] {
  * and the translucent washes, glows and hairlines derived from the accent.
  */
 export function accentVars(name: RampName): Record<string, string> {
-  const { accent, accentInk } = RAMPS[name];
+  const { accent, accentInk, forecast, forecastInk } = RAMPS[name];
   const n = parseInt(accent.slice(1), 16);
   const rgb = `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
   return {
@@ -138,5 +151,7 @@ export function accentVars(name: RampName): Record<string, string> {
     "--hair": `rgba(${rgb}, 0.2)`,
     "--ember-clear": `rgba(${rgb}, 0)`,
     "--ember-grade": `rgba(${rgb}, 0.05)`,
+    "--forecast": forecast,
+    "--forecast-ink": forecastInk,
   };
 }

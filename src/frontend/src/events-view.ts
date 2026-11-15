@@ -5,9 +5,10 @@ import { UNIT_SHORT, escapeXml, fmtVal } from "./format";
 import type { RegionIndex } from "./regions";
 import { openTip } from "./tooltip";
 
-/** What the events card needs besides the events: the active cause filter. */
+/** What the events card needs besides the events: the active cause filter, and a message to show instead of the usual one when there are none. */
 export interface EventsContext {
   cause: Cause | null;
+  empty?: string;
 }
 
 const NO_CONTEXT: EventsContext = { cause: null };
@@ -49,7 +50,7 @@ export class EventsView {
     this.events = events;
     if (!events.length) {
       const what = ctx.cause ? (ctx.cause === "unknown" ? "fire events with an unclear cause" : `${causeLabel(ctx.cause).toLowerCase()} events`) : "fire events";
-      this.root.innerHTML = `<p class="reading">No ${what} in this area and period.</p>`;
+      this.root.innerHTML = `<p class="reading">${escapeXml(ctx.empty ?? `No ${what} in this area and period.`)}</p>`;
       return;
     }
     const items = events

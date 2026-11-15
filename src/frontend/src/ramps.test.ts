@@ -8,6 +8,12 @@ describe("sequential ramps", () => {
       for (let i = 1; i < lum.length; i++) expect(lum[i]).toBeGreaterThan(lum[i - 1]);
     });
 
+    it(`${name} forecast colour stands out on the surface and apart from the record's accent`, () => {
+      expect(contrast(ramp.forecast, SURFACE)).toBeGreaterThanOrEqual(3);
+      expect(ramp.forecast).not.toBe(ramp.accent);
+      if (name === "grey") expect(contrast(ramp.forecast, ramp.accent)).toBeGreaterThan(1.5);
+    });
+
     it(`${name} lowest step stands apart from the surface`, () => {
       expect(contrast(ramp.steps[0], SURFACE)).toBeGreaterThan(1.1);
     });
