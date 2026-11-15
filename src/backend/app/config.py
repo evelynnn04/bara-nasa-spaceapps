@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 
 
@@ -92,12 +94,28 @@ def raw_dir() -> Path:
     return data_dir() / "raw"
 
 
+#: Folder the processed tables are written to and read from instead of `data_dir()`, while set.
+_stage: Path | None = None
+
+
+@contextmanager
+def staged(root: Path) -> Iterator[Path]:
+    """Makes `parquet_dir()` and `derived_dir()` point under `root` for the duration, so a rebuild
+    can run next to the tables being served and replace them only once it has succeeded."""
+    global _stage
+    previous, _stage = _stage, root
+    try:
+        yield root
+    finally:
+        _stage = previous
+
+
 def parquet_dir() -> Path:
-    return data_dir() / "parquet"
+    return (_stage or data_dir()) / "parquet"
 
 
 def derived_dir() -> Path:
-    return data_dir() / "derived"
+    return (_stage or data_dir()) / "derived"
 
 
 def boundaries_path() -> Path:

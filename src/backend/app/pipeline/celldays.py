@@ -34,6 +34,7 @@ import duckdb
 
 from .. import config
 from ..db import quote
+from .download import complete_through
 from .normalise import MASK_RES, detections_glob, static_mask_path
 
 log = logging.getLogger("app.celldays")
@@ -96,14 +97,20 @@ def build_celldays(con: duckdb.DuckDBPyConnection, detections: str, mask: str, d
     return con.execute(f"SELECT count(*) FROM read_parquet({quote(str(dest))})").fetchone()[0]
 
 
-def day_status(observed: dict[str, set[dt.date]], first: dt.date, last: dt.date) -> list[dict]:
+def day_status(observed: dict[str, set[dt.date]], first: dt.date, last: dt.date,
+               through: dict[str, dt.date] | None = None) -> list[dict]:
     """Per-day observation flags, VIIRS reference and record platform, from the days each platform
-    had any detection."""
+    had any detection.
+
+    `through` gives, per platform, the last day its data is complete for (see
+    `download.complete_through`); later days do not count as observed by it, so a day still being
+    delivered falls to the next reference satellite or stays without a value."""
     days = [first + dt.timedelta(days=i) for i in range((last - first).days + 1)]
     flags: dict[str, dict[dt.date, bool]] = {}
     for p in PLATFORMS:
         seen = observed.get(p, set())
-        ok = {d: d >= PLATFORM_START[p] and d in seen for d in days}
+        limit = (through or {}).get(p, last)
+        ok = {d: PLATFORM_START[p] <= d <= limit and d in seen for d in days}
         if p in ("Terra", "Aqua"):
             run: list[dt.date] = []
             for d in days + [None]:
@@ -129,18 +136,23 @@ def day_status(observed: dict[str, set[dt.date]], first: dt.date, last: dt.date)
     return out
 
 
-def build_days(con: duckdb.DuckDBPyConnection, detections: str, dest: Path) -> int:
+def build_days(con: duckdb.DuckDBPyConnection, detections: str, dest: Path,
+               through: dict[str, dt.date] | None = None) -> int:
     """Writes `days.parquet`; returns the number of days.
 
     The table ends on the latest UTC acquisition date. The local day after it has started in the
-    east of the country but is only partly covered, so it is left out until the next download."""
+    east of the country but is only partly covered, so it is left out until the next download.
+    With `through` (per platform, the last day its data is complete for), the table also ends no
+    later than the latest of those days, and each platform counts as observing only up to its own."""
     rows = con.execute(f"SELECT DISTINCT platform, local_date FROM read_parquet({quote(detections)})").fetchall()
     observed: dict[str, set[dt.date]] = {}
     for p, d in rows:
         observed.setdefault(p, set()).add(d)
     first = min(PLATFORM_START.values())
     last = con.execute(f"SELECT max(acq_date) FROM read_parquet({quote(detections)})").fetchone()[0]
-    status = day_status(observed, first, last)
+    if through:
+        last = min(last, max(through.values()))
+    status = day_status(observed, first, last, through)
     cols = list(status[0])
     tmp = dest.with_suffix(".csv")
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -164,4 +176,4 @@ def run() -> None:
     con = duckdb.connect()
     n = build_celldays(con, detections_glob(), str(static_mask_path()), celldays_path())
     log.info("cell-days: %d rows", n)
-    log.info("days: %d", build_days(con, detections_glob(), days_path()))
+    log.info("days: %d", build_days(con, detections_glob(), days_path(), complete_through() or None))
