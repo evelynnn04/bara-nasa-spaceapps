@@ -1,4 +1,5 @@
 import { fromDay, formatDay, monthStart, parts, toDay } from "./dates";
+import { SelectMenu } from "./select-menu";
 import { defaultInterval, timeFrames, type Frame, type Interval } from "./timeline";
 
 /** Most steps one animation can hold; each step is one request to the backend. */
@@ -9,9 +10,9 @@ const FPS = 2;
 const YEAR_LABELS = 7;
 
 const INTERVALS: { value: Interval; label: string }[] = [
-  { value: "year", label: "Year steps" },
-  { value: "month", label: "Month steps" },
-  { value: "day", label: "Day steps" },
+  { value: "year", label: "Year" },
+  { value: "month", label: "Month" },
+  { value: "day", label: "Day" },
 ];
 
 const svg = (path: string, fill = false) => `<svg class="ico${fill ? " ico-fill" : ""}" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}" /></svg>`;
@@ -66,7 +67,7 @@ export class Timeline {
   private readonly playBtn: HTMLButtonElement;
   private readonly now: HTMLElement;
   private readonly nowLabel: HTMLElement;
-  private readonly select: HTMLSelectElement;
+  private readonly menu: SelectMenu;
   private readonly status: HTMLElement;
 
   constructor(root: HTMLElement, private readonly host: TimelineHost, recordStart: string, recordEnd: string) {
@@ -99,8 +100,7 @@ export class Timeline {
         <div class="tl-head" hidden aria-hidden="true"></div>
       </div>
       <p class="tl-now" hidden><span></span><button type="button" class="tl-clear" aria-label="Show the whole selected period" title="Show the whole selected period">${ICON.close}</button></p>
-      <label class="field field-inline tl-interval"><span class="visually-hidden">Step size</span>
-        <select class="input">${INTERVALS.map((i) => `<option value="${i.value}">${i.label}</option>`).join("")}</select></label>
+      <div class="tl-interval"></div>
       <p class="tl-status" role="status"></p>`;
     const $ = <T extends Element = HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
     this.track = $(".tl-track");
@@ -111,14 +111,13 @@ export class Timeline {
     this.playBtn = $(".tl-play");
     this.now = $(".tl-now");
     this.nowLabel = $(".tl-now span");
-    this.select = $("select");
+    this.menu = new SelectMenu($(".tl-interval"), "Step", INTERVALS, this.interval, (value) => this.setInterval(value as Interval));
     this.status = $(".tl-status");
 
     this.prevBtn.addEventListener("click", () => void this.go(this.current === null ? this.frames.length - 1 : this.current - 1));
     this.nextBtn.addEventListener("click", () => void this.go(this.current === null ? 0 : this.current + 1));
     this.playBtn.addEventListener("click", () => (this.playing ? this.pause() : void this.play()));
     $(".tl-clear").addEventListener("click", () => this.clear());
-    this.select.addEventListener("change", () => this.setInterval(this.select.value as Interval));
     this.bindTrack();
     this.sync();
   }
@@ -337,7 +336,7 @@ export class Timeline {
     const frame = this.current === null ? null : this.frames[this.current];
     const unit = this.interval;
     this.place();
-    this.select.value = unit;
+    this.menu.set(unit);
     this.playBtn.disabled = n < 2;
     this.prevBtn.disabled = n < 2 || this.current === 0;
     this.nextBtn.disabled = n < 2 || this.current === n - 1;

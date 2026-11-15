@@ -110,6 +110,7 @@ export class SelectMenu {
     this.active = (i + this.options.length) % this.options.length;
     this.list.setAttribute("aria-activedescendant", `${this.id}-o${this.active}`);
     this.list.querySelectorAll<HTMLElement>(".sm-option").forEach((li, j) => li.classList.toggle("is-active", j === this.active));
+    this.list.children[this.active]?.scrollIntoView({ block: "nearest" });
   }
 
   private choose(i: number): void {

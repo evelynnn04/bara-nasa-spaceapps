@@ -4,6 +4,7 @@ import type { Cell } from "./export";
 import { UNIT_SHORT, escapeXml, fmtCompact, fmtVal } from "./format";
 import { reducedMotion } from "./fx";
 import { RAMPS, colorFor, inkOn, stepBounds, type RampName } from "./ramps";
+import { SelectMenu } from "./select-menu";
 import type { Selection } from "./store";
 
 type Level = { kind: "year" } | { kind: "days"; year: number; month: number };
@@ -36,7 +37,9 @@ export class CalendarView {
   private readonly back: HTMLButtonElement;
   private readonly crumb: HTMLElement;
   private readonly yearField: HTMLElement;
-  private readonly yearSel: HTMLSelectElement;
+  /** Year dropdown, built once the record's years are known. */
+  private yearMenu: SelectMenu | null = null;
+  private yearSpan = "";
   private readonly nav: HTMLElement;
   private readonly prev: HTMLButtonElement;
   private readonly next: HTMLButtonElement;
@@ -46,7 +49,7 @@ export class CalendarView {
     root.innerHTML = `
       <div class="cal-bar">
         <button type="button" class="pill cal-back" hidden><span class="chev chev-left" aria-hidden="true"></span>Back to year</button>
-        <label class="field field-inline cal-year"><span class="visually-hidden">Year</span><select class="input"></select></label>
+        <div class="cal-year"></div>
         <nav class="cal-crumb" aria-label="Calendar level"><ol></ol></nav>
         <div class="cal-nav">
           <button type="button" class="icon-btn cal-step" data-step="-1"><span class="chev chev-left" aria-hidden="true"></span></button>
@@ -59,12 +62,6 @@ export class CalendarView {
     this.back = root.querySelector(".cal-back")!;
     this.crumb = root.querySelector(".cal-crumb ol")!;
     this.yearField = root.querySelector(".cal-year")!;
-    this.yearSel = this.yearField.querySelector("select")!;
-    this.yearSel.addEventListener("change", () => {
-      const dir = +this.yearSel.value < this.year ? "prev" : "next";
-      this.year = +this.yearSel.value;
-      this.swap(null, dir);
-    });
     this.nav = root.querySelector(".cal-nav")!;
     [this.prev, this.next] = root.querySelectorAll<HTMLButtonElement>(".cal-step");
     this.legend = root.querySelector(".legend")!;
@@ -91,7 +88,15 @@ export class CalendarView {
     this.ramp = ramp;
     const [a, b] = [parts(sel.from).year, parts(sel.to).year];
     if (this.year < a || this.year > b) this.year = b;
-    this.yearSel.innerHTML = Array.from({ length: b - a + 1 }, (_, i) => `<option>${b - i}</option>`).join("");
+    if (this.yearSpan !== `${a}-${b}`) {
+      this.yearSpan = `${a}-${b}`;
+      const years = Array.from({ length: b - a + 1 }, (_, i) => ({ value: String(b - i), label: String(b - i) }));
+      this.yearMenu = new SelectMenu(this.yearField, "Year", years, String(this.year), (value) => {
+        const dir = +value < this.year ? "prev" : "next";
+        this.year = +value;
+        this.swap(null, dir);
+      });
+    }
     this.stage.replaceChildren(this.buildLayer());
     this.syncChrome();
   }
@@ -100,7 +105,7 @@ export class CalendarView {
     const days = this.level.kind === "days";
     this.back.hidden = !days;
     this.yearField.hidden = days;
-    this.yearSel.value = String(this.year);
+    this.yearMenu?.set(String(this.year));
     this.crumb.innerHTML = this.level.kind === "days"
       ? `<li><button type="button" class="crumb-link">${this.level.year}</button></li><li aria-current="page">${MONTHS_LONG[this.level.month]}</li>`
       : "";
@@ -145,7 +150,7 @@ export class CalendarView {
   }
 
   /** Days of the picked year grouped by month, with each month's total and the year's busiest day. */
-  private yearMonths(): { months: { m: number; total: number; outside: boolean; lead: number; days: CellData["state"][]; values: number[] }[]; max: number } {
+  private yearMonths(): { months: { m: number; total: number; outside: boolean; lead: number; days: CellData["state"][]; values: number[] }[]; max: number; maxTotal: number } {
     const sel = this.sel!;
     let max = 0;
     const months = MONTHS.map((_, m) => {
@@ -163,7 +168,7 @@ export class CalendarView {
       }
       return { m, total, outside: monthOutsideRecord(sel, this.year, m), lead: weekdayMon(start), days, values };
     });
-    return { months, max };
+    return { months, max, maxTotal: Math.max(...months.map((mo) => mo.total)) };
   }
 
   /** Month-by-year values of the whole record (for the CSV), or the weeks of the open month. */
@@ -212,7 +217,7 @@ export class CalendarView {
 
   /** The picked year: one button per month holding a small grid of its days. */
   private buildYear(): HTMLElement {
-    const { months, max } = this.yearMonths();
+    const { months, max, maxTotal } = this.yearMonths();
     const layer = document.createElement("div");
     layer.className = "cal-layer is-year";
     layer.innerHTML = `<div class="cal-months" role="group" aria-label="Days of ${this.year} by month">${months
@@ -223,7 +228,10 @@ export class CalendarView {
             return `<i class="mini is-${state === "missed" ? "none" : state}"${fill ? ` style="background:${fill}"` : ""}></i>`;
           })
           .join("")}`;
-        const head = `<span class="cal-month-h"><span>${MONTHS[mo.m]}</span><span class="cal-month-v">${mo.outside ? "" : fmtCompact(mo.total)}</span></span>`;
+        // The month's total sits on its own step of the colour scale, so the busiest months stand out
+        const tint = mo.total ? colorFor(mo.total, maxTotal, this.ramp)! : "";
+        const total = mo.outside ? "" : `<span class="cal-month-v"${tint ? ` style="background:${tint};color:${inkOn(tint)}"` : ""}>${fmtCompact(mo.total)}</span>`;
+        const head = `<span class="cal-month-h"><span>${MONTHS[mo.m]}</span>${total}</span>`;
         const name = `${MONTHS_LONG[mo.m]} ${this.year}`;
         if (mo.outside) return `<span class="cal-month is-outside" role="img" aria-label="${name}: outside the record">${head}<span class="cal-mini" aria-hidden="true">${minis}</span></span>`;
         const text = `${name}: ${fmtVal(mo.total)} ${UNIT_SHORT}`;
