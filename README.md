@@ -110,11 +110,15 @@ zip -r spaceapps-fire-data-YYYY-MM-DD.zip data
 
 With the data in place, `docker compose up --build` mounts `data/` into the backend. The API is
 documented at `http://localhost:8000/docs`; the main endpoints are `/api/meta`, `/api/series`,
-`/api/cells`, `/api/agreement`, `/api/events`, `/api/anomalies`, `/api/critical` and
-`/api/detections.csv`. The anomaly method is described in [docs/anomaly.md](docs/anomaly.md). How
+`/api/cells`, `/api/agreement`, `/api/events`, `/api/anomalies`, `/api/critical`, `/api/spread`
+and `/api/detections.csv`. The anomaly method is described in [docs/anomaly.md](docs/anomaly.md). How
 `/api/critical` finds historically critical fire periods is described in
 [docs/critical-periods.md](docs/critical-periods.md); `uv run python -m app validate-critical` (in
-`src/backend`) reproduces its validation on the local data.
+`src/backend`) reproduces its validation on the local data. The experimental fire spread
+simulation, its assumptions and its hindcast on past fire events are described in
+[docs/fire-spread.md](docs/fire-spread.md); `uv run python -m app validate-spread` reproduces the
+hindcast. Its model is built by `cache` (`data/derived/spread_model.json`), so data cached before it
+needs `uv run python -m app cache` once.
 
 Values are in hotspots (Aqua MODIS-equivalent); every endpoint takes `hotspots=vegetation` (the
 default) or `hotspots=all`. Data unzipped from a zip made before the hotspot unit lacks the counts of

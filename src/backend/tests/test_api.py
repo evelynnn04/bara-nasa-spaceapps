@@ -7,7 +7,7 @@ import datetime as dt
 import pytest
 from fastapi.testclient import TestClient
 
-from app import api, config, geo, queries, store
+from app import api, config, geo, queries, spread, store
 from app.harmonise import fit, weights
 from app.harmonise.regions import GROUPS
 from app.main import app, create_app
@@ -212,6 +212,27 @@ def test_critical_periods_cover_every_month_and_week(client):
     assert body["months"]["years"] == [] and not any(p["critical"] for p in body["months"]["periods"])
     assert body["method"]["ratio_min"] == 1.5
     assert client.get("/api/critical?area=idn-nope").status_code == 400
+
+
+def test_spread_needs_a_start_and_the_model(client, tmp_path, monkeypatch):
+    assert client.get("/api/spread?lon=101.03&lat=0.53").status_code == 400
+    monkeypatch.setattr(spread, "model_path", lambda: tmp_path / "missing.json")
+    assert client.get("/api/spread?lon=101.03&lat=0.53&start=2015-09-01").status_code == 503
+
+
+def test_spread_from_a_point_and_an_event(client, tmp_path, monkeypatch):
+    path = tmp_path / "spread_model.json"
+    spread.build(api.cursor(), path)
+    monkeypatch.setattr(spread, "model_path", lambda: path)
+    api._spread_model.cache_clear()
+    body = client.get("/api/spread?lon=101.03&lat=0.53&start=2015-09-01&days=3").json()
+    assert body["origin"]["land"] and body["days"] == 3 and len(body["footprint"]) == 3
+    assert body["observed"]["day_reached"][0] == 0 and body["assumptions"]
+    event = client.get("/api/events?from=2015-08-01&to=2015-10-31&area=idn-riau").json()["events"][0]["event"]
+    from_event = client.get(f"/api/spread?event={event}&days=2").json()
+    assert from_event["event"] == event and from_event["start"] == "2015-08-01"
+    assert client.get("/api/spread?event=999999").status_code == 404
+    api._spread_model.cache_clear()
 
 
 def test_area_ids_are_checked_against_known_areas(client):

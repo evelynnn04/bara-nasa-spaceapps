@@ -33,7 +33,7 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from . import anomaly, config, critical, geo, queries, store
+from . import anomaly, config, critical, geo, queries, spread, store
 from .db import quote
 from .harmonise import fit, weights
 from .pipeline.celldays import cell_expr, qualifying_sql
@@ -80,6 +80,7 @@ def configure(con: duckdb.DuckDBPyConnection | None, params: dict | None) -> Non
         _daily.cache_clear()
         _flags.cache_clear()
         _parents.cache_clear()
+        _spread_model.cache_clear()
 
 
 def _ready() -> dict:
@@ -530,6 +531,53 @@ def events(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Dep
         e["pixels"] = int(e["pixels"])
         out.append(e)
     return {"unit": fit.UNIT, "hotspots": hotspots, "events": out}
+
+
+@lru_cache(maxsize=1)
+def _spread_model() -> spread.Model:
+    model = spread.load(cursor())
+    if model is None:
+        raise HTTPException(503, "The fire spread model is missing. Run `python -m app cache` first.")
+    return model
+
+
+@router.get("/spread")
+def fire_spread(lon: float | None = Query(None, ge=90, le=145, description="Longitude of the start point."),
+                lat: float | None = Query(None, ge=-15, le=10, description="Latitude of the start point."),
+                event: int | None = Query(None, ge=0, description="Fire event id (see `/api/events`) to start from instead."),
+                start: dt.date | None = Query(None, description="Start day, YYYY-MM-DD (an event's own first day by default)."),
+                days: int = Query(7, ge=1, le=spread.MAX_DAYS, description="Days to simulate.")) -> dict:
+    """Experimental simulation of where fire could spread from one point over the following days.
+
+    Start from a point (`lon`, `lat` and `start`) or from a fire event (`event`, starting from its
+    first active cell on its first day). Each cell within 10 cells (0.05° grid) gets the share of
+    past fire events of the same month that reached a cell at that distance with the same fire
+    history, by each day; see `docs/fire-spread.md` and `assumptions` in the response. `footprint`
+    gives the expected footprint per day with the median and 90th percentile of past fires, and
+    `cells` the chance of each cell being reached by each day. When the period lies in the record
+    and the start cell was active on the start day, `observed` gives the day each cell was
+    actually reached."""
+    cur = cursor()
+    if event is not None:
+        if not store.has(cur, "events"):
+            raise HTTPException(503, "Fire events are missing. Run `python -m app cache` first.")
+        found = spread.event_origin(cur, event)
+        if found is None:
+            raise HTTPException(404, f"event {event} not found")
+        origin, first = found
+        start = start or first
+    elif lon is not None and lat is not None and start is not None:
+        origin = spread.cell_of(lon, lat)
+    else:
+        raise HTTPException(400, "give `lon`, `lat` and `start`, or `event`")
+    model = _spread_model()
+    out = spread.simulate(model, origin, start, days)
+    seen = spread.observed(cur, origin, start, days)
+    out["event"] = event
+    out["observed"] = None if seen is None else {
+        "lon": [spread.centre(c)[0] for c in seen], "lat": [spread.centre(c)[1] for c in seen],
+        "day_reached": list(seen.values())}
+    return out
 
 
 CSV_COLUMNS = ("acq_utc", "local_date", "lon", "lat", "sensor", "platform", "daynight", "frp", "confidence",
