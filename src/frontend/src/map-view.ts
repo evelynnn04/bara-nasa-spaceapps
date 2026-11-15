@@ -145,12 +145,15 @@ export class MapView {
     this.syncCellPaint();
   }
 
-  /** Shows the active cells of the period as filled grid squares, coloured by harmonised value with quantile classes. */
-  setCells(c: CellsResponse | null): void {
+  /**
+   * Shows the active cells of the period as filled grid squares, coloured by harmonised value with quantile classes
+   * of these cells, or with the given `breaks` so that several periods share one scale.
+   */
+  setCells(c: CellsResponse | null, breaks?: number[]): void {
     const cells = c?.cells;
     this.resDeg = c?.res_deg ?? 0.05;
     const h = this.resDeg / 2;
-    this.breaks = cells ? quantileBreaks(cells.value, RAMPS[this.ramp].steps.length) : [0];
+    this.breaks = breaks ?? (cells ? quantileBreaks(cells.value, RAMPS[this.ramp].steps.length) : [0]);
     this.hotspots = {
       type: "FeatureCollection",
       features: cells

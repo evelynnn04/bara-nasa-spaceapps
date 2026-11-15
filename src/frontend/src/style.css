@@ -154,6 +154,10 @@ strong {
   height: 15px;
 }
 
+.ico-fill {
+  fill: currentColor;
+}
+
 /* Header */
 
 .g-top {
@@ -1024,6 +1028,616 @@ button.dp-title:hover,
   font-weight: 400;
 }
 
+/* Map timeline: collapsed to a pill above the footer, or open as a bar along the bottom of the map with a large
+   date selector, step size and arrows, animation button, zoomable axis, zoom control and collapse button.
+   While it is open the cards, the footer and the map controls move up by its height. */
+:root {
+  --tl-bar-h: 70px;
+}
+
+body.has-timeline {
+  --tl-h: calc(var(--tl-bar-h) + 10px);
+}
+
+.g-time {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  bottom: 52px;
+  display: flex;
+  justify-content: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+body.has-timeline .g-time {
+  left: var(--edge);
+  right: var(--edge);
+  bottom: 10px;
+  transform: none;
+}
+
+.g-time > * {
+  pointer-events: auto;
+}
+
+body.has-timeline .g-main {
+  bottom: calc(var(--main-bottom) + var(--tl-h));
+}
+
+body.has-timeline .g-foot {
+  bottom: calc(10px + var(--tl-h));
+}
+
+body.has-timeline .g-map .maplibregl-ctrl-bottom-right {
+  bottom: calc(var(--edge) + var(--tl-h));
+}
+
+body.has-timeline .g-map .maplibregl-ctrl-bottom-left {
+  bottom: calc(2px + var(--tl-h));
+}
+
+.g-time[hidden],
+.tl-bar[hidden],
+.tl-panel[hidden],
+.tl-open[hidden],
+.tl-menu[hidden],
+.tl-field[hidden] {
+  display: none;
+}
+
+.pill.tl-open,
+.tl-bar,
+.tl-panel,
+.tl-menu {
+  border: 1px solid var(--glass-line);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-hi);
+}
+
+.pill.tl-open {
+  min-height: 36px;
+  font-weight: 400;
+}
+
+.pill.tl-open .ico {
+  width: 13px;
+  height: 13px;
+}
+
+/* The bar: fixed blocks left and right, the axis takes the rest */
+.tl-bar {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  height: var(--tl-bar-h);
+  border-radius: 12px;
+  overflow: visible;
+}
+
+.tl-datebox,
+.tl-nav,
+.tl-animate,
+.tl-zoom,
+.tl-hide {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.tl-datebox {
+  padding: 0 6px 0 12px;
+}
+
+/* Date fields: an up arrow above and a down arrow below each value */
+.tl-date {
+  display: flex;
+  gap: 4px;
+}
+
+.tl-field {
+  display: grid;
+  justify-items: center;
+}
+
+.tl-arrow {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-width: 22px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.tl-arrow .ico {
+  width: 14px;
+  height: 14px;
+}
+
+.tl-arrow:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.tl-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.tl-input {
+  padding: 0 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.tl-input:hover {
+  background: var(--accent-wash);
+}
+
+.tl-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  background: var(--accent-wash);
+}
+
+/* Step size over the previous, next and latest arrows */
+.tl-nav {
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 4px;
+}
+
+.tl-interval-wrap {
+  position: relative;
+  align-self: flex-start;
+  padding-left: 8px;
+}
+
+.tl-interval {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.tl-interval:hover,
+.tl-interval[aria-expanded="true"] {
+  color: var(--ink);
+}
+
+.tl-interval-n {
+  margin-right: 4px;
+  color: var(--accent);
+}
+
+.tl-menu {
+  position: absolute;
+  z-index: 3;
+  bottom: calc(100% + 10px);
+  left: 0;
+  display: grid;
+  min-width: 110px;
+  padding: 4px;
+  border-radius: 10px;
+}
+
+.tl-menu button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-small);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tl-menu button:hover,
+.tl-menu button:focus-visible {
+  background: var(--accent-wash);
+  color: var(--ink);
+  outline: none;
+}
+
+.tl-menu button[aria-checked="true"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tl-arrows {
+  display: flex;
+}
+
+.tl-chev {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.tl-chev .ico {
+  width: 24px;
+  height: 24px;
+  stroke-width: 2.4;
+}
+
+.tl-chev:hover:not(:disabled) {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.tl-chev:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.tl-animate {
+  justify-content: center;
+  width: 52px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.tl-animate .ico {
+  width: 26px;
+  height: 26px;
+}
+
+.tl-animate:hover,
+.tl-animate[aria-expanded="true"] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+/* Axis: a window onto the track; the track holds the activity strip on top and the tick grid below it */
+.tl-axis {
+  position: relative;
+  flex: 1;
+  min-width: 140px;
+  overflow: hidden;
+  border-right: 1px solid var(--glass-line);
+  border-left: 1px solid var(--glass-line);
+  background: rgba(255, 240, 225, 0.025);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.tl-axis.is-panning {
+  cursor: grabbing;
+}
+
+.tl-axis:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.tl-track {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  will-change: transform;
+}
+
+/* Activity strip: one bar per day, the band along the top of the axis */
+.tl-activity {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 20px;
+  border-bottom: 1px solid rgba(255, 122, 46, 0.45);
+  background: rgba(255, 122, 46, 0.1);
+  fill: var(--accent);
+  overflow: visible;
+}
+
+.tl-grid {
+  position: absolute;
+  top: 20px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
+.tl-line {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 6px;
+  background: var(--line-2);
+}
+
+.tl-line.is-major {
+  height: 12px;
+  background: var(--ink-3);
+}
+
+/* Month and year boundaries run the full height, with the label at their foot */
+.tl-line.is-labelled {
+  height: 100%;
+  background: rgba(255, 240, 225, 0.35);
+}
+
+.tl-line > span {
+  position: absolute;
+  bottom: 4px;
+  left: 5px;
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tl-line:not(.is-labelled) > span {
+  top: 13px;
+  bottom: auto;
+  left: 0;
+  font-size: var(--fs-caption);
+  transform: translateX(-50%);
+}
+
+.tl-line b {
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* The step under the pick, shaded */
+.tl-span {
+  position: absolute;
+  top: 20px;
+  bottom: 0;
+  background: rgba(255, 240, 225, 0.06);
+  pointer-events: none;
+}
+
+/* Animation range: a shaded band with a handle at each end, shown while the animation panel is open */
+.tl-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-right: 2px solid var(--accent);
+  border-left: 2px solid var(--accent);
+  background: rgba(255, 122, 46, 0.16);
+  pointer-events: none;
+}
+
+.tl-bar:not(.is-animating) .tl-band {
+  display: none;
+}
+
+.tl-handle {
+  position: absolute;
+  top: 0;
+  width: 18px;
+  height: 14px;
+  background: var(--accent);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.tl-handle[data-end="a"] {
+  left: -10px;
+}
+
+.tl-handle[data-end="b"] {
+  right: -10px;
+}
+
+/* Pick: a line down the axis with a tab hanging from the activity strip */
+.tl-pick {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--ink);
+  box-shadow: 0 0 8px var(--accent-glow);
+  pointer-events: none;
+  transition: left var(--dur-1) var(--ease-out);
+}
+
+.tl-axis.is-dragging .tl-pick,
+.tl-axis.is-panning .tl-pick {
+  transition: none;
+}
+
+.tl-pick-head {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 30px;
+  height: 26px;
+  border-radius: 7px 7px 4px 4px;
+  background:
+    linear-gradient(90deg, transparent 10px, var(--page) 10px 11.5px, transparent 11.5px 14.25px, var(--page) 14.25px 15.75px, transparent 15.75px 18.5px, var(--page) 18.5px 20px, transparent 20px) center 7px / 100% 12px no-repeat,
+    var(--ink);
+  clip-path: polygon(50% 0, 100% 30%, 100% 100%, 0 100%, 0 30%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.tl-zoom {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  justify-items: center;
+  align-content: center;
+  gap: 1px;
+  width: 58px;
+}
+
+.tl-zoom-label {
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.tl-hide {
+  justify-content: center;
+  width: 34px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--glass-line);
+  border-radius: 0 12px 12px 0;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.tl-hide .ico {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+
+.tl-hide:hover {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+/* Animation panel, opening above the camera button */
+.tl-panel {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  display: grid;
+  gap: 8px;
+  width: min(400px, 100%);
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+
+.tl-panel-head,
+.tl-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tl-panel-head {
+  justify-content: space-between;
+}
+
+.tl-panel-title {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
+
+.tl-panel-title strong {
+  color: var(--accent);
+  letter-spacing: 0.05em;
+}
+
+.tl-panel-close {
+  width: 26px;
+  height: 26px;
+}
+
+.tl-panel-close .ico,
+.tl-loop .ico {
+  width: 13px;
+  height: 13px;
+}
+
+.tl-play {
+  width: 34px;
+  height: 34px;
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.tl-play .ico {
+  width: 14px;
+  height: 14px;
+}
+
+.tl-loop {
+  width: 30px;
+  height: 30px;
+}
+
+.tl-loop[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.tl-speed {
+  flex: 1;
+  min-width: 60px;
+  accent-color: var(--accent);
+}
+
+.tl-speed-label,
+.tl-to {
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+
+.tl-panel-dates {
+  justify-content: center;
+}
+
+.tl-panel .tl-input {
+  font-size: 16px;
+}
+
+.tl-panel .tl-arrow .ico {
+  width: 12px;
+  height: 12px;
+}
+
+.tl-status {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
+}
+
+.tl-status:empty {
+  display: none;
+}
+
 /* The top tools bar only shows while it has polygon tools in it */
 .g-tools:not(:has(> :not([hidden]))) {
   display: none;
@@ -1426,6 +2040,19 @@ body:has(.card-dialog[open]) {
 }
 
 @media (max-width: 1099px) {
+  .g-time {
+    bottom: 10px;
+  }
+
+  body.has-timeline .g-time {
+    left: 10px;
+    right: 10px;
+  }
+
+  body.has-timeline .g-map .maplibregl-ctrl-bottom-right {
+    bottom: calc(10px + var(--tl-h));
+  }
+
   .g-top {
     position: sticky;
     top: 0;

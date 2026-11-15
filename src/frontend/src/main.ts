@@ -2,7 +2,7 @@ import "./style.css";
 import { AgreementView } from "./agreement-view";
 import { AnalyticsView } from "./analytics-view";
 import { AnomalyView } from "./anomaly-view";
-import { Api, type FireEvent, type Meta } from "./api";
+import { Api, type CellsResponse, type FireEvent, type Meta } from "./api";
 import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
@@ -17,6 +17,8 @@ import { SelectMenu } from "./select-menu";
 import { RegionIndex, regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
 import { initCards, measureInsets } from "./screen";
 import { select, unobserved, type Selection } from "./store";
+import { Timeline } from "./time-slider";
+import { sharedScale, type Frame } from "./timeline";
 import type { DayNight, Filters, SelectionMode } from "./types";
 import { readUrlState, writeUrlState, type ViewState } from "./url-state";
 
@@ -69,6 +71,15 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   let countText = "Loading fire data…";
   let generation = 0;
   let periodRequests: AbortController | null = null;
+  /** Cells of the whole selected period, shown while the timeline is on all dates. */
+  let fullCells: CellsResponse | null = null;
+  /** Timeline step on the map, or null while the map shows the whole selected period. */
+  let shownFrame: Frame | null = null;
+  /** Timeline step last asked for; a slower load for an earlier step is dropped. */
+  let wantedFrame: Frame | null = null;
+  /** Cells of timeline steps already asked for, for the current filters. */
+  const stepCache = new Map<string, Promise<CellsResponse>>();
+  let timeRequests: AbortController | null = null;
 
   /** Updates the polygon tools and the on-map instruction from the drawing state. */
   function syncDrawUi(): void {
@@ -168,7 +179,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   function updateCount(): void {
     const parts: string[] = [];
     if (mapTotals) parts.push(`${fmtVal(mapTotals.total)} ${UNIT_SHORT} in ${fmtInt(mapTotals.cells)} cells`);
-    parts.push(areaLabel(), formatRange(toDay(filters.start), toDay(filters.end)));
+    parts.push(areaLabel(), shownFrame ? shownFrame.label : formatRange(toDay(filters.start), toDay(filters.end)));
     if (daynight !== "all") parts.push(DAYNIGHT_LABEL[daynight]);
     if (sel) {
       const missing = unobserved(sel, sel.from, sel.to);
@@ -192,6 +203,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     const current = () => g === generation;
     sel = null;
     mapTotals = null;
+    resetTimeline();
     if ($("#dl-note").dataset.loadError) setNote("");
     updateCount();
 
@@ -200,6 +212,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     api.series(filters, daynight).then((s) => {
       if (!current()) return;
       sel = select(s, filters.start, filters.end);
+      timeline.setActivity(s.daily, s.firstDay);
       calendar.render(sel, ramp);
       analytics.render(sel, ramp);
       anomaly.render(sel, Boolean(datesChanged));
@@ -227,11 +240,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     setLoad(["events"], "busy");
     api.cells(filters, daynight, ctl.signal).then((c) => {
       if (!current()) return;
-      map.setCells(c);
-      map.setCallout(c.top, c.top ? (regions.byId.get(c.top.region_id)?.name ?? "") : "");
-      renderMapLegend();
-      mapTotals = { total: c.total, cells: c.active_cells };
-      updateCount();
+      fullCells = c;
+      if (!timeline.active) showCells(c);
     }, (err) => {
       if (!current()) return;
       map.setCells(null);
@@ -248,6 +258,77 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       setLoad(["events"], "stale");
       showError("the fire events", err);
     });
+  }
+
+  /** Puts cells on the map with their legend and totals; a timeline step has no most-active-cell callout. */
+  function showCells(c: CellsResponse, step: Frame | null = null, breaks?: number[]): void {
+    shownFrame = step;
+    map.setCells(c, breaks);
+    map.setCallout(step ? null : c.top, c.top ? (regions.byId.get(c.top.region_id)?.name ?? "") : "");
+    renderMapLegend();
+    mapTotals = { total: c.total, cells: c.active_cells };
+    updateCount();
+  }
+
+  /** Cells of one timeline step, loaded once per filters and kept for stepping back and forth. */
+  function stepCells(f: Frame): Promise<CellsResponse> {
+    const key = `${f.from}|${f.to}`;
+    let hit = stepCache.get(key);
+    if (!hit) {
+      const ctl = (timeRequests ??= new AbortController());
+      hit = api.cells({ ...filters, start: f.from, end: f.to }, daynight, ctl.signal);
+      hit.catch(() => stepCache.delete(key));
+      stepCache.set(key, hit);
+      if (stepCache.size > 400) stepCache.delete(stepCache.keys().next().value!);
+    }
+    return hit;
+  }
+
+  const timeline = new Timeline($("#time-slider"), {
+    async show(frame, scale) {
+      wantedFrame = frame;
+      if (!frame) {
+        if (fullCells) showCells(fullCells);
+        else {
+          shownFrame = null;
+          updateCount();
+        }
+        return;
+      }
+      const g = generation;
+      try {
+        const c = await stepCells(frame);
+        if (g === generation && wantedFrame === frame) showCells(c, frame, scale);
+      } catch (err) {
+        if (g !== generation || (err as Error).name === "AbortError") return;
+        showError("the map timeline", err as Error);
+      }
+    },
+    async prepare(list, progress) {
+      const out: CellsResponse[] = new Array(list.length);
+      let next = 0;
+      let done = 0;
+      const worker = async () => {
+        while (next < list.length) {
+          const i = next++;
+          out[i] = await stepCells(list[i]);
+          progress(++done);
+        }
+      };
+      await Promise.all(Array.from({ length: 4 }, worker));
+      return sharedScale(out, RAMPS[ramp].steps.length);
+    },
+  });
+
+  /** Drops the timeline steps loaded for earlier filters and lays the timeline over the new dates. */
+  function resetTimeline(): void {
+    timeRequests?.abort();
+    timeRequests = null;
+    stepCache.clear();
+    fullCells = null;
+    shownFrame = null;
+    wantedFrame = null;
+    timeline.setRange(filters.start, filters.end);
   }
 
   document.querySelectorAll<HTMLButtonElement>(".hf-mode [data-mode]").forEach((b) =>

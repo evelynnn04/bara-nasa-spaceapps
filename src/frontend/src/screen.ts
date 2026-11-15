@@ -128,10 +128,11 @@ export function measureInsets(): Insets {
   const left = rect(".g-left");
   const right = rect(".g-right");
   const tools = rect(".g-tools");
+  const timeline = document.querySelector(".tl-bar:not([hidden])")?.getBoundingClientRect();
   return {
     left: left ? left.right - stage.left + pad : pad,
     right: right ? stage.right - right.left + pad : pad,
     top: tools ? tools.bottom - stage.top + pad / 2 : pad,
-    bottom: pad + 30,
+    bottom: pad + 30 + (timeline ? stage.bottom - timeline.top : 0),
   };
 }
