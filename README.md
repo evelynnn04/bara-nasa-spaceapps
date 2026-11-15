@@ -15,7 +15,7 @@ Requires Docker with Compose v2.
 docker compose up --build
 ```
 
-The dashboard and the API run as one service on `http://localhost:8000`: the dashboard at `/`, the API under `/api`. Check it with `curl http://localhost:8000/health`, which returns `{"status":"ok"}`. Interactive API docs are at `http://localhost:8000/docs`. Stop it with `docker compose down`. The data must be in place first (see "Fire data").
+The website and the API run as one service on `http://localhost:8000`: the landing page at `/`, the dashboard at `/dashboard/`, the API under `/api`. Check it with `curl http://localhost:8000/health`, which returns `{"status":"ok"}`. Interactive API docs are at `http://localhost:8000/docs`. Stop it with `docker compose down`. The data must be in place first (see "Fire data").
 
 ### Local development without Docker
 Dependencies are managed with [uv](https://docs.astral.sh/uv/) and pinned in `src/backend/uv.lock`.
@@ -131,7 +131,8 @@ npm ci
 npm run dev
 ```
 
-The dev server proxies `/api` to `http://localhost:8000` (set `API_PROXY` to use another address).
+The landing page opens at `http://localhost:5173/` and the dashboard at
+`http://localhost:5173/dashboard/`. The dev server proxies `/api` to `http://localhost:8000` (set `API_PROXY` to use another address).
 A production build (`npm run build`) expects the API on the same origin, or at `VITE_API_BASE`.
 Frontend tests run with `npm test`.
 
@@ -144,7 +145,8 @@ uv run pytest
 
 ## Deploying to Cloud Run
 The dashboard and the API deploy as one Cloud Run service from the `Dockerfile` at the repository
-root: it builds the dashboard and serves it at `/`, next to the API under `/api`.
+root: it builds the landing page and the dashboard and serves them at `/` and `/dashboard/`, next to the
+API under `/api`.
 
 The data is not committed, so the service reads it from a Cloud Storage bucket mounted read-only.
 It needs `data/derived/` and `data/parquet/` (about 220 MB); the region outlines are part of the

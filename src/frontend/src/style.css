@@ -192,9 +192,9 @@ body.is-scrolled .g-top {
   text-decoration: none;
 }
 
-.g-brand .ico {
-  width: 24px;
-  height: 24px;
+.g-brand .g-logo {
+  width: auto;
+  height: 22px;
 }
 
 .tile-label,
@@ -1723,7 +1723,7 @@ body:has(.card-dialog[open]) {
   display: none;
 }
 
-@media (max-width: 1399px) {
+@media (max-width: 1599px) {
   .g-export-long {
     display: none;
   }

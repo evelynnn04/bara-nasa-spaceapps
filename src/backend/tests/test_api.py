@@ -283,13 +283,17 @@ def test_map_layer_falls_back_to_blocks_above_the_cell_bound(client, monkeypatch
     assert sum(coarse["cells"]["value"]) == pytest.approx(full["total"], abs=1e-2)
 
 
-def test_built_dashboard_is_served_next_to_the_api(tmp_path):
+def test_built_pages_are_served_next_to_the_api(tmp_path):
     (tmp_path / "assets").mkdir()
-    (tmp_path / "index.html").write_text("<!doctype html><title>dashboard</title>", encoding="utf-8")
+    (tmp_path / "dashboard").mkdir()
+    (tmp_path / "index.html").write_text("<!doctype html><title>landing</title>", encoding="utf-8")
+    (tmp_path / "dashboard" / "index.html").write_text("<!doctype html><title>dashboard</title>", encoding="utf-8")
     (tmp_path / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
     client = TestClient(create_app(tmp_path))
-    page = client.get("/")
-    assert page.status_code == 200 and "dashboard" in page.text
+    assert "landing" in client.get("/").text
+    moved = client.get("/dashboard?from=2015-01-01", follow_redirects=False)
+    assert moved.status_code == 307 and moved.headers["location"].endswith("/dashboard/?from=2015-01-01")
+    assert "dashboard" in client.get("/dashboard/?from=2015-01-01").text
     assert client.get("/assets/app.js").text == "console.log(1)"
     assert client.get("/health").json() == {"status": "ok"}
     assert client.get("/api/series?area=nope").status_code == 400
