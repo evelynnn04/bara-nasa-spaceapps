@@ -16,7 +16,11 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("normalise", help="raw CSV -> one Parquet file per product and year")
     sub.add_parser("build", help="cell-day table, day status and cell lookup")
     sub.add_parser("fit", help="fit the VIIRS factors, evaluate them and write params.json")
-    sub.add_parser("cache", help="region cache, fire events and the fire outlook (needs params.json from fit)")
+    sub.add_parser("cache", help="region cache, fire events, their attribution and the fire outlook (needs params.json from fit)")
+    ctx = sub.add_parser("context", help="download the environmental context layers into data/context")
+    ctx.add_argument("sources", nargs="*", choices=["hansen", "peat", "modis", "imerg", "climate"],
+                     help="layers to fetch (default all; modis and imerg need EARTHDATA_TOKEN)")
+    sub.add_parser("attribute", help="likely cause of every fire event from the context layers")
     ev = sub.add_parser("anomaly-eval", help="leave-one-year-out alert rates of the anomaly labels")
     ev.add_argument("--unit", choices=("province", "regency", "grid"), default="province")
     ev.add_argument("--hotspots", choices=("vegetation", "all"), default="vegetation")
@@ -43,12 +47,21 @@ def main(argv: list[str] | None = None) -> None:
         from .harmonise import fit
         fit.run()
     if args.cmd in ("cache", "all"):
+        from . import attribution
         from .pipeline import aggregate, events
         aggregate.run()
         events.run()
         from . import outlook, store
         from .harmonise import weights
         outlook.build(store.connect(weights.load_params()))
+        if attribution.has_context():
+            attribution.run()
+    if args.cmd == "context":
+        from . import context
+        context.run(tuple(args.sources) or context.SOURCES)
+    if args.cmd == "attribute":
+        from . import attribution
+        attribution.run()
     if args.cmd == "anomaly-eval":
         import json
         from . import anomaly, queries, store

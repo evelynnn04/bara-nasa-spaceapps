@@ -9,6 +9,12 @@ dependencies = [
 ]
 
 [dependency-groups]
+context = [
+    "numpy>=2.5.4",
+    "py7zr>=1.1.4",
+    "pyhdf>=0.11.7",
+    "rasterio>=1.5.2",
+]
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.2.0",

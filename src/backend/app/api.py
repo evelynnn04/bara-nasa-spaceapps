@@ -33,7 +33,7 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from . import anomaly, config, critical, geo, outlook, queries, store
+from . import anomaly, attribution, config, critical, geo, outlook, queries, store
 from .db import quote
 from .harmonise import fit, weights
 from .pipeline.celldays import cell_expr, qualifying_sql
@@ -498,18 +498,32 @@ EVENT_COLUMNS = ("event", "start", "end", "duration_days", "peak_day", "cells", 
                  "pixels", "frp_max", "lon", "lat", "west", "south", "east", "north", "regency_id", "province_id")
 
 
+Cause = Literal["land_clearing", "agricultural_burning", "wildfire", "unknown"]
+
+
 @router.get("/events")
 def events(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depends(period),
-           limit: int = Query(5, ge=1, le=50), hotspots: Hotspots = "vegetation") -> dict:
+           limit: int = Query(5, ge=1, le=50), hotspots: Hotspots = "vegetation",
+           cause: Cause | None = None) -> dict:
     """The largest fire events active in a period, by harmonised hotspots.
 
     An event groups active cell-days whose cells touch and whose days are at most one day apart.
     Its descriptors cover the whole event, also the part outside the requested period. A named area
-    selects events that lie mostly inside it; a polygon selects events whose centre it contains."""
+    selects events that lie mostly inside it; a polygon selects events whose centre it contains.
+
+    When the attribution is built, every event carries `attribution` (likely cause, confidence,
+    indicators and cited evidence; see `/api/attribution` and docs/attribution.md), else null.
+    `cause` keeps only events attributed to that cause."""
     cur = cursor()
     if not store.has(cur, "events"):
         raise HTTPException(503, "Fire events are missing. Run `python -m app cache` first.")
+    attributed = store.has(cur, "event_attribution")
+    if cause and not attributed:
+        raise HTTPException(503, "Fire cause attribution is missing. Run `python -m app attribute` first.")
     where = [f"hotspots = {quote(hotspots)}", f"start <= DATE '{span[1]}'", f"\"end\" >= DATE '{span[0]}'"]
+    if cause:
+        where.append(f"event IN (SELECT event FROM event_attribution WHERE hotspots = {quote(hotspots)} "
+                     f"AND category = {quote(cause)})")
     if area.ring is not None:
         xs, ys = [p[0] for p in area.ring], [p[1] for p in area.ring]
         where.append(f"lon BETWEEN {min(xs)} AND {max(xs)} AND lat BETWEEN {min(ys)} AND {max(ys)}")
@@ -530,7 +544,37 @@ def events(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Dep
         e["bbox"] = [float(e.pop(k)) for k in ("west", "south", "east", "north")]
         e["pixels"] = int(e["pixels"])
         out.append(e)
-    return {"unit": fit.UNIT, "hotspots": hotspots, "events": out}
+    found = _attributions(cur, hotspots, [e["event"] for e in out]) if attributed else {}
+    for e in out:
+        e["attribution"] = found.get(e["event"])
+    return {"unit": fit.UNIT, "hotspots": hotspots, "events": out,
+            "attribution_disclaimer": attribution.DISCLAIMER if attributed else None}
+
+
+def _attributions(cur: duckdb.DuckDBPyConnection, hotspots: str, ids: list[int]) -> dict[int, dict]:
+    """Attribution of the given events of one type setting, by event id."""
+    if not ids:
+        return {}
+    rows = cur.execute(f"SELECT * FROM event_attribution WHERE hotspots = {quote(hotspots)} "
+                       f"AND event IN ({', '.join(str(int(i)) for i in ids)})")
+    names = [d[0] for d in rows.description]
+    return {r[names.index("event")]: attribution.describe(dict(zip(names, r))) for r in rows.fetchall()}
+
+
+@router.get("/attribution")
+def attribution_method() -> dict:
+    """How fire events are attributed to a likely cause: categories, indicators with their points,
+    thresholds and sources, confidence levels and the disclaimer. `available` says whether the
+    attribution is built and which context layers it used."""
+    cur = cursor()
+    out = attribution.method()
+    out["available"] = store.has(cur, "event_attribution")
+    if out["available"]:
+        cols = {"forest2000": "hansen2013", "forest_loss": "hansen2013", "landcover_year": "mcd12q1",
+                "peat": "gumbricht2017", "rain3": "imerg", "oni": "oni", "dmi": "saji1999"}
+        counts = cur.execute("SELECT " + ", ".join(f"count({c})" for c in cols) + " FROM event_attribution").fetchone()
+        out["layers"] = {c: n > 0 for c, n in zip(cols, counts)}
+    return out
 
 
 OutlookStep = Literal["day", "month", "year"]
