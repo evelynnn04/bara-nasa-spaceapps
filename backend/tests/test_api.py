@@ -7,7 +7,7 @@ import datetime as dt
 import pytest
 from fastapi.testclient import TestClient
 
-from app import api, config, queries, store
+from app import api, config, geo, queries, store
 from app.harmonise import fit, weights
 from app.harmonise.regions import GROUPS
 from app.main import app
@@ -140,7 +140,22 @@ def test_cells_agreement_events_and_csv(client):
     assert lines[1].split(",")[12] == "true"
 
 
+def test_area_ids_are_checked_against_known_areas(client):
+    assert client.get("/api/series?area=idn-doesnotexist").status_code == 400
+    # An outline in the boundary file with no cell in the dataset is a valid, empty area.
+    empty = next(i for i, parent in geo.load_areas() if parent and parent != "idn")
+    body = client.get(f"/api/series?area={empty}").json()
+    assert all(v in (0, None) for v in body["values"])
+
+
+def test_csv_reports_zero_rows_when_nothing_matches(client):
+    res = client.get("/api/detections.csv?from=2015-09-02&to=2015-09-02&area=idn-riau")
+    assert res.status_code == 200 and res.headers["x-total-rows"] == "0"
+    assert res.text.strip().splitlines() == [",".join(api.CSV_COLUMNS)]
+
+
 @pytest.mark.parametrize("url", ["/api/series?area=nope", "/api/series?poly=1,2;3,4",
+                                 "/api/series?poly=100,1;101,1;102,1",
                                  "/api/cells?from=2015-09-02&to=2015-09-01",
                                  "/api/detections.csv?from=2015-01-01&to=2016-06-01"])
 def test_bad_requests_are_rejected(client, url):

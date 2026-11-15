@@ -52,26 +52,34 @@ _lock = threading.Lock()
 _state: dict = {}
 
 
+REQUIRED = ("celldays", "days", "cells", "region_daily")
+
+
 def configure(con: duckdb.DuckDBPyConnection | None, params: dict | None) -> None:
     """Sets the connection and parameters the endpoints use (tests pass synthetic ones)."""
     with _lock:
         _state.clear()
         if con is not None:
-            _state.update(con=con, params=params)
+            _state.update(con=con, params=params, complete=store.has(con, *REQUIRED))
         _daily.cache_clear()
         _flags.cache_clear()
+        _parents.cache_clear()
 
 
 def _ready() -> dict:
-    """The shared connection and parameters, opened on first use."""
+    """The shared connection and parameters, opened on first use.
+
+    Whether the derived tables exist is checked once, when the connection is opened; a missing
+    table closes it again so the next request retries."""
     with _lock:
         if not _state:
             try:
                 params = weights.load_params()
             except RuntimeError as err:
                 raise HTTPException(503, str(err)) from err
-            _state.update(con=store.connect(params), params=params)
-        if not store.has(_state["con"], "celldays", "days", "cells", "region_daily"):
+            con = store.connect(params)
+            _state.update(con=con, params=params, complete=store.has(con, *REQUIRED))
+        if not _state["complete"]:
             con = _state.pop("con")
             _state.clear()
             con.close()
@@ -113,7 +121,11 @@ def area_param(
     ids = [i for i in (area or "idn").split(",") if i]
     if not ids or len(ids) > 600 or not all(AREA_ID.match(i) for i in ids):
         raise HTTPException(400, "area: expected comma-separated area ids such as `idn-riau`")
-    return Area(ids=tuple(queries.normalise_ids(cursor(), ids)))
+    parents = _parents()
+    unknown = [i for i in ids if i not in parents]
+    if unknown:
+        raise HTTPException(400, f"area: unknown area id {unknown[0]!r}")
+    return Area(ids=tuple(queries.normalise_ids(ids, parents)))
 
 
 def period(
@@ -124,6 +136,11 @@ def period(
     if start > end:
         raise HTTPException(400, "`from` must not be after `to`")
     return start, end
+
+
+@lru_cache(maxsize=1)
+def _parents() -> dict[str, str | None]:
+    return queries.area_parents(cursor())
 
 
 @lru_cache(maxsize=1)
@@ -343,29 +360,31 @@ def detections_csv(area: Area = Depends(area_param), span: tuple[dt.date, dt.dat
                                AND m.my = CAST(floor(c.lat / {MASK_RES}) AS INTEGER)
         WHERE {half} AND ({area.where(cur)})
     """
-    total = cur.execute(f"SELECT count(*) {source}").fetchone()[0]
-    sql = f"""
+    res = cur.execute(f"""
         SELECT strftime(c.acq_utc, '%Y-%m-%dT%H:%MZ'), c.local_date, c.lon, c.lat, c.sensor, c.platform,
                c.daynight, round(CAST(c.frp AS DOUBLE), 2), c.confidence, c.type, c.version, c.source,
-               CAST(coalesce({qualifying_sql('c')}, FALSE) AS VARCHAR), c.cx, c.cy, k.province_id, k.regency_id
+               CAST(coalesce({qualifying_sql('c')}, FALSE) AS VARCHAR), c.cx, c.cy, k.province_id, k.regency_id,
+               count(*) OVER () AS total
         {source}
         ORDER BY c.acq_utc, c.platform, c.lon, c.lat
         LIMIT {MAX_CSV_ROWS}
-    """
+    """)
+    first = res.fetchmany(5000)
+    total = first[0][-1] if first else 0
 
     def lines() -> Iterator[str]:
         buf = io.StringIO()
         out = csv.writer(buf)
         out.writerow(CSV_COLUMNS)
-        res = cur.execute(sql)
+        chunk = first
         while True:
-            chunk = res.fetchmany(5000)
             yield buf.getvalue()
             buf.seek(0)
             buf.truncate()
             if not chunk:
                 return
-            out.writerows(chunk)
+            out.writerows(row[:-1] for row in chunk)
+            chunk = res.fetchmany(5000)
 
     name = f"detections_{span[0]}_{span[1]}.csv"
     return StreamingResponse(lines(), media_type="text/csv; charset=utf-8",

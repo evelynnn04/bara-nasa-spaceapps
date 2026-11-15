@@ -27,7 +27,7 @@ from collections import defaultdict
 
 import duckdb
 
-from . import config
+from . import config, geo
 from .db import quote
 from .geo import Ring
 from .harmonise import metrics, weights
@@ -54,18 +54,30 @@ def daily_sql(daynight: str, where: str = "TRUE", group: str = "") -> str:
     """
 
 
-def normalise_ids(con: duckdb.DuckDBPyConnection, ids: list[str]) -> list[str]:
-    """Drops ids covered by a selected ancestor, so every cell is counted once."""
+def area_parents(con: duckdb.DuckDBPyConnection) -> dict[str, str | None]:
+    """Every selectable area id mapped to its parent id (`idn` has none).
+
+    Areas come from the cell lookup table, plus any outline in the boundary file that holds no
+    cell centre (a small city still has a valid, empty record)."""
+    out: dict[str, str | None] = {"idn": None}
+    for province, regency in con.execute(
+            "SELECT DISTINCT province_id, regency_id FROM cells WHERE province_id IS NOT NULL").fetchall():
+        out[province] = "idn"
+        if regency is not None:
+            out[regency] = province
+    if config.boundaries_path().is_file():
+        for b in geo.load_areas():
+            out.setdefault(b[0], b[1])
+    return out
+
+
+def normalise_ids(ids: list[str], parents: dict[str, str | None]) -> list[str]:
+    """Drops ids covered by a selected ancestor, so every cell is counted once. Every id must be
+    a key of `parents` (see `area_parents`)."""
     wanted = set(ids)
-    out = []
-    for i in ids:
-        if i == "idn":
-            return ["idn"]
-        parent = con.execute("SELECT DISTINCT province_id FROM cells WHERE regency_id = ?", [i]).fetchone()
-        if parent and (parent[0] in wanted or "idn" in wanted):
-            continue
-        out.append(i)
-    return sorted(set(out))
+    if "idn" in wanted:
+        return ["idn"]
+    return sorted(i for i in wanted if parents.get(i) not in wanted)
 
 
 def area_filter(ids: list[str] | None = None, cells_table: str | None = None) -> str:
@@ -83,6 +95,9 @@ def polygon_cells(con: duckdb.DuckDBPyConnection, ring: Ring, name: str) -> int:
     (even-odd ray casting over the polygon's edges, run in DuckDB). Returns the cell count."""
     edges = ", ".join(f"({x1!r}, {y1!r}, {x2!r}, {y2!r})"
                       for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1]) if y1 != y2)
+    if not edges:
+        con.execute(f"CREATE OR REPLACE TEMP TABLE {name} (cx INTEGER, cy INTEGER)")
+        return 0
     xs, ys = [p[0] for p in ring], [p[1] for p in ring]
     g = config.GRID
     con.execute(f"""
