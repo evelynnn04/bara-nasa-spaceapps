@@ -1,27 +1,45 @@
 /**
  * Sequential ramps for "amount of burning", darkest first. Each step must be brighter than the last, so every ramp
- * also reads by lightness alone. The hues are chosen so each colour-vision type keeps a clear ramp.
+ * also reads by lightness alone. The hues are chosen so each colour-vision type keeps a clear ramp. `accent` and
+ * `accentInk` colour the rest of the dashboard (buttons, highlights, chart lines, area outlines) in the same hue;
+ * `alert` marks unusual points in charts and `ref` the median line, each picked to stand out for that vision type.
  */
 export const RAMPS = {
   ember: {
     label: "Default",
     hint: "Typical colour vision",
     steps: ["#3a1a10", "#5a2410", "#80300f", "#a8400e", "#cf5a12", "#ef7d26", "#ffa65a", "#ffd39c"],
+    accent: "#ff7a2e",
+    accentInk: "#ffb27a",
+    alert: "#ff6b5e",
+    ref: "#9fc7ff",
   },
   cividis: {
     label: "Protanopia & deuteranopia",
     hint: "Red-green colour blindness",
     steps: ["#1b2a4a", "#2b3d63", "#45506e", "#646575", "#857c72", "#a99467", "#d0ae55", "#fbd13c"],
+    accent: "#d0ae55",
+    accentInk: "#fbd13c",
+    alert: "#7cb1ff",
+    ref: "#e8e2d0",
   },
   rose: {
     label: "Tritanopia",
     hint: "Blue-yellow colour blindness",
     steps: ["#3d1424", "#5e1a34", "#842244", "#a52f55", "#cc5574", "#e57f96", "#f2abbb", "#fbd8e0"],
+    accent: "#e57f96",
+    accentInk: "#f2abbb",
+    alert: "#ff3355",
+    ref: "#d9d9d9",
   },
   grey: {
     label: "Achromatopsia",
     hint: "No colour vision",
     steps: ["#2c2c2c", "#404040", "#535353", "#646464", "#8f8f8f", "#ababab", "#cbcbcb", "#ececec"],
+    accent: "#cbcbcb",
+    accentInk: "#ececec",
+    alert: "#ffffff",
+    ref: "#8f8f8f",
   },
 } as const;
 
@@ -101,4 +119,24 @@ export function breaksFrom(quantiles: number[], steps: number): number[] {
     if (nice > out[out.length - 1]) out.push(nice);
   }
   return out;
+}
+
+/**
+ * CSS custom properties that carry a ramp's accent through the page: the accent and its lighter ink,
+ * and the translucent washes, glows and hairlines derived from the accent.
+ */
+export function accentVars(name: RampName): Record<string, string> {
+  const { accent, accentInk } = RAMPS[name];
+  const n = parseInt(accent.slice(1), 16);
+  const rgb = `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+  return {
+    "--accent": accent,
+    "--accent-ink": accentInk,
+    "--accent-glow": `rgba(${rgb}, 0.35)`,
+    "--accent-wash": `rgba(${rgb}, 0.08)`,
+    "--accent-wash-2": `rgba(${rgb}, 0.16)`,
+    "--hair": `rgba(${rgb}, 0.2)`,
+    "--ember-clear": `rgba(${rgb}, 0)`,
+    "--ember-grade": `rgba(${rgb}, 0.05)`,
+  };
 }

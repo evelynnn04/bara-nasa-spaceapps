@@ -18,20 +18,20 @@
         <img class="g-logo" src="/brand/bara-wordmark.png" alt="" width="983" height="247" />
       </a>
       <div class="g-filters" role="group" aria-label="Filters">
-        <div class="seg hf-dn" role="group" aria-label="Detections counted" title="Count detections made by day, by night or both">
-          <button type="button" class="seg-btn" data-dn="all" aria-pressed="true">All</button>
-          <button type="button" class="seg-btn" data-dn="day" aria-pressed="false">Day</button>
+        <div class="seg hf-dn" role="group" aria-label="Detections counted">
+          <button type="button" class="seg-btn" data-dn="all" aria-pressed="true" title="Count detections made by day and by night">All</button>
+          <button type="button" class="seg-btn" data-dn="day" aria-pressed="false" title="Count daytime detections only">Day</button>
           <button type="button" class="seg-btn" data-dn="night" aria-pressed="false" title="Night only: quiet months read high, because Aqua records few hotspots at night.">Night</button>
           <span class="seg-thumb" aria-hidden="true"></span>
         </div>
-        <div class="seg hf-ht" role="group" aria-label="Hotspot types counted" title="Count presumed vegetation fires only, or every hotspot type including volcanoes and gas flares">
-          <button type="button" class="seg-btn" data-ht="vegetation" aria-pressed="true" aria-label="Vegetation fires">Vegetation</button>
-          <button type="button" class="seg-btn" data-ht="all" aria-pressed="false" aria-label="All hotspot types">All types</button>
+        <div class="seg hf-ht" role="group" aria-label="Hotspot types counted">
+          <button type="button" class="seg-btn" data-ht="vegetation" aria-pressed="true" aria-label="Vegetation fires" title="Count presumed vegetation fires only">Vegetation</button>
+          <button type="button" class="seg-btn" data-ht="all" aria-pressed="false" aria-label="All hotspot types" title="Count every hotspot type, including volcanoes and gas flares">All types</button>
           <span class="seg-thumb" aria-hidden="true"></span>
         </div>
         <div class="seg hf-mode" role="group" aria-label="Area selection mode">
-          <button type="button" class="seg-btn" data-mode="area" aria-pressed="true">Area</button>
-          <button type="button" class="seg-btn" data-mode="polygon" aria-pressed="false">Polygon</button>
+          <button type="button" class="seg-btn" data-mode="area" aria-pressed="true" title="Pick provinces or cities/regencies from the list">Area</button>
+          <button type="button" class="seg-btn" data-mode="polygon" aria-pressed="false" title="Draw your own area: click the map to add at least 3 corners, then click the first corner, double-click or press Enter to finish">Polygon</button>
           <span class="seg-thumb" aria-hidden="true"></span>
         </div>
         <div class="hf-area" id="area-picker"></div>
@@ -51,6 +51,7 @@
         <div class="g-map">
           <div id="map" tabindex="0" aria-label="Map of active fire cells for the selected area and dates"></div>
           <div class="g-shade" aria-hidden="true"></div>
+          <div class="map-skeleton" aria-hidden="true"></div>
           <div class="g-time" role="group" aria-label="Dates and map timeline">
             <div class="tl-dates"><div id="date-from"></div><div id="date-to"></div></div>
             <div class="tl" id="time-slider"></div>
@@ -61,11 +62,12 @@
           <button type="button" class="pill pill-glass" id="draw-start" hidden>
             <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18l4-12 10 4-6 9z" /></svg><span id="draw-start-label">Draw polygon</span>
           </button>
-          <p class="draw-tip" id="draw-tip" role="status" hidden></p>
           <button type="button" class="pill pill-glass" id="draw-finish" hidden disabled>Finish</button>
           <button type="button" class="pill pill-glass" id="draw-cancel" hidden>Cancel</button>
           <button type="button" class="pill pill-glass" id="draw-clear" hidden>Clear polygon</button>
         </div>
+
+        <button type="button" class="help-btn" id="help-open" aria-haspopup="dialog" aria-controls="help" aria-label="How the numbers work" title="How the numbers work">?</button>
 
         <button type="button" class="pill map-reset" id="reset-view">
           <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4 4v5h5" /></svg>Reset view
@@ -111,10 +113,6 @@
               </div>
               <div class="gc-body" id="anomaly" aria-busy="true"></div>
             </article>
-            <article class="gc" data-card="agreement" id="agreement-card" aria-labelledby="c-agreement">
-              <div class="gc-head"><h2 class="gc-title" id="c-agreement">Do MODIS and VIIRS agree here?</h2></div>
-              <div class="gc-body" id="agreement" aria-busy="true"></div>
-            </article>
           </div>
 
           <nav class="g-rail g-rail-right" aria-label="Cards for all years">
@@ -127,9 +125,6 @@
             <button type="button" class="rail-btn" data-open="anomaly" aria-controls="anomaly-card" aria-expanded="false" aria-label="Historical comparison" title="Historical comparison">
               <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4" /></svg>
             </button>
-            <button type="button" class="rail-btn" data-open="agreement" aria-controls="agreement-card" aria-expanded="false" aria-label="Do MODIS and VIIRS agree here?" title="Do MODIS and VIIRS agree here?">
-              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 12l2.5 2.5 4.5-5M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18" /></svg>
-            </button>
           </nav>
 
         </div>
@@ -140,6 +135,65 @@
       </section>
 
     </main>
+    <dialog class="card-dialog help-dialog" id="help" aria-labelledby="help-title">
+      <button type="button" class="icon-btn help-close" id="help-close" aria-label="Close" title="Close">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" /></svg>
+      </button>
+      <article class="gc help">
+        <div class="gc-head">
+          <h2 class="gc-title" id="help-title">How the numbers work</h2>
+        </div>
+        <div class="help-body">
+          <section class="help-sec" aria-labelledby="h-unit">
+            <h3 class="d-label" id="h-unit">Hotspots, in MODIS terms</h3>
+            <p>Per 0.05° cell and day, an Aqua MODIS hotspot counts once and a VIIRS hotspot counts a fraction of one:</p>
+            <div class="fx">
+              <p><span class="fx-k">MODIS</span> <i>n</i><sub>day</sub> + <i>n</i><sub>night</sub></p>
+              <p><span class="fx-k">VIIRS</span> <i>n</i><sub>day</sub> / <i>k</i><sub>day</sub>[<i>r</i>, <i>m</i>] + <i>n</i><sub>night</sub> / <i>k</i><sub>night</sub>[<i>r</i>, <i>m</i>]</p>
+              <p>ln <i>k</i><sub><i>d</i></sub>[<i>r</i>, <i>m</i>] = <i>μ</i><sub><i>d</i></sub> + <i>ρ</i><sub><i>d</i>,<i>r</i></sub> + <i>σ</i><sub><i>d</i>,<i>m</i></sub></p>
+            </div>
+            <p class="mini-note"><i>d</i> is day or night, <i>r</i> the island group and <i>m</i> the calendar month. The record is Aqua before 1 February 2012, then one VIIRS satellite per day (S-NPP, else NOAA-20, else NOAA-21). An area's value is the sum over the cells whose centre lies inside it.</p>
+          </section>
+
+          <section class="help-sec" aria-labelledby="h-fit">
+            <h3 class="d-label" id="h-fit">Fitting the factors</h3>
+            <p>On days both Aqua (<i>A</i>) and VIIRS (<i>B</i>) observed, starting from <i>μ</i> = ln(Σ<i>B</i> / Σ<i>A</i>) and repeating until nothing changes by more than 10<sup>−6</sup>:</p>
+            <div class="fx">
+              <p><i>ρ</i><sub><i>r</i></sub> = <i>s</i><sub><i>r</i></sub> · ln( <i>B</i><sub><i>r</i></sub> / Σ<sub><i>m</i></sub> <i>A</i>[<i>r</i>, <i>m</i>] · e<sup><i>μ</i> + <i>σ</i><sub><i>m</i></sub></sup> )</p>
+              <p><i>σ</i><sub><i>m</i></sub> = <i>s</i><sub><i>m</i></sub> · ln( <i>B</i><sub><i>m</i></sub> / Σ<sub><i>r</i></sub> <i>A</i>[<i>r</i>, <i>m</i>] · e<sup><i>μ</i> + <i>ρ</i><sub><i>r</i></sub></sup> )</p>
+              <p><i>s</i> = <i>A</i> / (<i>A</i> + <i>n</i><sub>0</sub>), &nbsp; <i>n</i><sub>0</sub> = 2000 hotspots</p>
+            </div>
+          </section>
+
+          <section class="help-sec" aria-labelledby="h-cmp">
+            <h3 class="d-label" id="h-cmp">Comparisons</h3>
+            <div class="fx">
+              <p><span class="fx-k">Change from a year earlier</span> (<i>x</i> − <i>x</i><sub>prev</sub>) / <i>x</i><sub>prev</sub> × 100%</p>
+              <p><span class="fx-k">Usual range</span> <i>x̄</i> ± 1.5 <i>s</i></p>
+              <p><span class="fx-k">Unusual</span> <i>x</i> &gt; <i>x̄</i> + 1.5 <i>s</i></p>
+              <p><span class="fx-k">Above the median</span> <i>x</i> &gt; median</p>
+            </div>
+            <p class="mini-note"><i>x̄</i>, <i>s</i> and the median are taken over the same month (or months) in the other years of the record.</p>
+          </section>
+
+          <section class="help-sec" aria-labelledby="h-agree">
+            <h3 class="d-label" id="h-agree">Agreement between the sensors</h3>
+            <p>Monthly totals on days both observed, <i>a</i> for Aqua and <i>b</i> for harmonised VIIRS:</p>
+            <div class="fx">
+              <p><span class="fx-k">Correlation</span> <i>r</i><sub>log</sub> = corr( ln(1 + <i>a</i>), ln(1 + <i>b</i>) )</p>
+              <p><span class="fx-k">Typical difference</span> median | ln(<i>b</i> / <i>a</i>) |, months with <i>a</i>, <i>b</i> ≥ 10</p>
+              <p><span class="fx-k">Bias</span> exp( median ln(<i>b</i> / <i>a</i>) )</p>
+            </div>
+            <p class="mini-note">Converged needs <i>r</i><sub>log</sub> ≥ 0.95, a typical difference of at most 0.25 and the same peak month in at least 6 of 7 years; partial needs <i>r</i><sub>log</sub> ≥ 0.90 and at most 0.50.</p>
+          </section>
+
+          <section class="help-sec help-agree" aria-labelledby="c-agreement">
+            <h3 class="gc-title" id="c-agreement">Do MODIS and VIIRS agree here?</h3>
+            <div class="gc-body" id="agreement" aria-busy="true"></div>
+          </section>
+        </div>
+      </article>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

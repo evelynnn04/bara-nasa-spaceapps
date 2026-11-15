@@ -123,7 +123,7 @@ export class AnomalyView {
         return {
           title: pointLabel(i),
           lines: [
-            { text: `${fmtVal(v)} ${UNIT_SHORT} (average ${fmtVal(a.mean[i])}, median ${fmtVal(a.median[i])})` },
+            { text: `${fmtVal(v)} ${UNIT_SHORT}` },
             { text: verdict.label, color: CHART[verdict.tone] },
           ],
         };

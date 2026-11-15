@@ -2,7 +2,8 @@ import "./style.css";
 import { AgreementView } from "./agreement-view";
 import { AnalyticsView } from "./analytics-view";
 import { AnomalyView } from "./anomaly-view";
-import { Api, type CellsResponse, type FireEvent, type Meta } from "./api";
+import { Api, type AgreementResponse, type CellsResponse, type FireEvent, type Meta } from "./api";
+import { setChartPalette } from "./charts";
 import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
@@ -13,7 +14,7 @@ import { UNIT_SHORT, fmtCompact, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
 import { initTooltips } from "./tooltip";
 import { MapView } from "./map-view";
-import { RAMPS, breaksFrom, type RampName } from "./ramps";
+import { RAMPS, accentVars, breaksFrom, type RampName } from "./ramps";
 import { SelectMenu } from "./select-menu";
 import { RegionIndex, loadBoundaries, regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
 import { initCards, measureInsets } from "./screen";
@@ -64,6 +65,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   let sel: Selection | null = null;
   /** The same record over all its dates, for the cards that do not follow the date picker. */
   let record: Selection | null = null;
+  /** The latest sensor comparison, kept so a palette change can redraw it. */
+  let lastAgreement: AgreementResponse | null = null;
   let freshTimer = 0;
   let draw = { drawing: false, corners: 0 };
   let generation = 0;
@@ -78,17 +81,12 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   const scaleCache = new Map<string, Promise<number[]>>();
   let timeRequests: AbortController | null = null;
 
-  /** Updates the polygon tools and the on-map instruction from the drawing state. */
+  /** Updates the polygon tools from the drawing state; how to draw is in the Polygon button's tooltip. */
   function syncDrawUi(): void {
     const { drawing, corners } = draw;
     const polygonMode = filters.mode === "polygon";
-    const tip = corners < 3
-      ? `Click the map to add corners (${corners} of at least 3)`
-      : `${corners} corners. Click the first corner, double-click or press Enter to finish`;
     $("#draw-start").hidden = !polygonMode || drawing;
     $("#draw-start-label").textContent = filters.polygon ? "Redraw polygon" : "Draw polygon";
-    $("#draw-tip").hidden = !drawing;
-    $("#draw-tip").textContent = tip;
     $("#draw-finish").hidden = !drawing;
     $<HTMLButtonElement>("#draw-finish").disabled = corners < 3;
     $("#draw-cancel").hidden = !drawing;
@@ -111,7 +109,13 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     map.setEventBox(e.bbox);
     map.fitBBox(e.bbox);
   });
-  map.setRamp(ramp);
+  /** Carries the palette's accent through the page: CSS variables, chart lines and map outlines. */
+  function applyPalette(): void {
+    for (const [name, value] of Object.entries(accentVars(ramp))) document.documentElement.style.setProperty(name, value);
+    setChartPalette(RAMPS[ramp]);
+    map.setRamp(ramp);
+  }
+  applyPalette();
   if (import.meta.env.DEV) Object.assign(window, { __dash: { map, api } });
   const picker = new AreaPicker($("#area-picker"), regions, (regionIds) => update({ regionIds }, { fit: true }));
   picker.set(filters.regionIds);
@@ -124,10 +128,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   const range = (): [string, string] => [filters.start, filters.end];
   const fromIn = new DatePicker($("#date-from"), "From", range, (start) => onDate({ start }));
   const toIn = new DatePicker($("#date-to"), "To", range, (end) => onDate({ end }));
-  for (const el of [fromIn, toIn]) {
-    el.setTitle(`The harmonised record covers ${recordStart.slice(0, 4)}–${recordEnd.slice(0, 4)}`);
-    el.setBounds(recordStart, recordEnd);
-  }
+  for (const el of [fromIn, toIn]) el.setBounds(recordStart, recordEnd);
 
   function areaLabel(): string {
     if (filters.mode === "polygon") return filters.polygon ? `Drawn polygon (${filters.polygon.length} corners)` : "All areas";
@@ -241,6 +242,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     setLoad(["agreement"], "busy");
     api.agreement(filters, counting()).then((a) => {
       if (!current()) return;
+      lastAgreement = a;
       agreement.render(a, meta.settings[hotspots], parts(toDay(filters.end)).year);
       setLoad(["agreement"], "ready");
     }, (err) => {
@@ -252,12 +254,21 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     periodRequests?.abort();
     const ctl = (periodRequests = new AbortController());
     setLoad(["events"], "busy");
+    // A shimmer covers the map until its cells arrive (or fail)
+    $(".g-map").classList.add("is-loading");
+    $("#map").setAttribute("aria-busy", "true");
+    const loaded = () => {
+      $(".g-map").classList.remove("is-loading");
+      $("#map").setAttribute("aria-busy", "false");
+    };
     api.cells(filters, counting(), ctl.signal).then((c) => {
       if (!current()) return;
+      loaded();
       fullCells = c;
       if (!timeline.active) showCells(c);
     }, (err) => {
       if (!current()) return;
+      loaded();
       map.setCells(null);
       map.setCallout(null, "");
       renderMapLegend();
@@ -395,8 +406,9 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   new SelectMenu($("#palette-menu"), "Palette", paletteOptions, ramp, (value) => {
     ramp = value as RampName;
     saveUrl();
-    map.setRamp(ramp);
+    applyPalette();
     renderMapLegend();
+    if (lastAgreement) agreement.render(lastAgreement, meta.settings[hotspots], parts(toDay(filters.end)).year);
     if (!record) return;
     calendar.render(record, ramp);
     anomaly.render(record, ramp, false);
@@ -455,6 +467,14 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   }
 
   map.addCornerControl($("#reset-view"));
+  // "How the numbers work": the formulas and the MODIS-VIIRS agreement, in a dialog
+  const help = $<HTMLDialogElement>("#help");
+  map.addCornerControl($("#help-open"), "bottom-left");
+  $("#help-open").addEventListener("click", () => help.showModal());
+  $("#help-close").addEventListener("click", () => help.close());
+  help.addEventListener("click", (e) => {
+    if (e.target === help) help.close();
+  });
   $("#reset-view").addEventListener("click", () => {
     map.setEventBox(null);
     fitSelection();

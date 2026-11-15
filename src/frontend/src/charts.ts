@@ -14,7 +14,14 @@ export const CHART = {
   good: "#7fd69a",
   median: "#9fc7ff",
   font: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-} as const;
+};
+
+/** Sets the palette's colours in the charts: the main series, unusual points and the median line. */
+export function setChartPalette(c: { accent: string; alert: string; ref: string }): void {
+  CHART.accent = c.accent;
+  CHART.critical = c.alert;
+  CHART.median = c.ref;
+}
 
 export interface BarOptions {
   title: string;
@@ -221,7 +228,7 @@ export function lineChart(o: LineOptions): string {
   const endLabels = ends
     .map(
       ({ s, y }) =>
-        `<text x="${w - M.r}" y="${Math.max(top - 2, y)}" text-anchor="end" fill="${s.color}" font-size="${FS.tick}" font-weight="600" paint-order="stroke" stroke="${CHART.panel}" stroke-width="3">${escapeXml(s.endLabel ?? "")}</text>`,
+        `<text x="${w - M.r}" y="${Math.max(top - 2, y)}" text-anchor="end" fill="${s.color}" font-size="${FS.tick}">${escapeXml(s.endLabel ?? "")}</text>`,
     )
     .join("");
 
@@ -232,7 +239,11 @@ export function lineChart(o: LineOptions): string {
       const sel = i === o.selected;
       const r = flagged || sel ? 4.5 : 2.5;
       const fill = flagged ? CHART.critical : first.color;
-      const ring = flagged ? `<circle cx="${xAt(i)}" cy="${yAt(v)}" r="8" fill="none" stroke="${CHART.critical}" stroke-width="1.5"/>` : "";
+      // Unusual points: a fixed ring, plus one that keeps pulsing outwards
+      const ring = flagged
+        ? `<circle cx="${xAt(i)}" cy="${yAt(v)}" r="8" fill="none" stroke="${CHART.critical}" stroke-width="1.5"/>
+          <circle class="lc-pulse" cx="${xAt(i)}" cy="${yAt(v)}" r="8" fill="none" stroke="${CHART.critical}" stroke-width="1.5"/>`
+        : "";
       const title = o.hover ? "" : `<title>${escapeXml(o.labels[i])}: ${fmtVal(v)}${flagged ? " (unusually high)" : ""}</title>`;
       return `${ring}<circle cx="${xAt(i)}" cy="${yAt(v)}" r="${r}" fill="${fill}" stroke="${sel ? CHART.ink : "none"}" stroke-width="1.5">${title}</circle>`;
     })
