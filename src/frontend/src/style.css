@@ -3416,7 +3416,7 @@ button.cal-month:focus-visible {
   place-items: center;
   height: 20px;
   padding: 0 8px;
-  border: 1px solid var(--cause, var(--line-2));
+  border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--cause, transparent) 18%, transparent);
   color: var(--cause, var(--ink-2));
