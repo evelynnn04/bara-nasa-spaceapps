@@ -10,8 +10,7 @@ import {
   ShaderMaterial, SphereGeometry, Vector3,
 } from "three";
 import { feature } from "topojson-client";
-import type { PolygonGeometry } from "../../types";
-import { rng, WORLD_GLSL } from "./common";
+import { ORIGINS, rng, WORLD_GLSL } from "./common";
 
 export const EARTH_R = 6371;
 const LON0 = 94, LON1 = 142, LAT0 = -12, LAT1 = 8;
@@ -27,7 +26,7 @@ export interface Earth {
   camera: PerspectiveCamera;
   /** 0 = low over Kalimantan, 1 = high, the whole archipelago in view. */
   setView(t: number, time: number): void;
-  setProvinces(polys: PolygonGeometry[]): void;
+  setProvinces(polys: GeoJSON.MultiPolygon[]): void;
   setCells(cells: [number, number, number][], gridDeg: number): void;
   resize(w: number, h: number): void;
   /** The free band of the screen (px from the top) that Indonesia should fill at the end. */
@@ -123,7 +122,7 @@ export function buildEarth(): Earth {
   // ---------------------------------------------------------------- the globe
   const uniforms = {
     uLand: { value: maskTex }, uCombo: { value: comboTex }, uWorld: { value: worldTex }, uSun: { value: sunDir }, uTime: { value: 0 },
-    uRegion: { value: [LON0, LAT0, LON1, LAT1] }, uOrigins: { value: Array.from({ length: 6 }, () => new Vector3()) },
+    uRegion: { value: [LON0, LAT0, LON1, LAT1] }, uOrigins: { value: ORIGINS.map(() => new Vector3()) },
   };
   const globe = new Mesh(new SphereGeometry(EARTH_R, 256, 160), new ShaderMaterial({
     uniforms,
@@ -280,8 +279,7 @@ export function buildEarth(): Earth {
       mg.fillStyle = "#000"; mg.fillRect(0, 0, W, H);
       mg.fillStyle = "#fff";
       for (const g of polys) {
-        const rings = g.type === "Polygon" ? [g.coordinates] : (g.coordinates as number[][][][]);
-        for (const poly of rings as number[][][][]) {
+        for (const poly of g.coordinates) {
           mg.beginPath();
           for (const ring of poly) {
             ring.forEach(([lo, la], i) => (i ? mg.lineTo(px(lo), py(la)) : mg.moveTo(px(lo), py(la))));
