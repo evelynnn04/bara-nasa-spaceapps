@@ -1,4 +1,4 @@
-import { escapeXml, fmtCompact, fmtInt } from "./format";
+import { escapeXml, fmtCompact, fmtVal } from "./format";
 
 /** Chart chrome colours. Keep in step with the tokens in style.css. */
 export const CHART = {
@@ -124,7 +124,7 @@ export function barChart(o: BarOptions): string {
     .map((v, i) => {
       const y = yAt(v);
       const bw = Math.max(1, band * 0.72);
-      return `<rect class="bar" style="--i:${i}" x="${xAt(i) - bw / 2}" y="${y}" width="${bw}" height="${Math.max(0, h - M.b - y)}" rx="2" fill="${hi.has(i) ? CHART.accent : CHART.bar}"><title>${escapeXml(o.labels[i])}: ${fmtInt(v)}</title></rect>`;
+      return `<rect class="bar" style="--i:${i}" x="${xAt(i) - bw / 2}" y="${y}" width="${bw}" height="${Math.max(0, h - M.b - y)}" rx="2" fill="${hi.has(i) ? CHART.accent : CHART.bar}"><title>${escapeXml(o.labels[i])}: ${fmtVal(v)}</title></rect>`;
     })
     .join("");
   const overlay = o.overlay
@@ -193,7 +193,7 @@ export function lineChart(o: LineOptions): string {
       const r = flagged || sel ? 4.5 : 2.5;
       const fill = flagged ? CHART.critical : first.color;
       const ring = flagged ? `<circle cx="${xAt(i)}" cy="${yAt(v)}" r="8" fill="none" stroke="${CHART.critical}" stroke-width="1.5"/>` : "";
-      return `${ring}<circle cx="${xAt(i)}" cy="${yAt(v)}" r="${r}" fill="${fill}" stroke="${sel ? CHART.ink : "none"}" stroke-width="1.5"><title>${escapeXml(o.labels[i])}: ${fmtInt(v)}${flagged ? " (unusually high)" : ""}</title></circle>`;
+      return `${ring}<circle cx="${xAt(i)}" cy="${yAt(v)}" r="${r}" fill="${fill}" stroke="${sel ? CHART.ink : "none"}" stroke-width="1.5"><title>${escapeXml(o.labels[i])}: ${fmtVal(v)}${flagged ? " (unusually high)" : ""}</title></circle>`;
     })
     .join("");
 
@@ -227,7 +227,7 @@ export function profileChart(o: ProfileOptions): string {
   const peak = o.values.indexOf(Math.max(...o.values));
   const px = xAt(peak);
   const py = yAt(o.values[peak]);
-  const label = fmtInt(o.values[peak]);
+  const label = fmtVal(o.values[peak]);
   const cap = o.peakCaption?.(peak) ?? o.labels[peak];
   const bw = Math.max(64, label.length * 9 + 22);
   const bx = Math.min(w - M.r - bw, Math.max(M.l, px + 10));
