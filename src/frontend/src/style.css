@@ -933,6 +933,8 @@ button.dp-title:hover,
 .g-right > :nth-child(1) { --i: 2; }
 .g-right > :nth-child(2) { --i: 3; }
 .g-right > :nth-child(3) { --i: 4; }
+.g-left > :nth-child(4) { --i: 4; }
+.g-right > :nth-child(4) { --i: 5; }
 
 .g-foot {
   position: absolute;
@@ -1758,6 +1760,18 @@ button.dp-title:hover,
   transform: translateX(100%);
 }
 
+.seg:has(.seg-btn:nth-of-type(3)) .seg-thumb {
+  width: calc((100% - 6px) / 3);
+}
+
+.seg:has(.seg-btn:nth-of-type(3)[aria-pressed="true"]) .seg-thumb {
+  transform: translateX(200%);
+}
+
+.hf-dn .seg-btn {
+  padding: 4px 10px;
+}
+
 /* Fields */
 
 .field {
@@ -1823,7 +1837,8 @@ select.input {
   animation: sheen 1.4s linear infinite;
 }
 
-[aria-busy="true"]:not(:empty) {
+[aria-busy="true"]:not(:empty),
+[data-stale="true"] {
   opacity: 0.6;
 }
 
@@ -2458,4 +2473,104 @@ button.cell:focus-visible {
   .seg-btn[aria-pressed="true"] {
     outline: 2px solid Highlight;
   }
+}
+
+/* Sensor agreement and fire events */
+
+#agreement,
+#events {
+  display: grid;
+  gap: 10px;
+}
+
+.ag-stats {
+  margin-top: 0;
+}
+
+.ag-year {
+  min-width: 96px;
+}
+
+.ag-verdict {
+  font-size: var(--fs-body);
+}
+
+.ag-verdict::first-letter {
+  text-transform: uppercase;
+}
+
+.ag-verdict.is-good {
+  color: var(--good);
+}
+
+.ag-verdict.is-warning {
+  color: var(--warning);
+}
+
+.ag-verdict.is-critical {
+  color: var(--critical);
+}
+
+.ag-note a {
+  color: var(--ink-2);
+}
+
+.ev-list {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.ev-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  transition: border-color var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease-out);
+}
+
+.ev-item:hover,
+.ev-item[aria-pressed="true"] {
+  border-color: var(--line-2);
+  background: var(--surface);
+}
+
+.ev-rank {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.ev-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ev-place {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.ev-v {
+  display: grid;
+  color: var(--cream);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+#dl-detections {
+  white-space: nowrap;
+}
+
+#dl-detections:disabled {
+  opacity: 0.6;
 }

@@ -1,8 +1,8 @@
 import { MONTHS, daysInMonth, monthStart, parts } from "./dates";
 
-/** Daily counts over a continuous record; `daily[0]` is `firstDay`. */
+/** Daily values over a continuous record; `daily[0]` is `firstDay`. */
 export interface Series {
-  daily: Int32Array;
+  daily: Float64Array;
   firstDay: number;
   lastDay: number;
 }
@@ -153,7 +153,7 @@ export function peakDayOfMonth(s: Series, year: number, month: number): Breakdow
 export interface Trend {
   years: number[];
   totals: number[];
-  /** Fitted change per year, in detections. */
+  /** Fitted change per year, in fire cell-days. */
   slope: number;
   /** Fitted change per year relative to the average year, in percent. */
   percentPerYear: number;

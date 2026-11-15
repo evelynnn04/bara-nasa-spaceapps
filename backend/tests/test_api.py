@@ -160,3 +160,46 @@ def test_csv_reports_zero_rows_when_nothing_matches(client):
                                  "/api/detections.csv?from=2015-01-01&to=2016-06-01"])
 def test_bad_requests_are_rejected(client, url):
     assert client.get(url).status_code == 400
+
+
+def test_large_responses_are_compressed(client):
+    small = client.get("/api/series", headers={"Accept-Encoding": "gzip"})
+    assert len(small.content) < 1000 and "content-encoding" not in small.headers
+    plain = client.get("/openapi.json", headers={"Accept-Encoding": "identity"})
+    zipped = client.get("/openapi.json", headers={"Accept-Encoding": "gzip"})
+    assert "content-encoding" not in plain.headers
+    assert zipped.headers["content-encoding"] == "gzip"
+    assert zipped.json() == plain.json()
+
+
+@real
+def test_real_polygons_reusing_the_cache_match_the_direct_path(monkeypatch):
+    import random
+    con = store.connect(weights.load_params())
+    monkeypatch.setattr(queries, "REUSE_MIN_CELLS", 0)
+    monkeypatch.setattr(queries, "REUSE_MIN_SHARE", 0.0)
+    rng = random.Random(7)
+    checked = 0
+    for _ in range(12):
+        x, y = rng.uniform(96, 138), rng.uniform(-10, 5)
+        ring = [(x + rng.uniform(-4, 4), y + rng.uniform(-3, 3)) for _ in range(rng.choice((3, 5, 7)))]
+        n = queries.polygon_cells(con, ring, "sel")
+        if not n:
+            continue
+        for daynight in ("all", "night"):
+            reused = queries.daily_polygon(con, daynight, "sel", n)
+            direct = queries.daily_general(con, daynight, queries.area_filter(cells_table="sel"))
+            assert reused.keys() == direct.keys()
+            for d in direct:
+                assert reused[d] == pytest.approx(direct[d], abs=1e-6)
+        checked += 1
+    assert checked >= 6
+
+
+def test_map_layer_falls_back_to_blocks_above_the_cell_bound(client, monkeypatch):
+    full = client.get("/api/cells?from=2015-09-01&to=2015-09-30").json()
+    assert full["res_deg"] == pytest.approx(0.05) and full["count"] == 2
+    monkeypatch.setattr(api, "MAX_MAP_CELLS", 1)
+    coarse = client.get("/api/cells?from=2015-09-01&to=2015-09-30").json()
+    assert coarse["res_deg"] == pytest.approx(0.25) and coarse["active_cells"] == 2
+    assert sum(coarse["cells"]["value"]) == pytest.approx(full["total"], abs=1e-2)

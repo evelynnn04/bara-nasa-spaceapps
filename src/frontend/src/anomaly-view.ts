@@ -2,7 +2,7 @@ import { UNUSUAL_SD, anomalyForMonth, anomalyForYear, peakMonthOfYear, recordYea
 import { CHART, drawAtWidth, lineChart, redrawOnResize } from "./charts";
 import { MONTHS_LONG, parts } from "./dates";
 import { frame, place, svgHeight, type Cell } from "./export";
-import { escapeXml, fmtInt } from "./format";
+import { UNIT_SHORT, escapeXml, fmtVal } from "./format";
 import type { Selection } from "./store";
 
 type Kind = "month" | "year";
@@ -108,7 +108,7 @@ export class AnomalyView {
             (u) => `<li><button type="button" class="alert" data-ym="${u.year}-${u.month}" title="Compare ${MONTHS_LONG[u.month]} ${u.year} in the anomaly card" aria-label="Compare ${MONTHS_LONG[u.month]} ${u.year}">
               <span class="alert-ico">${WARN}</span>
               <span><strong>${MONTHS_LONG[u.month]} ${u.year}</strong> &middot; ${Number.isFinite(u.ratio) ? `${u.ratio.toFixed(1)}&times; usual` : "far above usual"}
-              <span class="mini-note">${fmtInt(u.value)} detections, usually ${fmtInt(u.usual)}</span></span>
+              <span class="mini-note">${fmtVal(u.value)} ${UNIT_SHORT}, usually ${fmtVal(u.usual)}</span></span>
             </button></li>`,
           )
           .join("")}</ul>
@@ -134,7 +134,7 @@ export class AnomalyView {
       title: a.title,
       labels: a.kind === "month" ? a.labels.map((y) => `'${y.slice(2)}`) : a.labels,
       series: [
-        { name: a.kind === "month" ? "Detections" : `${a.selected.label}`, values: a.values, color: CHART.accent, width: 2 },
+        { name: a.kind === "month" ? "Fire cell-days" : `${a.selected.label}`, values: a.values, color: CHART.accent, width: 2 },
         { name: "Historical average", values: a.mean, color: CHART.ink2, dash: "5 3" },
         { name: "Historical median", values: a.median, color: CHART.median, dash: "1.5 3" },
       ],
@@ -166,7 +166,7 @@ export class AnomalyView {
     this.chartW = drawAtWidth(this.chart, 360, (width) => (this.chart.innerHTML = this.chartSvg(a, width)));
     const unusualMonths = a.kind === "year" ? a.labels.filter((_, i) => a.unusual[i]) : [];
     this.notes.innerHTML = `<p class="mini-note">
-      <strong>${fmtInt(a.selected.value)}</strong> detections, average ${fmtInt(a.selected.mean)}, median ${fmtInt(a.selected.median)}.
+      <strong>${fmtVal(a.selected.value)}</strong> ${UNIT_SHORT}, average ${fmtVal(a.selected.mean)}, median ${fmtVal(a.selected.median)}.
       ${unusualMonths.length ? `Unusual months: <strong>${unusualMonths.join(", ")}</strong>.` : ""}
       Other unusual ${a.kind === "month" ? "years for this month" : "years"}: ${a.history.length ? a.history.join(", ") : "none"}.</p>`;
   }
@@ -175,8 +175,8 @@ export class AnomalyView {
     const a = this.result();
     const r = (n: number) => Math.round(n * 10) / 10;
     return {
-      header: [a.kind === "month" ? "year" : "month", "detections", "historical_average", "historical_median", "unusual_threshold", "unusual"],
-      rows: a.labels.map((l, i) => [l, a.values[i], r(a.mean[i]), r(a.median[i]), r(a.threshold[i]), a.unusual[i] ? "yes" : "no"]),
+      header: [a.kind === "month" ? "year" : "month", "fire_cell_days", "historical_average", "historical_median", "unusual_threshold", "unusual"],
+      rows: a.labels.map((l, i) => [l, r(a.values[i]), r(a.mean[i]), r(a.median[i]), r(a.threshold[i]), a.unusual[i] ? "yes" : "no"]),
     };
   }
 
@@ -187,7 +187,7 @@ export class AnomalyView {
     const chart = this.chartSvg(a, 760, 170);
     const tone = CHART[VERDICT[a.verdict].tone];
     const body = `<text x="24" y="14" fill="${tone}" font-size="13">${escapeXml(`${a.selected.label}: ${VERDICT[a.verdict].label}`)}</text>
-      <text x="24" y="34" fill="${CHART.ink2}" font-size="12">${escapeXml(`${fmtInt(a.selected.value)} detections. Average ${fmtInt(a.selected.mean)}, median ${fmtInt(a.selected.median)}.`)}</text>
+      <text x="24" y="34" fill="${CHART.ink2}" font-size="12">${escapeXml(`${fmtVal(a.selected.value)} ${UNIT_SHORT}. Average ${fmtVal(a.selected.mean)}, median ${fmtVal(a.selected.median)}.`)}</text>
       ${place(chart, 24, 46, cw)}`;
     const f = frame("Historical anomaly comparison", subtitle, body, width, 56 + svgHeight(chart, cw));
     return { svg: f.svg, width, height: f.height };

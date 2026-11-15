@@ -72,6 +72,38 @@ def test_polygon_selects_cells_by_centre(tmp_path):
         assert general[d] == pytest.approx(cached[d])
 
 
+def split_regency_dataset(tmp_path):
+    """Regency A with two cells and regency B with two cells, all burning on the same five days."""
+    days = [dt.date(2019, 9, 1) + dt.timedelta(days=i) for i in range(5)]
+    cells = [(2020, 10, "Sumatra", "idn-riau", "idn-riau-a"), (2021, 10, "Sumatra", "idn-riau", "idn-riau-a"),
+             (2023, 10, "Sumatra", "idn-riau", "idn-riau-b"), (2024, 10, "Sumatra", "idn-riau", "idn-riau-b")]
+    celldays = []
+    for i, d in enumerate(days):
+        for j, (cx, cy, *_) in enumerate(cells):
+            celldays += [("modis", "Aqua", d, cx, cy, 1, i % 2, 1.0, 1.0),
+                         ("viirs", "SNPP", d, cx, cy, 2 + i + j, j % 2, 1.0, 1.0)]
+    root = write_dataset(tmp_path, celldays, [day_row(d) for d in days], cells)
+    con = store.connect(reference_params(), root)
+    aggregate.build(con, store.table_path("region_daily", root))
+    return store.connect(reference_params(), root)
+
+
+@pytest.mark.parametrize("daynight", ["all", "day", "night"])
+def test_polygon_reuses_cache_only_for_whole_regencies(tmp_path, monkeypatch, daynight):
+    con = split_regency_dataset(tmp_path)
+    # Covers both cells of regency A and the first cell of regency B (centres at x = 101.025 ... 101.175).
+    ring = [(100.9, 0.4), (101.19, 0.4), (101.19, 0.6), (100.9, 0.6)]
+    n = queries.polygon_cells(con, ring, "sel")
+    assert n == 3
+    assert queries.contained_regencies(con, "sel") == (["idn-riau-a"], 2)
+    monkeypatch.setattr(queries, "REUSE_MIN_CELLS", 0)
+    reused = queries.daily_polygon(con, daynight, "sel", n)
+    direct = queries.daily_general(con, daynight, queries.area_filter(cells_table="sel"))
+    assert reused.keys() == direct.keys()
+    for d in direct:
+        assert reused[d] == pytest.approx(direct[d], abs=1e-9)
+
+
 def test_event_ties_resolve_to_earliest_day_and_first_area(tmp_path):
     d1, d2 = dt.date(2019, 9, 1), dt.date(2019, 9, 2)
     cells = [(2020, 10, "Sumatra", "idn-riau", "idn-riau-b"), (2021, 10, "Sumatra", "idn-riau", "idn-riau-a")]

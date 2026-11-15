@@ -28,7 +28,8 @@ def connect(params: dict | None = None, root: Path | None = None) -> duckdb.Duck
     """In-memory DuckDB with a view per derived table that exists, plus table `factor`.
 
     With the default `root`, views `detections` (normalised detections) and `static_mask` are added
-    when those files exist. Cursors of the connection share the views and the factor table."""
+    when those files exist, and table `regency_size` (cells per regency) when `cells` does.
+    Cursors of the connection share the views and tables."""
     con = duckdb.connect()
     for name in TABLES:
         path = table_path(name, root)
@@ -39,6 +40,9 @@ def connect(params: dict | None = None, root: Path | None = None) -> duckdb.Duck
             con.execute(f"CREATE VIEW detections AS SELECT * FROM read_parquet({quote(detections_glob())})")
         if static_mask_path().is_file():
             con.execute(f"CREATE VIEW static_mask AS SELECT * FROM read_parquet({quote(str(static_mask_path()))})")
+    if has(con, "cells"):
+        con.execute("CREATE TABLE regency_size AS SELECT regency_id, count(*) AS n FROM cells "
+                    "WHERE regency_id IS NOT NULL GROUP BY 1")
     weights.register_factors(con, params or unit_params())
     return con
 

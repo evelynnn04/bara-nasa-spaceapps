@@ -10,8 +10,9 @@ Every endpoint takes the same area selection:
 `daynight` is `all`, `day` or `night`. Values are in MODIS-equivalent active fire cell-days (see
 `docs/harmonisation.md`). A day the record's satellite did not observe is `null`, never 0.
 
-Named areas are answered from the region cache; a polygon is aggregated from its cells on demand.
-Both paths build their numbers from the same weight expression.
+Named areas are answered from the region cache. A polygon reuses the cache for regencies lying
+wholly inside it and aggregates its remaining cells on demand. All paths build their numbers from
+the same weight expression.
 """
 
 from __future__ import annotations
@@ -40,10 +41,11 @@ router = APIRouter(prefix="/api")
 
 DayNight = Literal["all", "day", "night"]
 
-#: Above this many active cells the map layer is delivered on a coarser grid.
-MAX_MAP_CELLS = 20000
-#: Grid cells per side of a coarse block (0.25°), also used for the most active block.
+#: Grid cells per side of the block (0.25°) used to find the most active spot.
 COARSE = 5
+#: Safety bound on the map layer: above this many active cells it is summed onto 0.25° blocks.
+#: The whole record touches under 50,000 cells, so in practice cells always arrive at 0.05°.
+MAX_MAP_CELLS = 100_000
 MAX_CSV_DAYS = 366
 MAX_CSV_ROWS = 200_000
 AREA_ID = re.compile(r"^idn(-[a-z0-9]+)*$")
@@ -150,11 +152,13 @@ def _flags() -> list[tuple]:
 
 @lru_cache(maxsize=256)
 def _daily(area: Area, daynight: str) -> dict[dt.date, tuple]:
-    """Daily sums for an area: the region cache for named areas, the cell path for a polygon."""
+    """Daily sums for an area: the region cache for named areas; for a polygon, the cache for the
+    regencies wholly inside it plus the remaining cells."""
     cur = cursor()
     if area.ring is None:
         return queries.daily_cached(cur, daynight, list(area.ids))
-    return queries.daily_general(cur, daynight, area.where(cur))
+    n = queries.polygon_cells(cur, list(area.ring), "sel")
+    return queries.daily_polygon(cur, daynight, "sel", n)
 
 
 def _fmt(v: float | None, digits: int = 4) -> float | None:
@@ -212,9 +216,11 @@ def cells(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depe
           daynight: DayNight = "all") -> dict:
     """Active cells of the harmonised record in a period, for the map.
 
-    Each cell carries its harmonised value, the raw pixels of each sensor and its highest pixel
-    fire radiative power. Above `MAX_MAP_CELLS` cells the layer is summed onto 0.25° blocks. `top`
-    is the most active 0.25° block and the city/regency holding most of it."""
+    Each 0.05° cell carries its harmonised value, the raw pixels of each sensor and its highest
+    pixel fire radiative power. Cells are sent at full resolution, so the map looks the same for
+    every filter; only above `MAX_MAP_CELLS` (never reached by the current record) is the layer
+    summed onto 0.25° blocks, with `res_deg` saying which. `top` is the most active 0.25° block and
+    the city/regency holding most of it."""
     cur = cursor()
     w, n = weights.weight_sql(daynight), weights.pixels_sql(daynight)
     where = f"c.local_date BETWEEN DATE '{span[0]}' AND DATE '{span[1]}' AND ({area.where(cur)})"
@@ -227,6 +233,7 @@ def cells(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depe
                any_value(c.regency_id) AS regency_id
         FROM ({weights.observations_sql(where)}) c
         GROUP BY c.cx, c.cy HAVING value > 0
+        ORDER BY c.cx, c.cy
     """).fetchall()
 
     blocks: dict[tuple[int, int], list] = defaultdict(lambda: [0.0, 0, 0, 0.0, defaultdict(float)])
@@ -247,7 +254,7 @@ def cells(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depe
 
     if len(rows) > MAX_MAP_CELLS:
         res = config.GRID * COARSE
-        out = [(bx, by, b[0], b[1], b[2], b[3]) for (bx, by), b in blocks.items()]
+        out = [(bx, by, b[0], b[1], b[2], b[3]) for (bx, by), b in sorted(blocks.items())]
     else:
         res = config.GRID
         out = [r[:6] for r in rows]

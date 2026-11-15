@@ -198,8 +198,9 @@ years. All three are near-ties:
 | 2023 | October | September | 4.0 % | 7.7 % |
 | 2025 | July | September | 3.6 % | 4.6 % |
 
-**The 2015 season:** September ÷ October is 1.13 for MODIS cell-days and 1.10 for harmonised VIIRS,
-so both name September. Raw VIIRS pixels give 0.92 and would name October.
+**The 2015 season:** September ÷ October is 1.13 for MODIS cell-days and 1.10 for harmonised VIIRS
+when 2015 is predicted from the other years (1.12 with the factors fitted on all years, which the
+dashboard uses), so both name September. Raw VIIRS pixels give 0.92 and would name October.
 
 **Distribution of VIIRS cell-days:** 58 % hold a single pixel and the 99th percentile is 19 pixels,
 so most cell-days sit far below the 42 pixels that count as one MODIS cell-day.

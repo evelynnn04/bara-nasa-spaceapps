@@ -1,10 +1,10 @@
 import { AttributionControl, GeoJSONSource, LngLatBounds, Map as MLMap, Marker, NavigationControl, Popup, setWorkerUrl, type MapMouseEvent, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
-import { RAMPS, type RampName } from "./ramps";
-import { escapeXml } from "./format";
-import type { Cell } from "./store";
-import type { BBox, Hotspot, LngLat } from "./types";
+import type { CellsResponse } from "./api";
+import { RAMPS, quantileBreaks, type RampName } from "./ramps";
+import { UNIT_SHORT, escapeXml, fmtInt, fmtVal } from "./format";
+import type { BBox, LngLat } from "./types";
 
 /** Map chrome colours. Keep in step with the tokens in style.css. */
 const MAP = {
@@ -27,9 +27,6 @@ export interface Insets {
   right: number;
 }
 
-/** Fire radiative power breaks (MW) for the hotspot colour steps. */
-export const FRP_BREAKS = [0, 4, 8, 15, 30, 60, 120, 250];
-
 setWorkerUrl(workerUrl);
 
 /** Real outlines of the selectable areas, built by scripts/build-boundaries.mjs. */
@@ -51,10 +48,18 @@ export interface MapCallbacks {
   onDrawState: (drawing: boolean, vertices: number) => void;
 }
 
-/** MapLibre map showing filtered hotspots, selected area outlines and the polygon drawing tool. */
+/** Most active block of the period, from the cells response. */
+export type Top = NonNullable<CellsResponse["top"]>;
+
+/** MapLibre map showing active fire cells, selected area outlines, a fire event box and the polygon drawing tool. */
 export class MapView {
   readonly map: MLMap;
   private hotspots: GeoFC = EMPTY;
+  private eventBox: GeoFC = EMPTY;
+  /** Lower bounds of the colour classes for the current cells. */
+  breaks: number[] = [0];
+  /** Side of the delivered cells in degrees (0.05, or 0.25 for an unusually large layer). */
+  private resDeg = 0.05;
   private polygon: LngLat[] | null = null;
   private outlineIds: string[] = [];
   private draft: LngLat[] = [];
@@ -90,8 +95,11 @@ export class MapView {
       { capture: true },
     );
     this.map.on("style.load", () => this.installLayers());
+    let fellBack = false;
     this.map.on("error", (e) => {
-      if (!this.map.isStyleLoaded() && String(e.error?.message ?? "").length) this.map.setStyle(FALLBACK);
+      if (fellBack || this.map.isStyleLoaded() || !String(e.error?.message ?? "").length) return;
+      fellBack = true;
+      this.map.setStyle(FALLBACK);
     });
     this.map.on("click", (e) => this.onClick(e));
     this.map.on("dblclick", (e) => {
@@ -122,20 +130,39 @@ export class MapView {
 
   setRamp(ramp: RampName): void {
     this.ramp = ramp;
-    if (this.map.getLayer("hotspots")) this.map.setPaintProperty("hotspots", "circle-color", this.colorExpr());
-    if (this.map.getLayer("hotspots-glow")) this.map.setPaintProperty("hotspots-glow", "circle-color", this.glowColor());
+    this.syncCellPaint();
   }
 
-  setHotspots(items: Hotspot[]): void {
+  /** Shows the active cells of the period, coloured by harmonised value with quantile classes. */
+  setCells(c: CellsResponse | null): void {
+    const cells = c?.cells;
+    this.resDeg = c?.res_deg ?? 0.05;
+    this.breaks = cells ? quantileBreaks(cells.value, RAMPS[this.ramp].steps.length) : [0];
     this.hotspots = {
       type: "FeatureCollection",
-      features: items.map((h) => ({
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [h.lon, h.lat] },
-        properties: { frp: h.frp, date: h.date, sensor: h.sensor, confidence: h.confidence },
-      })),
+      features: cells
+        ? cells.value.map((value, i) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [cells.lon[i], cells.lat[i]] },
+            properties: { value, modis: cells.modis_px[i], viirs: cells.viirs_px[i], frp: cells.frp_max[i] },
+          }))
+        : [],
     };
     this.source("hotspots")?.setData(this.hotspots);
+    this.syncCellPaint();
+  }
+
+  /** Outlines a fire event's bounding box, or removes it. */
+  setEventBox(b: BBox | null): void {
+    this.eventBox = b
+      ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]], [b[0], b[1]]]] } }] }
+      : EMPTY;
+    this.source("event-box")?.setData(this.eventBox);
+  }
+
+  private syncCellPaint(): void {
+    if (this.map.getLayer("hotspots")) this.map.setPaintProperty("hotspots", "circle-color", this.colorExpr());
+    if (this.map.getLayer("hotspots-glow")) this.map.setPaintProperty("hotspots-glow", "circle-color", this.glowColor());
   }
 
   /** Outlines the selected areas with their real borders. */
@@ -164,15 +191,15 @@ export class MapView {
     this.map.fitBounds(new LngLatBounds([b[0], b[1]], [b[2], b[3]]), { padding: fits ? this.insets : 30, maxZoom: 8.5, duration: 700 });
   }
 
-  /** Pins an ember callout with a leader line to the busiest grid cell, labelled with its region name, or removes it. */
-  setCallout(c: Cell | null, label: string): void {
+  /** Pins an ember callout with a leader line to the most active block, labelled with its region name, or removes it. */
+  setCallout(c: Top | null, label: string): void {
     this.callout?.remove();
     this.callout = null;
     if (!c) return;
     const el = document.createElement("div");
     el.className = "callout";
-    el.innerHTML = `<div class="callout-box"><span class="callout-row"><span class="callout-v">${c.count.toLocaleString("en-US")}</span><span class="callout-u">fire points</span></span>
-      <span class="callout-k">Highest intensity hotspot &middot; ${escapeXml(label)}</span></div>
+    el.innerHTML = `<div class="callout-box"><span class="callout-row"><span class="callout-v">${fmtVal(c.value)}</span><span class="callout-u">${UNIT_SHORT}</span></span>
+      <span class="callout-k">Most active cell &middot; ${escapeXml(label)}</span></div>
       <span class="callout-line" aria-hidden="true"></span><span class="callout-dot" aria-hidden="true"></span>`;
     this.callout = new Marker({ element: el, anchor: "bottom-left", offset: [-5, 5] }).setLngLat([c.lon, c.lat]).addTo(this.map);
   }
@@ -241,11 +268,13 @@ export class MapView {
     return RAMPS[this.ramp].steps[5];
   }
 
-  /** Step expression colouring hotspots by fire radiative power with the active ramp. */
-  private colorExpr(): ["step", ["get", string], string, ...(string | number)[]] {
+  /** Step expression colouring cells by harmonised value with the active ramp (one colour while there are no classes). */
+  private colorExpr(): string | ["step", ["get", string], string, ...(string | number)[]] {
     const steps = RAMPS[this.ramp].steps;
-    const pairs = FRP_BREAKS.slice(1).flatMap((b, i) => [b, steps[i + 1]]);
-    return ["step", ["get", "frp"], steps[0], ...pairs];
+    const offset = steps.length - this.breaks.length;
+    if (this.breaks.length < 2) return steps[offset];
+    const pairs = this.breaks.slice(1).flatMap((b, i) => [b, steps[offset + i + 1]]);
+    return ["step", ["get", "value"], steps[offset], ...pairs];
   }
 
   /** Warms the basemap so it sits under the ember palette. */
@@ -268,6 +297,7 @@ export class MapView {
     m.addSource("outlines", { type: "geojson", data: OUTLINES_URL, attribution: OUTLINES_CREDIT });
     m.addSource("hotspots", { type: "geojson", data: this.hotspots });
     m.addSource("polygon", { type: "geojson", data: EMPTY });
+    m.addSource("event-box", { type: "geojson", data: this.eventBox });
     m.addSource("draft", { type: "geojson", data: EMPTY });
 
     m.addLayer({ id: "polygon-fill", type: "fill", source: "polygon", paint: { "fill-color": MAP.area, "fill-opacity": 0.08 } });
@@ -302,15 +332,16 @@ export class MapView {
       id: "hotspots",
       type: "circle",
       source: "hotspots",
-      layout: { "circle-sort-key": ["get", "frp"] },
+      layout: { "circle-sort-key": ["get", "value"] },
       paint: {
         "circle-color": this.colorExpr(),
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 1.4, 6, 2.6, 9, 5, 12, 8],
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 1.4, 6, 2.6, 9, 6, 12, 30],
         "circle-opacity": 0.9,
         "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 6, 0, 9, 0.6],
         "circle-stroke-color": MAP.background,
       },
     });
+    m.addLayer({ id: "event-box", type: "line", source: "event-box", paint: { "line-color": MAP.drawLine, "line-width": 1.5, "line-dasharray": [3, 2] } });
     m.addLayer({ id: "draft-line", type: "line", source: "draft", filter: ["==", ["geometry-type"], "LineString"], paint: { "line-color": MAP.drawLine, "line-width": 1.5, "line-dasharray": [2, 2] } });
     m.addLayer({ id: "draft-points", type: "circle", source: "draft", filter: ["==", ["geometry-type"], "Point"], paint: { "circle-color": MAP.drawPoint, "circle-radius": 4.5, "circle-stroke-color": MAP.background, "circle-stroke-width": 1.5 } });
 
@@ -318,11 +349,11 @@ export class MapView {
       if (this.drawing) return;
       const f = e.features?.[0];
       if (!f) return;
-      const p = f.properties as { frp: number; date: string; sensor: string; confidence: string };
+      const p = f.properties as { value: number; modis: number; viirs: number; frp: number };
       m.getCanvas().style.cursor = "pointer";
       this.popup
         .setLngLat(e.lngLat)
-        .setHTML(`<strong>${escapeXml(p.date)}</strong><br>${escapeXml(p.sensor)} &middot; ${p.frp} MW &middot; ${escapeXml(p.confidence)} confidence`)
+        .setHTML(`<strong>${fmtVal(p.value)} ${UNIT_SHORT}</strong> in this ${this.resDeg}° cell<br>Raw pixels: VIIRS ${fmtInt(p.viirs)} &middot; MODIS ${fmtInt(p.modis)}<br>Highest fire radiative power ${p.frp} MW`)
         .addTo(m);
     });
     m.on("mouseleave", "hotspots", () => {

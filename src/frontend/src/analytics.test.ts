@@ -13,11 +13,11 @@ import {
 } from "./analytics";
 import { monthStart, toDay } from "./dates";
 
-/** Builds a series for 2012-2015 where every day of a month gets `perDay(year, month)` detections. */
+/** Builds a series for 2012-2015 where every day of a month gets `perDay(year, month)` fire cell-days. */
 function series(perDay: (year: number, month: number) => number): Series {
   const firstDay = toDay("2012-01-01");
   const lastDay = toDay("2015-12-31");
-  const daily = new Int32Array(lastDay - firstDay + 1);
+  const daily = new Float64Array(lastDay - firstDay + 1);
   for (let y = 2012; y <= 2015; y++) {
     for (let m = 0; m < 12; m++) {
       const a = monthStart(y, m);

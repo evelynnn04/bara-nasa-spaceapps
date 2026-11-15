@@ -112,6 +112,20 @@ With the data in place, `docker compose up --build` mounts `data/` into the back
 documented at `http://localhost:8000/docs`; the main endpoints are `/api/meta`, `/api/series`,
 `/api/cells`, `/api/agreement`, `/api/events` and `/api/detections.csv`.
 
+## Running the dashboard
+The dashboard in `src/frontend/` reads everything from the backend. Start the backend first (with
+the data built), then:
+
+```bash
+cd src/frontend
+npm ci
+npm run dev
+```
+
+The dev server proxies `/api` to `http://localhost:8000` (set `API_PROXY` to use another address).
+A production build (`npm run build`) expects the API on the same origin, or at `VITE_API_BASE`.
+Frontend tests run with `npm test`.
+
 Run the backend tests with:
 
 ```bash
