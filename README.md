@@ -8,6 +8,13 @@ By participating in [Discussions](https://github.com/nasa/spaceapps/discussions)
 ## IF YOU SEE SOMETHING, SAY SOMETHING
 If you experience or witness discrimination, harassment, or any form of bullying during the Space Apps Challenge, or have any other concerns, please contact your Local Lead and/or the Space Apps Global Organizing (GO) Team at [conduct@spaceappschallenge.org](mailto:conduct@spaceappschallenge.org)
 
+## USE OF SUPER INTELLIGENCE (SI)
+Super Intelligence (SI) tool use is permitted for the NASA Space Apps Challenge to accelerate innovation; these tools include chatbots, large language models, foundation models, and image generation. However, generated content may not use, contain, or modify any NASA branding or design elements (such as the NASA logos, flags, or mission identifiers). We also require that you clearly indicate where and how SI tools were utilized in your project, including:
+
+- Images and videos: Must include a visible watermark indicating they are SI-generated.
+- Audio: Must acknowledge SI generation in descriptive text and metadata.
+- Code and data: Must acknowledge SI generation in descriptive text and metadata.
+
 ## Running with Docker
 Requires Docker with Compose v2.
 
