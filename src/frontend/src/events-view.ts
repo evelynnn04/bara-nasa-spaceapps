@@ -43,7 +43,7 @@ export class EventsView {
           <span class="ev-rank" aria-hidden="true">${i + 1}</span>
           <span class="ev-main"><span class="ev-place">${escapeXml(this.place(e))}</span>
             <span class="mini-note">${span} &middot; ${e.duration_days} day${e.duration_days === 1 ? "" : "s"}, peak ${formatDay(toDay(e.peak_day))}</span>
-            <span class="mini-note">${fmtInt(e.cells)} cells &middot; ${fmtInt(e.pixels)} pixels &middot; up to ${fmtInt(e.frp_max)} MW</span></span>
+            <span class="mini-note">${fmtInt(e.cells)} cells &middot; ${fmtInt(e.pixels)} raw hotspots &middot; up to ${fmtInt(e.frp_max)} MW</span></span>
           <span class="ev-v">${fmtVal(e.harmonised)}<span class="mini-note">${UNIT_SHORT}</span></span></button></li>`;
       })
       .join("");

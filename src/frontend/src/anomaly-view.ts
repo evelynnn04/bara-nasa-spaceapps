@@ -103,7 +103,7 @@ export class AnomalyView {
       : "No fires recorded in this area.";
     return {
       trendText,
-      trendSvg: barChart({ title: "Fire cell-days per year with trend", labels: t.years.map((y) => `'${String(y).slice(2)}`), values: t.totals, overlay: t.fitted, highlight: [t.years.indexOf(peakYear)], height: 150 }),
+      trendSvg: barChart({ title: "Hotspots per year with trend", labels: t.years.map((y) => `'${String(y).slice(2)}`), values: t.totals, overlay: t.fitted, highlight: [t.years.indexOf(peakYear)], height: 150 }),
       climText,
       climSvg: barChart({ title: `Average ${UNIT_SHORT} per calendar month`, labels: MONTHS.map((m) => m[0]), values: c.average, highlight: c.top, height: 130 }),
     };
@@ -121,7 +121,7 @@ export class AnomalyView {
     this.patternsW = drawAtWidth(this.patterns, 290, (width) => {
       this.patterns.innerHTML = `
       <p class="reading">${p.trendText}</p>
-      <div class="chart">${profileChart({ title: "Fire cell-days per year", labels: t.years.map(String), values: t.totals, labelEvery: 4, height: 130, width, peakCaption: (i) => String(t.years[i]) })}</div>
+      <div class="chart">${profileChart({ title: "Hotspots per year", labels: t.years.map(String), values: t.totals, labelEvery: 4, height: 130, width, peakCaption: (i) => String(t.years[i]) })}</div>
       <p class="d-label">Fire-prone months</p>
       <ol class="rank">${ranked
         .map(
@@ -143,7 +143,7 @@ export class AnomalyView {
       title: a.title,
       labels: a.kind === "month" ? a.labels.map((y) => `'${y.slice(2)}`) : a.labels,
       series: [
-        { name: a.kind === "month" ? "Fire cell-days" : `${a.selected.label}`, values: a.values, color: CHART.accent, width: 2 },
+        { name: a.kind === "month" ? "Hotspots" : `${a.selected.label}`, values: a.values, color: CHART.accent, width: 2 },
         { name: "Historical average", values: a.mean, color: CHART.ink2, dash: "5 3" },
         { name: "Historical median", values: a.median, color: CHART.median, dash: "1.5 3" },
       ],

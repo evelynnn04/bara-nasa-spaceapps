@@ -19,12 +19,13 @@ import { initCards, measureInsets } from "./screen";
 import { select, unobserved, type Selection } from "./store";
 import { Timeline } from "./time-slider";
 import { sharedScale, type Frame } from "./timeline";
-import type { DayNight, Filters, SelectionMode } from "./types";
+import type { DayNight, Filters, Hotspots, SelectionMode } from "./types";
 import { readUrlState, writeUrlState, type ViewState } from "./url-state";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
 const DAYNIGHT_LABEL: Record<DayNight, string> = { all: "Day and night", day: "Daytime only", night: "Night-time only" };
+const HOTSPOTS_LABEL: Record<Hotspots, string> = { vegetation: "Vegetation fires", all: "All hotspot types" };
 const DATASET = "NASA FIRMS MODIS (Aqua) and VIIRS (S-NPP, NOAA-20, NOAA-21), harmonised";
 
 const api = new Api();
@@ -56,12 +57,15 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     filters: { mode: "area", regionIds: ["idn"], polygon: null, start: `${recordEnd.slice(0, 4)}-01-01`, end: recordEnd },
     ramp: "ember",
     daynight: "all",
+    hotspots: meta.default_hotspots ?? "vegetation",
   };
   const initial = readUrlState(defaults, (id) => regions.byId.has(id), recordStart, recordEnd);
   let filters: Filters = initial.filters;
   let ramp: RampName = initial.ramp;
   let daynight: DayNight = initial.daynight;
-  const saveUrl = () => writeUrlState({ filters, ramp, daynight }, defaults);
+  let hotspots: Hotspots = initial.hotspots;
+  const counting = () => ({ daynight, hotspots });
+  const saveUrl = () => writeUrlState({ filters, ramp, daynight, hotspots }, defaults);
   /** The selected area's daily record for the current filters; null while it loads or after it failed. */
   let sel: Selection | null = null;
   /** The same record over all its dates, for the cards that do not follow the date picker. */
@@ -162,6 +166,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   function syncControls(): void {
     document.querySelectorAll<HTMLButtonElement>(".hf-mode [data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === filters.mode)));
     document.querySelectorAll<HTMLButtonElement>("[data-dn]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.dn === daynight)));
+    document.querySelectorAll<HTMLButtonElement>("[data-ht]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.ht === hotspots)));
+    $("#dn-caution").hidden = daynight !== "night";
     picker.setDisabled(filters.mode !== "area", "Drawn on map");
     showDates(filters.start, filters.end);
   }
@@ -197,7 +203,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
 
     const seriesCards = ["calendar", "an-summary", "an-patterns", "anomaly"];
     setLoad(seriesCards, "busy");
-    api.series(filters, daynight).then((s) => {
+    api.series(filters, counting()).then((s) => {
       if (!current()) return;
       sel = select(s, filters.start, filters.end);
       record = select(s, recordStart, recordEnd);
@@ -213,9 +219,9 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     });
 
     setLoad(["agreement"], "busy");
-    api.agreement(filters, daynight).then((a) => {
+    api.agreement(filters, counting()).then((a) => {
       if (!current()) return;
-      agreement.render(a, meta.verdict, parts(toDay(filters.end)).year);
+      agreement.render(a, meta.settings[hotspots], parts(toDay(filters.end)).year);
       setLoad(["agreement"], "ready");
     }, (err) => {
       if (!current()) return;
@@ -226,7 +232,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     periodRequests?.abort();
     const ctl = (periodRequests = new AbortController());
     setLoad(["events"], "busy");
-    api.cells(filters, daynight, ctl.signal).then((c) => {
+    api.cells(filters, counting(), ctl.signal).then((c) => {
       if (!current()) return;
       fullCells = c;
       if (!timeline.active) showCells(c);
@@ -237,7 +243,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       renderMapLegend();
       showError("the map cells", err);
     });
-    api.events(filters, ctl.signal).then((r) => {
+    api.events(filters, hotspots, ctl.signal).then((r) => {
       if (!current()) return;
       events.render(r.events);
       setLoad(["events"], "ready");
@@ -261,7 +267,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     let hit = stepCache.get(key);
     if (!hit) {
       const ctl = (timeRequests ??= new AbortController());
-      hit = api.cells({ ...filters, start: f.from, end: f.to }, daynight, ctl.signal);
+      hit = api.cells({ ...filters, start: f.from, end: f.to }, counting(), ctl.signal);
       hit.catch(() => stepCache.delete(key));
       stepCache.set(key, hit);
       if (stepCache.size > 400) stepCache.delete(stepCache.keys().next().value!);
@@ -330,6 +336,14 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       update({});
     }),
   );
+  document.querySelectorAll<HTMLButtonElement>("[data-ht]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const ht = b.dataset.ht as Hotspots;
+      if (ht === hotspots) return;
+      hotspots = ht;
+      update({});
+    }),
+  );
   $("#draw-start").addEventListener("click", () => map.startDrawing());
   $("#draw-finish").addEventListener("click", () => map.finishDrawing());
   $("#draw-clear").addEventListener("click", () => map.clearPolygon());
@@ -364,6 +378,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       ["from", allYears ? recordStart : filters.start],
       ["to", allYears ? recordEnd : filters.end],
       ["detections", DAYNIGHT_LABEL[daynight]],
+      ["hotspot_types", HOTSPOTS_LABEL[hotspots]],
       ["unit", UNIT],
       ["dataset", DATASET],
       ["unobserved_days_in_range", sel ? String(allYears ? unobserved(record!, record!.from, record!.to) : unobserved(sel, sel.from, sel.to)) : ""],
@@ -381,8 +396,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     const format = btn.dataset.format as "csv" | "png";
     const allYears = kind !== "analytics";
     const period = allYears ? "all-years" : `${filters.start}_${filters.end}`;
-    const name = `${kind}_${slug(areaLabel())}_${period}${daynight === "all" ? "" : `_${daynight}`}.${format}`;
-    const subtitle = `${areaLabel()} · ${allYears ? "All years" : formatRange(sel.from, sel.to)} · ${DAYNIGHT_LABEL[daynight]} · ${UNIT}`;
+    const name = `${kind}_${slug(areaLabel())}_${period}${daynight === "all" ? "" : `_${daynight}`}${hotspots === "all" ? "_all-types" : ""}.${format}`;
+    const subtitle = `${areaLabel()} · ${allYears ? "All years" : formatRange(sel.from, sel.to)} · ${DAYNIGHT_LABEL[daynight]} · ${HOTSPOTS_LABEL[hotspots]} · ${UNIT}`;
     pulse(btn);
     try {
       if (format === "csv") {
@@ -407,7 +422,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     btn.disabled = true;
     setNote("Preparing the raw detections…");
     try {
-      const r = await api.detections(filters, daynight);
+      const r = await api.detections(filters, counting());
       const url = URL.createObjectURL(r.blob);
       const a = document.createElement("a");
       a.href = url;

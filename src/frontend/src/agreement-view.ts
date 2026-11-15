@@ -1,4 +1,4 @@
-import type { AgreementMonth, AgreementResponse, Metrics } from "./api";
+import type { AgreementMonth, AgreementResponse, Metrics, SettingMeta } from "./api";
 import { CHART, drawAtWidth, lineChart, redrawOnResize } from "./charts";
 import { MONTHS, MONTHS_LONG } from "./dates";
 import { UNIT, UNIT_SHORT, escapeXml, fmtInt, fmtVal } from "./format";
@@ -19,6 +19,29 @@ export function peakMonth(values: number[]): number {
   return best;
 }
 
+/** Share of MODIS resamples from which a peak-month miss counts as within MODIS's own sampling noise. */
+const NEAR_TIE_SHARE = 0.05;
+
+/**
+ * The national verdict with the reason it is not "converged" when the peak month is the cause:
+ * how many years name a different peak month, and how many of those are near-ties that MODIS's
+ * own day-to-day sampling can reverse.
+ */
+export function nationalReading(s: SettingMeta | undefined): string {
+  if (!s) return "";
+  const m = s.evaluation.leave_one_year_out;
+  const misses = s.evaluation.peak_misses ?? [];
+  let why = "";
+  if (misses.length) {
+    const near = misses.filter((x) => x.modis_resampled_share >= NEAR_TIE_SHARE).length;
+    const noise = "within MODIS's own day-to-day sampling noise";
+    why = `: the peak month differs in ${misses.length} of ${m.peak_years} years`;
+    if (near === misses.length) why += `, ${near === 1 ? "a near-tie" : "all near-ties"} ${noise}`;
+    else if (near) why += `, ${near} of them near-ties ${noise}`;
+  }
+  return `Across Indonesia, predicting each year from the other years, the agreement is rated <strong>${escapeXml(s.verdict)}</strong>${why}.`;
+}
+
 /** Plain-language reading of the agreement metrics, e.g. "typical monthly difference 8 %". */
 export function describe(m: Metrics): { k: string; v: string; note: string }[] {
   if (m.r_log === null) return [];
@@ -33,12 +56,12 @@ export function describe(m: Metrics): { k: string; v: string; note: string }[] {
 }
 
 /**
- * "Do MODIS and VIIRS agree here?": monthly MODIS cell-days against harmonised VIIRS (or raw pixels
- * of both) for one year, on days both satellites observed, with the area's agreement metrics.
+ * "Do MODIS and VIIRS agree here?": monthly Aqua MODIS hotspots against harmonised VIIRS (or raw
+ * VIIRS hotspots) for one year, on days both satellites observed, with the area's agreement metrics.
  */
 export class AgreementView {
   private data: AgreementResponse | null = null;
-  private nationalVerdict = "";
+  private national: SettingMeta | undefined;
   private mode: Mode = "harmonised";
   private year = 0;
   private chartW = 0;
@@ -53,7 +76,7 @@ export class AgreementView {
       <div class="an-bar">
         <div class="seg" role="group" aria-label="Values compared">
           <button type="button" class="seg-btn" data-ag="harmonised" aria-pressed="true">Harmonised</button>
-          <button type="button" class="seg-btn" data-ag="raw" aria-pressed="false">Raw pixels</button>
+          <button type="button" class="seg-btn" data-ag="raw" aria-pressed="false">Raw hotspots</button>
           <span class="seg-thumb" aria-hidden="true"></span>
         </div>
         <div class="ag-year"></div>
@@ -79,10 +102,10 @@ export class AgreementView {
     redrawOnResize(this.chart, () => this.chartW, () => this.data && this.drawChart());
   }
 
-  /** Shows an area's agreement data; `year` is preselected when the area has it. */
-  render(data: AgreementResponse, nationalVerdict: string, year: number): void {
+  /** Shows an area's agreement data with the national result of the hotspot type setting; `year` is preselected when the area has it. */
+  render(data: AgreementResponse, national: SettingMeta | undefined, year: number): void {
     this.data = data;
-    this.nationalVerdict = nationalVerdict;
+    this.national = national;
     const years = [...new Set(data.months.map((m) => m.year))];
     if (!years.includes(this.year)) this.year = years.includes(year) ? year : years[years.length - 1] ?? year;
     this.yearMenu.setOptions(years.map((y) => ({ value: String(y), label: String(y) })).reverse(), String(this.year));
@@ -107,7 +130,7 @@ export class AgreementView {
     const { modis, viirs } = this.values();
     const pm = peakMonth(modis);
     const pv = peakMonth(viirs);
-    const unit = this.mode === "raw" ? "pixels" : UNIT_SHORT;
+    const unit = this.mode === "raw" ? "raw hotspots" : UNIT_SHORT;
     if (pm < 0 && pv < 0) this.reading.textContent = `Neither sensor recorded fire in ${this.year} on days both observed.`;
     else {
       const same = pm === pv;
@@ -126,7 +149,7 @@ export class AgreementView {
     this.stats.innerHTML = rows.length
       ? verdict + rows.map((r) => `<li><span class="dev-k">${r.k}</span><span class="dev-v">${escapeXml(r.v)}</span><span class="mini-note">${r.note}</span></li>`).join("")
       : `<li><span class="dev-k">Not enough months with activity to compare here.</span></li>`;
-    this.note.innerHTML = `Values are ${UNIT}: a VIIRS cell counts the square root of its pixels divided by an island-group and month factor, and a MODIS cell counts once. Only days both satellites observed are compared. Across Indonesia, predicting each year from the other years, the agreement is rated <strong>${escapeXml(this.nationalVerdict)}</strong>. <a href="${DOCS_URL}" target="_blank" rel="noopener">How it works</a>`;
+    this.note.innerHTML = `Values are ${UNIT}: an Aqua hotspot counts 1, and a VIIRS hotspot counts 1 divided by a factor for its island group, month and half of the day. Only days both satellites observed are compared. ${nationalReading(this.national)} <a href="${DOCS_URL}" target="_blank" rel="noopener">How it works</a>`;
   }
 
   private drawChart(): void {
@@ -138,8 +161,8 @@ export class AgreementView {
         title: `MODIS and VIIRS by month, ${this.year}`,
         labels,
         series: [
-          { name: raw ? "MODIS pixels" : "MODIS cell-days", values: modis, color: CHART.median, width: 2 },
-          { name: raw ? "VIIRS pixels" : "VIIRS harmonised", values: viirs, color: CHART.accent, width: 2 },
+          { name: "MODIS hotspots", values: modis, color: CHART.median, width: 2 },
+          { name: raw ? "VIIRS raw hotspots" : "VIIRS harmonised", values: viirs, color: CHART.accent, width: 2 },
         ],
         width,
         height: 190,

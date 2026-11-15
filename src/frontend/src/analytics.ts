@@ -145,7 +145,7 @@ export function peakMonthOfYear(s: Series, year: number): Breakdown {
 export interface Trend {
   years: number[];
   totals: number[];
-  /** Fitted change per year, in fire cell-days. */
+  /** Fitted change per year, in hotspots. */
   slope: number;
   /** Fitted change per year relative to the average year, in percent. */
   percentPerYear: number;

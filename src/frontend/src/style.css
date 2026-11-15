@@ -231,6 +231,7 @@ body.is-scrolled .g-top {
 .hf-palette { width: 320px; flex: none; }
 .hf-palette .sm-button { width: 100%; }
 .hf-mode { width: 176px; }
+.hf-ht { width: 196px; }
 
 .hf-date .dp-value {
   flex: 1;
@@ -2167,8 +2168,26 @@ body:has(.card-dialog[open]) {
   transform: translateX(200%);
 }
 
-.hf-dn .seg-btn {
+.hf-dn .seg-btn,
+.hf-ht .seg-btn {
   padding: 4px 10px;
+}
+
+.map-caution {
+  max-width: 340px;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
+
+.map-caution[hidden] {
+  display: none;
 }
 
 /* Fields */

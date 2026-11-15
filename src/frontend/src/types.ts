@@ -23,3 +23,6 @@ export interface Filters {
 
 /** Which detections count: all, daytime only or night-time only. */
 export type DayNight = "all" | "day" | "night";
+
+/** Which hotspot types count: presumed vegetation fires, or every type (volcanoes, gas flares and other static sources too). */
+export type Hotspots = "vegetation" | "all";

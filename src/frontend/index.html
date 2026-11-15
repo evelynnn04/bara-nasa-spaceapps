@@ -23,6 +23,11 @@
           <button type="button" class="seg-btn" data-dn="night" aria-pressed="false">Night</button>
           <span class="seg-thumb" aria-hidden="true"></span>
         </div>
+        <div class="seg hf-ht" role="group" aria-label="Hotspot types counted" title="Count presumed vegetation fires only, or every hotspot type including volcanoes and gas flares">
+          <button type="button" class="seg-btn" data-ht="vegetation" aria-pressed="true" aria-label="Vegetation fires">Vegetation</button>
+          <button type="button" class="seg-btn" data-ht="all" aria-pressed="false" aria-label="All hotspot types">All types</button>
+          <span class="seg-thumb" aria-hidden="true"></span>
+        </div>
         <div class="seg hf-mode" role="group" aria-label="Area selection mode">
           <button type="button" class="seg-btn" data-mode="area" aria-pressed="true">Area</button>
           <button type="button" class="seg-btn" data-mode="polygon" aria-pressed="false">Polygon</button>
@@ -56,6 +61,7 @@
             <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18l4-12 10 4-6 9z" /></svg><span id="draw-start-label">Draw polygon</span>
           </button>
           <p class="draw-tip" id="draw-tip" role="status" hidden></p>
+          <p class="map-caution" id="dn-caution" role="note" hidden>Night only: quiet months read high, because Aqua records few hotspots at night.</p>
           <button type="button" class="pill pill-glass" id="draw-finish" hidden disabled>Finish</button>
           <button type="button" class="pill pill-glass" id="draw-cancel" hidden>Cancel</button>
           <button type="button" class="pill pill-glass" id="draw-clear" hidden>Clear polygon</button>

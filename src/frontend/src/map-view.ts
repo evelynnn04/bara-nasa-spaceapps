@@ -356,7 +356,7 @@ export class MapView {
       m.getCanvas().style.cursor = "pointer";
       this.popup
         .setLngLat(e.lngLat)
-        .setHTML(`<strong>${fmtVal(p.value)} ${UNIT_SHORT}</strong> in this ${this.resDeg}° cell<br>Raw pixels: VIIRS ${fmtInt(p.viirs)} &middot; MODIS ${fmtInt(p.modis)}<br>Highest fire radiative power ${p.frp} MW`)
+        .setHTML(`<strong>${fmtVal(p.value)} ${UNIT_SHORT}</strong> in this ${this.resDeg}° cell<br>Raw hotspots: VIIRS ${fmtInt(p.viirs)} &middot; MODIS ${fmtInt(p.modis)}<br>Highest fire radiative power ${p.frp} MW`)
         .addTo(m);
     });
     m.on("mouseleave", "hotspots", () => {
