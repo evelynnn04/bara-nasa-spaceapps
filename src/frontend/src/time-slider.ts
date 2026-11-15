@@ -97,7 +97,7 @@ export class Timeline {
           <span class="tl-handle" data-end="a" role="slider" tabindex="0" aria-label="Start of the selected dates"></span>
           <span class="tl-handle" data-end="b" role="slider" tabindex="0" aria-label="End of the selected dates"></span>
         </div>
-        <div class="tl-head" hidden aria-hidden="true"></div>
+        <div class="tl-head" hidden aria-hidden="true" title="Drag to move through the steps"></div>
       </div>
       <p class="tl-now" hidden><span></span><button type="button" class="tl-clear" aria-label="Show the whole selected period" title="Show the whole selected period">${ICON.close}</button></p>
       <div class="tl-interval"></div>
@@ -116,7 +116,7 @@ export class Timeline {
 
     this.prevBtn.addEventListener("click", () => void this.go(this.current === null ? this.frames.length - 1 : this.current - 1));
     this.nextBtn.addEventListener("click", () => void this.go(this.current === null ? 0 : this.current + 1));
-    this.playBtn.addEventListener("click", () => (this.playing ? this.pause() : void this.play()));
+    this.playBtn.addEventListener("click", () => (this.playing ? this.pause() : this.play()));
     $(".tl-clear").addEventListener("click", () => this.clear());
     this.bindTrack();
     this.sync();
@@ -180,7 +180,7 @@ export class Timeline {
     void this.host.show(null);
   }
 
-  private async play(): Promise<void> {
+  private play(): void {
     const count = this.frames.length;
     if (count > MAX_ANIMATION_STEPS) {
       this.status.textContent = `Playing holds up to ${MAX_ANIMATION_STEPS} steps; these dates have ${count}. Shorten them or pick a longer step.`;
@@ -190,20 +190,21 @@ export class Timeline {
     this.sync();
     const frames = this.frames;
     if (!this.scale) {
-      this.status.textContent = `Loading 0 of ${count}`;
-      try {
-        const scale = await this.host.prepare(frames, (done) => {
-          this.status.textContent = `Loading ${done} of ${count}`;
-        });
-        if (!this.playing || frames !== this.frames) return;
-        this.scale = scale;
-      } catch (err) {
-        this.pause();
-        if ((err as Error).name !== "AbortError") this.status.textContent = `Could not load the steps: ${(err as Error).message}`;
-        return;
-      }
+      // Playing starts at once, each step on its own colour scale; the remaining steps load meanwhile, and
+      // once all are in they share one scale so the steps compare like with like
+      this.host
+        .prepare(frames, (done) => {
+          if (this.playing && frames === this.frames) this.status.textContent = done < count ? `Loaded ${done} of ${count} steps` : "";
+        })
+        .then(
+          (scale) => {
+            if (frames === this.frames) this.scale = scale;
+          },
+          (err: Error) => {
+            if (err.name !== "AbortError" && frames === this.frames) this.status.textContent = `Could not load every step: ${err.message}`;
+          },
+        );
     }
-    this.status.textContent = "";
     void this.tick(this.current === null || this.current === count - 1 ? 0 : this.current);
   }
 
@@ -240,9 +241,20 @@ export class Timeline {
     return [Math.max(this.recA, start(first)), Math.min(this.recB, start(last + 1) - 1)];
   }
 
-  /** Dragging an end of the brush resizes the dates, dragging its body moves them; a press elsewhere centres it there. */
+  /** Index of the step under a pointer on the track, clamped to the first or last step. */
+  private stepAt(clientX: number): number {
+    const r = this.track.getBoundingClientRect();
+    const date = fromDay(this.recA + Math.floor(((clientX - r.left) / r.width) * (this.recB - this.recA + 1)));
+    const i = this.frames.findIndex((f) => f.to >= date);
+    return i < 0 ? this.frames.length - 1 : i;
+  }
+
+  /**
+   * Dragging an end of the brush resizes the dates, dragging its body moves them, and a press elsewhere centres
+   * it there. While a step is on the map, dragging its playhead moves through the steps.
+   */
   private bindTrack(): void {
-    let mode: "a" | "b" | "move" | null = null;
+    let mode: "a" | "b" | "move" | "head" | null = null;
     let first = 0;
     let last = 0;
     let grab = 0;
@@ -272,8 +284,8 @@ export class Timeline {
       before = this.range;
       [first, last] = [this.monthOf(this.range[0]), this.monthOf(this.range[1])];
       const handle = t.closest<HTMLElement>(".tl-handle");
-      mode = handle ? (handle.dataset.end as "a" | "b") : "move";
-      if (!handle && !t.closest(".tl-brush")) {
+      mode = handle ? (handle.dataset.end as "a" | "b") : t.closest(".tl-head") ? "head" : "move";
+      if (mode === "move" && !t.closest(".tl-brush")) {
         slide(monthAt(e.clientX) - Math.floor((last - first) / 2));
         preview();
       }
@@ -283,6 +295,11 @@ export class Timeline {
     });
     this.track.addEventListener("pointermove", (e) => {
       if (!mode) return;
+      if (mode === "head") {
+        const i = this.stepAt(e.clientX);
+        if (i !== this.current) void this.go(i);
+        return;
+      }
       const at = monthAt(e.clientX);
       if (mode === "a") first = Math.min(at, last);
       else if (mode === "b") last = Math.max(at, first);
