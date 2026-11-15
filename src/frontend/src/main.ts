@@ -7,9 +7,10 @@ import { setChartPalette } from "./charts";
 import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
-import { parts, toDay } from "./dates";
+import { formatDay, parts, toDay } from "./dates";
 import { EventsView } from "./events-view";
 import { downloadCsv, slug, toCsv } from "./export";
+import { watchData } from "./freshness";
 import { UNIT_SHORT, fmtCompact, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
 import { initTooltips } from "./tooltip";
@@ -501,4 +502,9 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   renderMapLegend();
   update({}, { fit: false });
   map.map.once("load", fitSelection);
+  $("#data-notice-reload").addEventListener("click", () => location.reload());
+  watchData(() => api.meta(), meta, (now) => {
+    $("#data-notice-text").textContent = `Newer fire data has arrived, up to ${formatDay(toDay(now.record.end))}.`;
+    $("#data-notice").hidden = false;
+  });
 }
