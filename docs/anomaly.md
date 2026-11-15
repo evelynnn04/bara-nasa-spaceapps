@@ -118,7 +118,7 @@ ln kf_d[r, m] = mu_d + rho_d,r + sigma_d,m
 fitted with the same shrunk iterative proportional fit, on the same paired days (1 February 2012 to
 31 December 2025), on monthly sums of Aqua FRP against VIIRS-reference FRP of that half, for each
 hotspot type setting. The shrinkage weight is each stratum's Aqua hotspots, as for the count
-factors. The factors are stored in the `k_table` of `backend/app/harmonise/params.json` (`kf_day`,
+factors. The factors are stored in the `k_table` of `src/backend/app/harmonise/params.json` (`kf_day`,
 `kf_night`) by `python -m app fit`.
 
 Separate halves matter for FRP as for counts: on paired days, VIIRS measures 1.7 to 2.6 times

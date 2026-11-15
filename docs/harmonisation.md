@@ -151,7 +151,7 @@ until no effect changes by more than 1e-6 (at most 10,000 rounds), with `n0 = 20
 - FRP factors are fitted the same way on FRP sums, with the same shrinkage weight (Aqua hotspots).
 
 The fitted values, the evaluation below and the monthly national series are written to
-`backend/app/harmonise/params.json` by `python -m app fit`, which every query reads.
+`src/backend/app/harmonise/params.json` by `python -m app fit`, which every query reads.
 
 ## Choosing the method
 
@@ -242,7 +242,7 @@ These thresholds were set before fitting and are not tuned to the result.
 
 ## Results
 
-From `backend/app/harmonise/params.json` (fit window 1 February 2012 – 31 December 2025).
+From `src/backend/app/harmonise/params.json` (fit window 1 February 2012 – 31 December 2025).
 
 **Factors.** Island and month values are multipliers on the base factor.
 

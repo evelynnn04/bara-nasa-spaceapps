@@ -18,10 +18,10 @@ docker compose up --build
 The API listens on `http://localhost:8000`. Check it with `curl http://localhost:8000/health`, which returns `{"status":"ok"}`. Interactive API docs are at `http://localhost:8000/docs`. Stop it with `docker compose down`.
 
 ### Local development without Docker
-Dependencies are managed with [uv](https://docs.astral.sh/uv/) and pinned in `backend/uv.lock`.
+Dependencies are managed with [uv](https://docs.astral.sh/uv/) and pinned in `src/backend/uv.lock`.
 
 ```bash
-cd backend
+cd src/backend
 uv sync
 uv run uvicorn app.main:app --reload
 ```
@@ -60,11 +60,11 @@ inside it to the repository root.
 
 You should now have `spaceapps/data/raw/`, `spaceapps/data/parquet/` and `spaceapps/data/derived/`.
 The backend and dashboard work straight away, with no FIRMS key and no `fit` (the fitted factors
-are committed in `backend/app/harmonise/params.json`). To check the data, run the backend tests;
+are committed in `src/backend/app/harmonise/params.json`). To check the data, run the backend tests;
 the tests on real data run only when the data is present:
 
 ```bash
-cd backend
+cd src/backend
 uv sync
 uv run pytest
 ```
@@ -80,7 +80,7 @@ data").
 2. Download and build the data:
 
 ```bash
-cd backend
+cd src/backend
 uv run python -m app download
 uv run python -m app normalise
 uv run python -m app build
@@ -114,7 +114,7 @@ documented at `http://localhost:8000/docs`; the main endpoints are `/api/meta`, 
 `/api/detections.csv`. The anomaly method is described in [docs/anomaly.md](docs/anomaly.md). How
 `/api/critical` finds historically critical fire periods is described in
 [docs/critical-periods.md](docs/critical-periods.md); `uv run python -m app validate-critical` (in
-`backend`) reproduces its validation on the local data.
+`src/backend`) reproduces its validation on the local data.
 
 Values are in hotspots (Aqua MODIS-equivalent); every endpoint takes `hotspots=vegetation` (the
 default) or `hotspots=all`. Data unzipped from a zip made before the hotspot unit lacks the counts of
@@ -138,6 +138,6 @@ Frontend tests run with `npm test`.
 Run the backend tests with:
 
 ```bash
-cd backend
+cd src/backend
 uv run pytest
 ```
