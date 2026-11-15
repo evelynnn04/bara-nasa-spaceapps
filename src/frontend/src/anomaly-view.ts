@@ -1,9 +1,11 @@
 import { UNUSUAL_SD, annualTrend, anomalyForMonth, anomalyForYear, climatology, peakMonthOfYear, recordYears, type AnomalyResult, type Verdict } from "./analytics";
 import { CHART, barChart, drawAtWidth, lineChart, profileChart, redrawOnResize } from "./charts";
-import { MONTHS, MONTHS_LONG, parts } from "./dates";
+import { DatePicker } from "./date-picker";
+import { MONTHS, MONTHS_LONG, fromDay, parts } from "./dates";
 import { frame, place, svgHeight, type Cell } from "./export";
 import { UNIT_SHORT, escapeXml, fmtCompact, fmtPct, fmtVal } from "./format";
 import { RAMPS, type RampName } from "./ramps";
+import { SelectMenu } from "./select-menu";
 import type { Selection } from "./store";
 
 type Kind = "month" | "year";
@@ -24,8 +26,8 @@ export class AnomalyView {
   private kind: Kind = "month";
   private year = 0;
   private month = 0;
-  private readonly yearSel: HTMLSelectElement;
-  private readonly monthIn: HTMLInputElement;
+  private readonly yearMenu: SelectMenu;
+  private readonly monthPicker: DatePicker;
   private readonly verdict: HTMLElement;
   private readonly chart: HTMLElement;
   private readonly notes: HTMLElement;
@@ -43,14 +45,22 @@ export class AnomalyView {
           <button type="button" class="seg-btn" data-kind="year" aria-pressed="false">Year</button>
           <span class="seg-thumb" aria-hidden="true"></span>
         </div>
-        <label class="field field-inline"><span class="visually-hidden">Month</span><input class="input an-month" type="month" /></label>
-        <label class="field field-inline" hidden><span class="visually-hidden">Year</span><select class="input an-year"></select></label>
+        <div class="an-month"></div>
+        <div class="an-year" hidden></div>
         <p class="verdict" role="status"></p>
       </div>
       <div class="chart an-chart"></div>
       <div class="an-notes"></div>`;
-    this.yearSel = root.querySelector(".an-year")!;
-    this.monthIn = root.querySelector(".an-month")!;
+    this.yearMenu = new SelectMenu(root.querySelector(".an-year")!, "Year", [], "", (value) => {
+      this.year = +value;
+      this.draw();
+    });
+    const month = () => `${this.year}-${String(this.month + 1).padStart(2, "0")}-01`;
+    this.monthPicker = new DatePicker(root.querySelector(".an-month")!, "Month", () => [month(), month()], (value) => {
+      this.year = +value.slice(0, 4);
+      this.month = +value.slice(5, 7) - 1;
+      this.draw();
+    }, true);
     this.verdict = root.querySelector(".verdict")!;
     this.chart = root.querySelector(".an-chart")!;
     this.notes = root.querySelector(".an-notes")!;
@@ -59,17 +69,6 @@ export class AnomalyView {
       const btn = (e.target as Element).closest<HTMLButtonElement>("[data-kind]");
       if (!btn) return;
       this.kind = btn.dataset.kind as Kind;
-      this.draw();
-    });
-    this.yearSel.addEventListener("change", () => {
-      this.year = +this.yearSel.value;
-      this.draw();
-    });
-    this.monthIn.addEventListener("change", () => {
-      const v = this.monthIn.value;
-      if (!v) return;
-      this.year = +v.slice(0, 4);
-      this.month = +v.slice(5, 7) - 1;
       this.draw();
     });
     redrawOnResize(this.chart, () => this.chartW, () => this.sel && this.draw());
@@ -86,9 +85,8 @@ export class AnomalyView {
       this.year = parts(sel.to).year;
       this.month = Math.max(0, peakMonthOfYear(sel, this.year).peak);
     }
-    this.yearSel.innerHTML = years.map((y) => `<option value="${y}">${y}</option>`).join("");
-    this.monthIn.min = `${years[0]}-01`;
-    this.monthIn.max = `${years[years.length - 1]}-12`;
+    this.yearMenu.setOptions(years.map((y) => ({ value: String(y), label: String(y) })).reverse(), String(this.year));
+    this.monthPicker.setBounds(fromDay(sel.firstDay), fromDay(sel.lastDay));
     this.draw();
   }
 
@@ -169,10 +167,10 @@ export class AnomalyView {
 
   private draw(): void {
     this.root.querySelectorAll<HTMLButtonElement>("[data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === this.kind)));
-    this.monthIn.closest("label")!.hidden = this.kind !== "month";
-    this.yearSel.closest("label")!.hidden = this.kind !== "year";
-    this.monthIn.value = `${this.year}-${String(this.month + 1).padStart(2, "0")}`;
-    this.yearSel.value = String(this.year);
+    this.root.querySelector<HTMLElement>(".an-month")!.hidden = this.kind !== "month";
+    this.root.querySelector<HTMLElement>(".an-year")!.hidden = this.kind !== "year";
+    this.monthPicker.set(`${this.year}-${String(this.month + 1).padStart(2, "0")}-01`);
+    this.yearMenu.set(String(this.year));
 
     const a = this.result();
     const v = VERDICT[a.verdict];

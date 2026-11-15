@@ -2,6 +2,7 @@ import type { AgreementMonth, AgreementResponse, Metrics } from "./api";
 import { CHART, drawAtWidth, lineChart, redrawOnResize } from "./charts";
 import { MONTHS, MONTHS_LONG } from "./dates";
 import { UNIT, UNIT_SHORT, escapeXml, fmtInt, fmtVal } from "./format";
+import { SelectMenu } from "./select-menu";
 
 type Mode = "harmonised" | "raw";
 
@@ -41,7 +42,7 @@ export class AgreementView {
   private mode: Mode = "harmonised";
   private year = 0;
   private chartW = 0;
-  private readonly yearSel: HTMLSelectElement;
+  private readonly yearMenu: SelectMenu;
   private readonly reading: HTMLElement;
   private readonly chart: HTMLElement;
   private readonly stats: HTMLElement;
@@ -55,13 +56,16 @@ export class AgreementView {
           <button type="button" class="seg-btn" data-ag="raw" aria-pressed="false">Raw pixels</button>
           <span class="seg-thumb" aria-hidden="true"></span>
         </div>
-        <label class="field field-inline"><span class="visually-hidden">Year</span><select class="input ag-year"></select></label>
+        <div class="ag-year"></div>
       </div>
       <p class="reading ag-reading" aria-live="polite"></p>
       <div class="chart ag-chart"></div>
       <ul class="dev-list ag-stats"></ul>
       <p class="mini-note ag-note"></p>`;
-    this.yearSel = root.querySelector(".ag-year")!;
+    this.yearMenu = new SelectMenu(root.querySelector(".ag-year")!, "Year", [], "", (value) => {
+      this.year = +value;
+      this.draw();
+    });
     this.reading = root.querySelector(".ag-reading")!;
     this.chart = root.querySelector(".ag-chart")!;
     this.stats = root.querySelector(".ag-stats")!;
@@ -70,10 +74,6 @@ export class AgreementView {
       const btn = (e.target as Element).closest<HTMLButtonElement>("[data-ag]");
       if (!btn) return;
       this.mode = btn.dataset.ag as Mode;
-      this.draw();
-    });
-    this.yearSel.addEventListener("change", () => {
-      this.year = +this.yearSel.value;
       this.draw();
     });
     redrawOnResize(this.chart, () => this.chartW, () => this.data && this.drawChart());
@@ -85,11 +85,7 @@ export class AgreementView {
     this.nationalVerdict = nationalVerdict;
     const years = [...new Set(data.months.map((m) => m.year))];
     if (!years.includes(this.year)) this.year = years.includes(year) ? year : years[years.length - 1] ?? year;
-    this.yearSel.innerHTML = years
-      .slice()
-      .reverse()
-      .map((y) => `<option value="${y}"${y === this.year ? " selected" : ""}>${y}</option>`)
-      .join("");
+    this.yearMenu.setOptions(years.map((y) => ({ value: String(y), label: String(y) })).reverse(), String(this.year));
     this.draw();
   }
 

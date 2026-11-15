@@ -24,7 +24,7 @@ export class SelectMenu {
   constructor(
     private readonly root: HTMLElement,
     label: string,
-    private readonly options: MenuOption[],
+    private options: MenuOption[],
     value: string,
     private readonly onChange: (value: string) => void,
   ) {
@@ -37,20 +37,10 @@ export class SelectMenu {
         <span class="sm-current"></span>
         ${CHEVRON}
       </button>
-      <ul class="sm-list" id="${this.id}-list" role="listbox" tabindex="-1" aria-labelledby="${this.id}-k">
-        ${options
-          .map(
-            (o, i) => `<li class="sm-option" role="option" id="${this.id}-o${i}" data-i="${i}">
-              ${o.preview ?? ""}
-              <span class="sm-text"><span class="sm-label">${escapeXml(o.label)}</span>${o.hint ? `<span class="sm-hint">${escapeXml(o.hint)}</span>` : ""}</span>
-              <span class="sm-check">${CHECK}</span>
-            </li>`,
-          )
-          .join("")}
-      </ul>`;
+      <ul class="sm-list" id="${this.id}-list" role="listbox" tabindex="-1" aria-labelledby="${this.id}-k"></ul>`;
     this.button = root.querySelector(".sm-button")!;
     this.list = root.querySelector(".sm-list")!;
-    this.render();
+    this.setOptions(options, value);
 
     this.button.addEventListener("click", () => (this.isOpen() ? this.close() : this.open()));
     this.button.addEventListener("keydown", (e) => {
@@ -73,6 +63,22 @@ export class SelectMenu {
     });
   }
 
+  /** Replaces the choices and sets the value, without notifying. */
+  setOptions(options: MenuOption[], value: string): void {
+    this.options = options;
+    this.value = value;
+    this.list.innerHTML = options
+      .map(
+        (o, i) => `<li class="sm-option" role="option" id="${this.id}-o${i}" data-i="${i}">
+          ${o.preview ?? ""}
+          <span class="sm-text"><span class="sm-label">${escapeXml(o.label)}</span>${o.hint ? `<span class="sm-hint">${escapeXml(o.hint)}</span>` : ""}</span>
+          <span class="sm-check">${CHECK}</span>
+        </li>`,
+      )
+      .join("");
+    this.render();
+  }
+
   /** Sets the value without notifying. */
   set(value: string): void {
     this.value = value;
@@ -85,6 +91,7 @@ export class SelectMenu {
 
   private render(): void {
     const o = this.options[this.index()];
+    if (!o) return;
     this.root.querySelector(".sm-current")!.innerHTML = `${o.preview ?? ""}<span id="${this.id}-v" class="sm-value">${escapeXml(o.label)}</span>`;
     this.list.querySelectorAll<HTMLElement>(".sm-option").forEach((li, i) => li.setAttribute("aria-selected", String(i === this.index())));
   }

@@ -1295,25 +1295,20 @@ button.dp-title:hover,
 
 .tl-interval {
   flex: none;
+  margin-left: 6px;
 }
 
 .tl-interval.sm {
   position: relative;
 }
 
-/* On the strip's own glass the button drops its glass, like the date fields, and the list opens upward */
+/* A solid field on the strip, so it reads as a control and not as part of the track; its list opens upward */
 .tl-interval .sm-button {
   height: 32px;
-  border-color: transparent;
-  background: none;
+  background: var(--glass-solid);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   box-shadow: none;
-}
-
-.tl-interval .sm-button:hover,
-.tl-interval.is-open .sm-button {
-  background: var(--glass-line);
 }
 
 .tl-interval .sm-list {
@@ -2670,20 +2665,31 @@ button.cal-month:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-/* Year dropdown: the glass menu at card size, its list scrolling inside the card */
-.cal-year.sm {
+/* Dropdowns and date fields inside a card: card size, a short scrolling list, and a focus ring drawn
+   inside the field so the card's clipping does not cut it */
+.gc .sm,
+.gc .dp {
   position: relative;
 }
 
-.cal-year[hidden] {
+.gc .sm[hidden],
+.gc .dp[hidden] {
   display: none;
 }
 
-.cal-year .sm-button {
+.gc .hf {
   height: 32px;
 }
 
-.cal-year .sm-list {
+.gc .hf:focus-within {
+  outline-offset: -2px;
+}
+
+.gc .hf-date {
+  width: auto;
+}
+
+.gc .sm-list {
   right: auto;
   width: 150px;
   max-height: 232px;
@@ -2693,10 +2699,26 @@ button.cal-month:focus-visible {
   transform-origin: top left;
 }
 
-.cal-year .sm-option,
+.gc .dp-pop {
+  right: auto;
+  left: 0;
+  max-width: none;
+  margin: 0;
+}
+
+.gc .sm-option,
 .tl-interval .sm-option {
   grid-template-columns: 1fr 18px;
   padding-block: 6px;
+}
+
+/* An open list or calendar may reach past its card, above the cards after it */
+.gc:has(.sm.is-open, .dp.is-open) {
+  z-index: 2;
+}
+
+.gc:has(.sm.is-open, .dp.is-open) .fold-inner {
+  overflow: visible;
 }
 
 .cal-mini {
@@ -2960,9 +2982,6 @@ button.cal-month:focus-visible {
   margin-top: 0;
 }
 
-.ag-year {
-  min-width: 96px;
-}
 
 .ag-verdict {
   font-size: var(--fs-body);

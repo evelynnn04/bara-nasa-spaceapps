@@ -37,9 +37,7 @@ export class CalendarView {
   private readonly back: HTMLButtonElement;
   private readonly crumb: HTMLElement;
   private readonly yearField: HTMLElement;
-  /** Year dropdown, built once the record's years are known. */
-  private yearMenu: SelectMenu | null = null;
-  private yearSpan = "";
+  private readonly yearMenu: SelectMenu;
   private readonly nav: HTMLElement;
   private readonly prev: HTMLButtonElement;
   private readonly next: HTMLButtonElement;
@@ -62,6 +60,11 @@ export class CalendarView {
     this.back = root.querySelector(".cal-back")!;
     this.crumb = root.querySelector(".cal-crumb ol")!;
     this.yearField = root.querySelector(".cal-year")!;
+    this.yearMenu = new SelectMenu(this.yearField, "Year", [], "", (value) => {
+      const dir = +value < this.year ? "prev" : "next";
+      this.year = +value;
+      this.swap(null, dir);
+    });
     this.nav = root.querySelector(".cal-nav")!;
     [this.prev, this.next] = root.querySelectorAll<HTMLButtonElement>(".cal-step");
     this.legend = root.querySelector(".legend")!;
@@ -88,15 +91,7 @@ export class CalendarView {
     this.ramp = ramp;
     const [a, b] = [parts(sel.from).year, parts(sel.to).year];
     if (this.year < a || this.year > b) this.year = b;
-    if (this.yearSpan !== `${a}-${b}`) {
-      this.yearSpan = `${a}-${b}`;
-      const years = Array.from({ length: b - a + 1 }, (_, i) => ({ value: String(b - i), label: String(b - i) }));
-      this.yearMenu = new SelectMenu(this.yearField, "Year", years, String(this.year), (value) => {
-        const dir = +value < this.year ? "prev" : "next";
-        this.year = +value;
-        this.swap(null, dir);
-      });
-    }
+    this.yearMenu.setOptions(Array.from({ length: b - a + 1 }, (_, i) => ({ value: String(b - i), label: String(b - i) })), String(this.year));
     this.stage.replaceChildren(this.buildLayer());
     this.syncChrome();
   }
@@ -105,7 +100,7 @@ export class CalendarView {
     const days = this.level.kind === "days";
     this.back.hidden = !days;
     this.yearField.hidden = days;
-    this.yearMenu?.set(String(this.year));
+    this.yearMenu.set(String(this.year));
     this.crumb.innerHTML = this.level.kind === "days"
       ? `<li><button type="button" class="crumb-link">${this.level.year}</button></li><li aria-current="page">${MONTHS_LONG[this.level.month]}</li>`
       : "";
