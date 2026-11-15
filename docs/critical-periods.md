@@ -2,7 +2,7 @@
 
 The backend identifies the calendar months and weeks that, year after year, hold elevated fire
 activity in an area. This document describes how those periods are found. The computation lives in
-`backend/app/critical.py` and is served by `GET /api/critical`.
+`src/backend/app/critical.py` and is served by `GET /api/critical`.
 
 ## Input
 
@@ -57,7 +57,7 @@ Over the years with fire activity, a period is **critical** when all three hold:
 3. at least **3** years support it.
 
 The thresholds are `RATIO_MIN`, `RECURRENCE_MIN`, `MIN_YEARS` and `WEEK_WINDOW` in
-`backend/app/critical.py`, and the API returns them under `method`.
+`src/backend/app/critical.py`, and the API returns them under `method`.
 
 ## Confidence
 
@@ -71,7 +71,7 @@ year, vegetation fires, day and night):
 | 2 to 20 | `moderate` | 0.64 to 0.66 |
 | 20 or more | `high` | 0.74 to 0.81 |
 
-The thresholds are `CONFIDENCE_FROM` in `backend/app/critical.py`. In the record of 14 November
+The thresholds are `CONFIDENCE_FROM` in `src/backend/app/critical.py`. In the record of 14 November
 2026, 112 of the 538 provinces and cities/regencies with any fire are `low`.
 
 ### Example
@@ -105,11 +105,11 @@ years 2003 to 2025), for Indonesia, its 34 provinces and 504 cities/regencies, c
 fires by day and night. Every number below is printed by
 
 ```bash
-cd backend
+cd src/backend
 uv run python -m app validate-critical
 ```
 
-which takes about a minute once the cache is built (`backend/app/critical_validation.py`). The
+which takes about a minute once the cache is built (`src/backend/app/critical_validation.py`). The
 permutation test uses a fixed seed, so the output is the same on every run over the same data.
 
 ### Against known fire seasons

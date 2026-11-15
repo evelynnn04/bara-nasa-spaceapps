@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-REPO_DIR = BACKEND_DIR.parent
+REPO_DIR = BACKEND_DIR.parents[1]
 
 #: Side of one harmonisation grid cell, in degrees.
 GRID = 0.05
