@@ -77,19 +77,23 @@ describe("patterns", () => {
 });
 
 describe("anomalies", () => {
-  it("flags an unusually high month", () => {
+  it("reads one month in every year, each year against the others", () => {
     const s = series(fireSeason);
-    const a = anomalyForMonth(s, 2015, 8);
-    expect(a.verdict).toBe("unusual");
-    expect(a.unusual[a.selectedIndex]).toBe(true);
-    expect(anomalyForMonth(s, 2013, 8).verdict).not.toBe("unusual");
+    const a = anomalyForMonth(s, 8);
+    expect(a.labels).toEqual(["2012", "2013", "2014", "2015"]);
+    expect(a.verdicts[a.labels.indexOf("2015")]).toBe("unusual");
+    expect(a.unusual[a.labels.indexOf("2015")]).toBe(true);
+    expect(a.verdicts[a.labels.indexOf("2013")]).not.toBe("unusual");
+    // The reference lines are the average and median over every year
+    expect(a.mean[0]).toBeCloseTo((60 + 60 + 60 + 300) / 4);
+    expect(a.median[0]).toBe(60);
   });
 
-  it("flags an unusually high year and its months", () => {
+  it("reads each month of a year against the same month in other years", () => {
     const s = series(fireSeason);
     const a = anomalyForYear(s, 2015);
-    expect(a.verdict).toBe("unusual");
     expect(a.unusual.filter(Boolean)).toHaveLength(3);
-    expect(anomalyForYear(s, 2012).history).toEqual(["2015"]);
+    expect(a.verdicts.filter((v) => v === "unusual")).toHaveLength(3);
+    expect(anomalyForYear(s, 2012).verdicts).not.toContain("unusual");
   });
 });

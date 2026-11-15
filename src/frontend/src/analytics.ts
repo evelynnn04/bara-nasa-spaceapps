@@ -187,16 +187,13 @@ export interface AnomalyResult {
   title: string;
   labels: string[];
   values: number[];
+  /** Reference lines and the top of the usual range, per point. */
   mean: number[];
   median: number[];
   threshold: number[];
   unusual: boolean[];
-  /** Index of the selected period in `labels`, or -1 when the chart shows the months of one year. */
-  selectedIndex: number;
-  selected: { label: string; value: number; mean: number; median: number; threshold: number };
-  verdict: Verdict;
-  /** Other periods in the record that were unusually high. */
-  history: string[];
+  /** How each point compares with the same period in the other years. */
+  verdicts: Verdict[];
 }
 
 function verdictFor(value: number, med: number, threshold: number): Verdict {
@@ -214,31 +211,31 @@ function leaveOneOut(values: number[]): { mean: number; median: number; threshol
   });
 }
 
-/** Compares one month with the same month in every other year of the record. */
-export function anomalyForMonth(s: Series, year: number, month: number): AnomalyResult {
+/**
+ * One calendar month in every year of the record. The reference lines are the average and median
+ * over all years; each year's reading compares it with the other years (leave one out).
+ */
+export function anomalyForMonth(s: Series, month: number): AnomalyResult {
   const years = recordYears(s);
   const values = years.map((y) => monthCount(s, y, month));
   const refs = leaveOneOut(values);
-  const unusual = values.map((v, i) => v > refs[i].threshold && v > 0);
-  const idx = Math.max(0, years.indexOf(year));
-  const ref = refs[idx];
+  const mu = mean(values);
+  const med = median(values);
+  const thr = mu + UNUSUAL_SD * std(values);
   return {
     kind: "month",
     title: `${MONTHS[month]} in every year`,
     labels: years.map(String),
     values,
-    mean: values.map(() => ref.mean),
-    median: values.map(() => ref.median),
-    threshold: values.map(() => ref.threshold),
-    unusual,
-    selectedIndex: idx,
-    selected: { label: `${MONTHS[month]} ${years[idx]}`, value: values[idx], ...ref },
-    verdict: verdictFor(values[idx], ref.median, ref.threshold),
-    history: years.filter((_, i) => unusual[i] && i !== idx).map((y) => `${MONTHS[month]} ${y}`),
+    mean: values.map(() => mu),
+    median: values.map(() => med),
+    threshold: values.map(() => thr),
+    unusual: values.map((v, i) => v > refs[i].threshold && v > 0),
+    verdicts: values.map((v, i) => verdictFor(v, refs[i].median, refs[i].threshold)),
   };
 }
 
-/** Compares each month of one year with the same month in the other years, and the year total with other years. */
+/** Compares each month of one year with the same month in the other years. */
 export function anomalyForYear(s: Series, year: number): AnomalyResult {
   const years = recordYears(s);
   const grid = years.map((y) => MONTHS.map((_, m) => monthCount(s, y, m)));
@@ -255,8 +252,6 @@ export function anomalyForYear(s: Series, year: number): AnomalyResult {
     thresholdM.push(mu + UNUSUAL_SD * std(col));
   });
   const values = grid[idx];
-  const totals = grid.map((row) => row.reduce((a, b) => a + b, 0));
-  const refs = leaveOneOut(totals);
   return {
     kind: "year",
     title: `Months of ${years[idx]} against other years`,
@@ -266,9 +261,6 @@ export function anomalyForYear(s: Series, year: number): AnomalyResult {
     median: medianM,
     threshold: thresholdM,
     unusual: values.map((v, m) => v > thresholdM[m] && v > 0),
-    selectedIndex: -1,
-    selected: { label: String(years[idx]), value: totals[idx], ...refs[idx] },
-    verdict: verdictFor(totals[idx], refs[idx].median, refs[idx].threshold),
-    history: years.filter((_, i) => i !== idx && totals[i] > refs[i].threshold && totals[i] > 0).map(String),
+    verdicts: values.map((v, m) => verdictFor(v, medianM[m], thresholdM[m])),
   };
 }

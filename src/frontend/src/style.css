@@ -200,7 +200,6 @@ body.is-scrolled .g-top {
 .tile-label,
 .legend-k,
 .crumb-k,
-.verdict-k,
 .chip-level {
   font-size: var(--fs-caption);
   font-weight: 600;
@@ -1638,13 +1637,6 @@ body:has(.card-dialog[open]) {
   padding: 3px 8px;
 }
 
-.an-bar .verdict {
-  margin-left: auto;
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-size: var(--fs-body);
-}
-
 #anomaly {
   display: grid;
   gap: 8px;
@@ -1775,6 +1767,11 @@ body:has(.card-dialog[open]) {
 .rank-v {
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
+}
+
+/* The dot fills its own grid column; the default left margin would push it past the card edge */
+.rank .dot {
+  margin-left: 0;
 }
 
 /* Hottest-cell callout */
@@ -2108,10 +2105,6 @@ body:has(.card-dialog[open]) {
   .callout-box {
     min-width: 0;
   }
-
-  .an-bar .verdict {
-    margin-left: 0;
-  }
 }
 
 /* Buttons and pills */
@@ -2333,23 +2326,6 @@ body:has(.card-dialog[open]) {
 .hf-dn .seg-btn,
 .hf-ht .seg-btn {
   padding: 4px 10px;
-}
-
-.map-caution {
-  max-width: 340px;
-  margin: 0;
-  padding: 6px 12px;
-  border: 1px solid var(--glass-line);
-  border-radius: 12px;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  color: var(--ink-2);
-  font-size: var(--fs-small);
-}
-
-.map-caution[hidden] {
-  display: none;
 }
 
 /* Fields */
@@ -2817,10 +2793,6 @@ select.input {
   min-height: 34px;
 }
 
-.cal-back[hidden] {
-  display: none;
-}
-
 .cal-crumb ol {
   display: flex;
   flex-wrap: wrap;
@@ -3006,18 +2978,21 @@ button.cal-month:focus-visible {
   padding-block: 6px;
 }
 
-/* In a card's control bar the popup hangs under its own field but lines up with the bar's left edge,
-   so it stays inside the card wherever the field wraps to */
+/* In a card's control bar a select list hangs under its own button, left-aligned with it; the wider
+   calendar popup lines up with the bar's left edge, so it stays inside the card wherever its field wraps to */
 .an-bar {
   position: relative;
 }
 
-.gc .an-bar .sm,
 .gc .an-bar .dp {
   position: static;
 }
 
-.gc .an-bar .sm-list,
+.gc .an-bar .sm-list {
+  left: 0;
+  min-width: 100%;
+}
+
 .gc .an-bar .dp-pop {
   top: auto;
   left: 0;
@@ -3183,39 +3158,21 @@ button.cal-month:focus-visible {
   }
 }
 
-/* Anomaly */
+/* Historical comparison: a month across the years, then the months of one year */
 
-.verdict {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border: 1px solid currentColor;
-  border-radius: 14px;
-  background: var(--surface);
-  font-weight: 600;
-}
-
-.verdict-k {
-  color: var(--ink-2);
-}
-
-.verdict.is-critical {
-  color: var(--critical);
-}
-
-.verdict.is-warning {
-  color: var(--warning);
-}
-
-.verdict.is-good {
-  color: var(--good);
-}
-
-.an-notes {
+.an-part {
   display: grid;
   gap: 6px;
+}
+
+.an-part + .an-part {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--glass-line);
+}
+
+.an-part .an-bar {
+  justify-content: space-between;
 }
 
 /* Accessibility fallbacks */
@@ -3379,4 +3336,15 @@ button.cal-month:focus-visible {
 
 #dl-detections:disabled {
   opacity: 0.6;
+}
+
+/* Profile chart: a year's value shows while its column is hovered */
+.pf-hover {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+
+.pf-pt:hover .pf-hover {
+  opacity: 1;
 }

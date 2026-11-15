@@ -8,8 +8,8 @@ import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
 import { parts, toDay } from "./dates";
 import { EventsView } from "./events-view";
-import { downloadCsv, downloadPng, slug, toCsv } from "./export";
-import { UNIT, UNIT_SHORT, fmtCompact, fmtVal } from "./format";
+import { downloadCsv, slug, toCsv } from "./export";
+import { UNIT_SHORT, fmtCompact, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
 import { initTooltips } from "./tooltip";
 import { MapView } from "./map-view";
@@ -17,7 +17,7 @@ import { RAMPS, breaksFrom, type RampName } from "./ramps";
 import { SelectMenu } from "./select-menu";
 import { RegionIndex, loadBoundaries, regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
 import { initCards, measureInsets } from "./screen";
-import { select, unobserved, type Selection } from "./store";
+import { select, type Selection } from "./store";
 import { Timeline } from "./time-slider";
 import type { Frame, Interval } from "./timeline";
 import type { DayNight, Filters, Hotspots, SelectionMode } from "./types";
@@ -25,9 +25,6 @@ import { readUrlState, writeUrlState, type ViewState } from "./url-state";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
-const DAYNIGHT_LABEL: Record<DayNight, string> = { all: "Day and night", day: "Daytime only", night: "Night-time only" };
-const HOTSPOTS_LABEL: Record<Hotspots, string> = { vegetation: "Vegetation fires", all: "All hotspot types" };
-const DATASET = "NASA FIRMS MODIS (Aqua) and VIIRS (S-NPP, NOAA-20, NOAA-21), harmonised";
 
 const api = new Api();
 
@@ -191,7 +188,6 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     document.querySelectorAll<HTMLButtonElement>(".hf-mode [data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === filters.mode)));
     document.querySelectorAll<HTMLButtonElement>("[data-dn]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.dn === daynight)));
     document.querySelectorAll<HTMLButtonElement>("[data-ht]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.ht === hotspots)));
-    $("#dn-caution").hidden = daynight !== "night";
     picker.setDisabled(filters.mode !== "area", "Drawn on map");
     showDates(filters.start, filters.end);
     syncDrawUi();
@@ -415,20 +411,6 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       <span class="legend-scale"><span class="legend-end">&lt;${fmtCompact(first)}</span><span class="legend-ramp">${used.map((c, i) => `<span class="sw" style="background:${c}" title="${i ? `${fmtVal(b[i])}+` : `under ${fmtVal(first)}`}"></span>`).join("")}</span><span class="legend-end">${fmtCompact(b[b.length - 1])}+</span></span>`;
   }
 
-  /** `allYears` is for the cards that cover the whole record instead of the picked dates. */
-  function exportMeta(allYears: boolean): [string, string][] {
-    return [
-      ["area", areaLabel()],
-      ["from", allYears ? recordStart : filters.start],
-      ["to", allYears ? recordEnd : filters.end],
-      ["detections", DAYNIGHT_LABEL[daynight]],
-      ["hotspot_types", HOTSPOTS_LABEL[hotspots]],
-      ["unit", UNIT],
-      ["dataset", DATASET],
-      ["unobserved_days_in_range", sel ? String(allYears ? unobserved(record!, record!.from, record!.to) : unobserved(sel, sel.from, sel.to)) : ""],
-    ];
-  }
-
   document.addEventListener("click", async (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>("[data-export]");
     if (!btn) return;
@@ -438,21 +420,11 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     }
     // The exportable cards (calendar, comparison) cover every year of the record.
     const kind = btn.dataset.export as "calendar" | "anomaly";
-    const format = btn.dataset.format as "csv" | "png";
-    const name = `${kind}_${slug(areaLabel())}_all-years${daynight === "all" ? "" : `_${daynight}`}${hotspots === "all" ? "_all-types" : ""}.${format}`;
-    const subtitle = `${areaLabel()} · All years · ${DAYNIGHT_LABEL[daynight]} · ${HOTSPOTS_LABEL[hotspots]} · ${UNIT}`;
+    const name = `${kind}_${slug(areaLabel())}_all-years${daynight === "all" ? "" : `_${daynight}`}${hotspots === "all" ? "_all-types" : ""}.csv`;
     pulse(btn);
     try {
-      if (format === "csv") {
-        const meta = exportMeta(true);
-        const view = kind === "calendar" ? calendar : anomaly;
-        if (kind === "calendar") meta.push(["granularity", calendar.granularity]);
-        const { header, rows } = view.csv();
-        downloadCsv(name, toCsv(meta, header, rows));
-      } else if (kind !== "calendar") {
-        const v = anomaly.svg(subtitle);
-        await downloadPng(name, v.svg, v.width, v.height);
-      }
+      const { header, rows } = (kind === "calendar" ? calendar : anomaly).csv();
+      downloadCsv(name, toCsv(header, rows));
       setNote(`Saved ${name}`);
     } catch (err) {
       setNote(`Could not save ${name}: ${(err as Error).message}`, { error: true });

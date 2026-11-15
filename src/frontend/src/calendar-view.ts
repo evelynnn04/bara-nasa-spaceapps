@@ -34,7 +34,6 @@ export class CalendarView {
   private sel: Selection | null = null;
   private ramp: RampName = "ember";
   private readonly stage: HTMLElement;
-  private readonly back: HTMLButtonElement;
   private readonly crumb: HTMLElement;
   private readonly yearField: HTMLElement;
   private readonly yearMenu: SelectMenu;
@@ -46,7 +45,6 @@ export class CalendarView {
   constructor(root: HTMLElement) {
     root.innerHTML = `
       <div class="cal-bar">
-        <button type="button" class="pill cal-back" hidden><span class="chev chev-left" aria-hidden="true"></span>Back to year</button>
         <div class="cal-year"></div>
         <nav class="cal-crumb" aria-label="Calendar level"><ol></ol></nav>
         <div class="cal-nav">
@@ -57,7 +55,6 @@ export class CalendarView {
       <div class="cal-stage"></div>
       <div class="legend" aria-label="Colour legend"></div>`;
     this.stage = root.querySelector(".cal-stage")!;
-    this.back = root.querySelector(".cal-back")!;
     this.crumb = root.querySelector(".cal-crumb ol")!;
     this.yearField = root.querySelector(".cal-year")!;
     this.yearMenu = new SelectMenu(this.yearField, "Year", [], "", (value) => {
@@ -68,7 +65,6 @@ export class CalendarView {
     this.nav = root.querySelector(".cal-nav")!;
     [this.prev, this.next] = root.querySelectorAll<HTMLButtonElement>(".cal-step");
     this.legend = root.querySelector(".legend")!;
-    this.back.addEventListener("click", () => this.goBack());
     this.crumb.addEventListener("click", (e) => {
       if ((e.target as Element).closest(".crumb-link")) this.goBack();
     });
@@ -98,7 +94,6 @@ export class CalendarView {
 
   private syncChrome(): void {
     const days = this.level.kind === "days";
-    this.back.hidden = !days;
     this.yearField.hidden = days;
     this.yearMenu.set(String(this.year));
     this.crumb.innerHTML = this.level.kind === "days"
@@ -266,7 +261,7 @@ export class CalendarView {
     const origin = this.originOf(from);
     this.level = { kind: "days", year, month };
     this.swap(origin, "in");
-    this.back.focus();
+    this.crumb.querySelector<HTMLElement>(".crumb-link")?.focus();
   }
 
   private goBack(): void {
@@ -326,12 +321,12 @@ export class CalendarView {
     const flat = rows.flatMap((r) => r.cells).filter((c) => this.level.kind === "year" || c.day);
     if (this.level.kind === "year") {
       return {
-        header: ["year", "month", "fire_cell_days", "status"],
+        header: ["year", "month", "hotspots", "status"],
         rows: flat.map((c) => [c.y, MONTHS[c.m], c.state === "none" ? "" : round4(c.value), c.state === "none" ? "outside record" : c.state]),
       };
     }
     return {
-      header: ["date", "fire_cell_days", "status"],
+      header: ["date", "hotspots", "status"],
       rows: flat.map((c) => [
         fromDay(monthStart(c.y, c.m) + c.day! - 1),
         c.state === "none" || c.state === "missed" ? "" : round4(c.value),
