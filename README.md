@@ -157,7 +157,11 @@ gcloud storage cp -r data/derived data/parquet gs://BUCKET/data/
 Then deploy with the bucket mounted and `DATA_DIR` pointing at that folder:
 
 ```bash
-gcloud run deploy SERVICE --source . --region REGION --allow-unauthenticated   --execution-environment gen2 --memory 2Gi   --add-volume name=bucket,type=cloud-storage,bucket=BUCKET,readonly=true   --add-volume-mount volume=bucket,mount-path=/mnt/bucket   --set-env-vars DATA_DIR=/mnt/bucket/data
+gcloud run deploy SERVICE --source . --region REGION --allow-unauthenticated \
+  --execution-environment gen2 --memory 2Gi \
+  --add-volume name=bucket,type=cloud-storage,bucket=BUCKET,readonly=true \
+  --add-volume-mount volume=bucket,mount-path=/mnt/bucket \
+  --set-env-vars DATA_DIR=/mnt/bucket/data
 ```
 
 To deploy on every push instead, connect the service to the repository in the Cloud Run console
