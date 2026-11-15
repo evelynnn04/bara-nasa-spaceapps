@@ -40,6 +40,9 @@ const FALLBACK: StyleSpecification = {
   layers: [{ id: "bg", type: "background", paint: { "background-color": MAP.background } }],
 };
 
+/** Zoom from which the basemap coastline replaces the simplified area outlines. */
+const COAST_ZOOM = 7;
+
 type GeoFC = GeoJSON.FeatureCollection;
 const EMPTY: GeoFC = { type: "FeatureCollection", features: [] };
 
@@ -384,8 +387,8 @@ export class MapView {
   }
 
   /**
-   * The area outlines are simplified to about 2 km, which shows once zoomed in. From zoom 7 to 8.5 they hand over
-   * to the basemap's own coastline (the edge of its sea polygons, so lakes and rivers stay unlined), which follows
+   * The area outlines are simplified to about 2 km, which shows once zoomed in. At zoom 7 they switch at once
+   * (a fade would show both lines side by side) to the basemap's own coastline (the edge of its sea polygons, so lakes and rivers stay unlined), which follows
    * the land as closely as the clipped cells do. Borders on land are hidden then too, as the outline cannot tell
    * them from its coast and a simplified coast would cut across the land beside the precise one.
    * The coastline is not limited to the selected area, which is why it only appears zoomed in.
@@ -394,17 +397,16 @@ export class MapView {
     this.coastLayers = [];
     const sea = this.seaMasks.length ? this.map.getLayer(this.seaMasks[0]) : undefined;
     if (!sea) return;
-    const fadeIn = (to: number) => ["interpolate", ["linear"], ["zoom"], 7, 0, 8.5, to] as ExpressionSpecification;
-    const fadeOut = (from: number) => ["interpolate", ["linear"], ["zoom"], 7, from, 8.5, 0] as ExpressionSpecification;
+    const below = (opacity: number) => ["step", ["zoom"], opacity, COAST_ZOOM, 0] as ExpressionSpecification;
     const width: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 4, 1.2, 9, 2];
     const filter: FilterSpecification = ["all", ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]], ["==", ["get", "kind"], "ocean"]];
     const visibility = this.outlineIds.length ? "visible" : "none";
-    const base = { type: "line", source: sea.source, "source-layer": "water", filter, minzoom: 7 } as const;
-    this.map.addLayer({ ...base, id: "coast-glow", layout: { visibility }, paint: { "line-color": MAP.area, "line-width": 7, "line-blur": 5, "line-opacity": fadeIn(0.35) } });
-    this.map.addLayer({ ...base, id: "coast-line", layout: { visibility, "line-join": "round" }, paint: { "line-color": MAP.outline, "line-width": width, "line-opacity": fadeIn(1) } });
+    const base = { type: "line", source: sea.source, "source-layer": "water", filter, minzoom: COAST_ZOOM } as const;
+    this.map.addLayer({ ...base, id: "coast-glow", layout: { visibility }, paint: { "line-color": MAP.area, "line-width": 7, "line-blur": 5, "line-opacity": 0.35 } });
+    this.map.addLayer({ ...base, id: "coast-line", layout: { visibility, "line-join": "round" }, paint: { "line-color": MAP.outline, "line-width": width } });
     this.coastLayers = ["coast-glow", "coast-line"];
-    this.map.setPaintProperty("outline-line", "line-opacity", fadeOut(1));
-    this.map.setPaintProperty("outline-glow", "line-opacity", fadeOut(0.35));
+    this.map.setPaintProperty("outline-line", "line-opacity", below(1));
+    this.map.setPaintProperty("outline-glow", "line-opacity", below(0.35));
   }
 
   private syncPolygon(): void {
