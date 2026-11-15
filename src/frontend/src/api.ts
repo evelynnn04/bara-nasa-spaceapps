@@ -210,11 +210,21 @@ export class Api {
     return getJson("events", params, signal);
   }
 
-  /** How causes are attributed, with labels and citations; reads as not available when the request fails. */
+  /**
+   * How causes are attributed, with labels and citations. Reads as not available when the request fails or takes
+   * longer than 8 s, so the events never wait on it; a failure is not kept, the next call asks again.
+   */
   attribution(): Promise<AttributionInfo> {
-    this.attributionInfo ??= getJson<AttributionInfo>("attribution", {}).catch(
-      (): AttributionInfo => ({ available: false, disclaimer: null, categories: [], sources: {} }),
-    );
+    if (!this.attributionInfo) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 8000);
+      this.attributionInfo = getJson<AttributionInfo>("attribution", {}, ctl.signal)
+        .finally(() => clearTimeout(timer))
+        .catch((): AttributionInfo => {
+          this.attributionInfo = null;
+          return { available: false, disclaimer: null, categories: [], sources: {} };
+        });
+    }
     return this.attributionInfo;
   }
 

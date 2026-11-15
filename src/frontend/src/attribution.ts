@@ -24,8 +24,9 @@ export interface Evidence {
   peat: { share: number; source: string } | null;
   rainfall: {
     mm_per_day: number;
-    normal_mm_per_day: number;
-    share_of_normal: number;
+    /** null when there is no rainfall normal for the cell (a normal of 0). */
+    normal_mm_per_day: number | null;
+    share_of_normal: number | null;
     months: [string, string];
     normal_years: [number, number];
     source: string;
@@ -121,7 +122,9 @@ export function evidenceRows(e: Evidence): { label: string; value: string }[] {
     { label: "Peat", value: e.peat ? pct1(e.peat.share) : na },
     {
       label: "Rainfall",
-      value: rf ? `${rf.mm_per_day.toFixed(1)} mm/day, ${pct0(rf.share_of_normal)} of normal (${range(rf.months[0], rf.months[1], " to ")})` : na,
+      value: rf
+        ? `${rf.mm_per_day.toFixed(1)} mm/day${rf.share_of_normal != null ? `, ${pct0(rf.share_of_normal)} of normal` : ""} (${range(rf.months[0], rf.months[1], " to ")})`
+        : na,
     },
     { label: "Climate", value: cl ? clValue() : na },
   ];

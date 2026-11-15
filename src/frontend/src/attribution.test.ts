@@ -79,3 +79,11 @@ describe("isCause", () => {
     expect(isCause(null)).toBe(false);
   });
 });
+
+describe("rainfall without a normal", () => {
+  it("does not claim a share of normal when the normal is unknown", () => {
+    const rainfall = { mm_per_day: 0.4, normal_mm_per_day: null, share_of_normal: null, months: ["2015-08", "2015-10"] as [string, string], normal_years: [2001, 2020] as [number, number], source: "imerg" };
+    const rows = Object.fromEntries(evidenceRows({ ...example.evidence, rainfall }).map((r) => [r.label, r.value]));
+    expect(rows["Rainfall"]).toBe("0.4 mm/day (2015-08 to 2015-10)");
+  });
+});
