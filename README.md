@@ -157,6 +157,13 @@ default) or `hotspots=all`. Data unzipped from a zip made before the hotspot uni
 the other hotspot types, and the API answers 503 until `uv run python -m app build` and
 `uv run python -m app cache` are run once (about 30 seconds, no FIRMS key needed).
 
+### Email alerts
+People can subscribe on the dashboard to provinces or cities/regencies and get an email when a
+month's fire activity there becomes unusual. Alerts are sent after every update and are off until
+`ALERTS_SECRET` is set; without an SMTP server the emails are written to `data/alerts/outbox`.
+`uv run python -m app alerts --replay 2015-06-01:2015-11-30 --regions idn-riau` shows what would
+have been sent in a past season. The rules and the settings are in [docs/alerts.md](docs/alerts.md).
+
 ## Running the dashboard
 The dashboard in `src/frontend/` reads everything from the backend. Start the backend first (with
 the data built), then:

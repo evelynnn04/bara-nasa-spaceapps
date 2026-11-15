@@ -208,6 +208,33 @@ async function getJson<T>(path: string, params: Record<string, string>, signal?:
   return res.json() as Promise<T>;
 }
 
+/** Whether email alerts are set up on the server. */
+export async function alertsStatus(): Promise<{ enabled: boolean; max_regions: number }> {
+  try {
+    const res = await fetch(apiUrl("alerts/status"));
+    return res.ok ? await res.json() : { enabled: false, max_regions: 0 };
+  } catch {
+    return { enabled: false, max_regions: 0 };
+  }
+}
+
+/** Asks for email alerts; the server answers with a message to show either way. */
+export async function subscribeAlerts(email: string, regions: string[], website: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const res = await fetch(apiUrl("alerts/subscribe"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, regions, website }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) return { ok: true, message: body.message ?? "Check your inbox for a link to confirm your alerts." };
+    const detail = typeof body.detail === "string" ? body.detail : `HTTP ${res.status}`;
+    return { ok: false, message: detail.replace(/^(email|regions): /, "") };
+  } catch {
+    return { ok: false, message: "Could not reach the server. Try again in a moment." };
+  }
+}
+
 /** Which detections and hotspot types count, sent with every data request. */
 export interface Counting {
   daynight: DayNight;

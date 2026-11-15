@@ -2,7 +2,8 @@ import "./style.css";
 import { AgreementView } from "./agreement-view";
 import { AnalyticsView } from "./analytics-view";
 import { AnomalyView } from "./anomaly-view";
-import { Api, type AgreementResponse, type CellsResponse, type FireEvent, type Meta, type OutlookCells, type OutlookTimeline } from "./api";
+import { AlertsDialog } from "./alerts-view";
+import { Api, alertsStatus, subscribeAlerts, type AgreementResponse, type CellsResponse, type FireEvent, type Meta, type OutlookCells, type OutlookTimeline } from "./api";
 import { setChartPalette } from "./charts";
 import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
@@ -630,6 +631,14 @@ function boot(boundaries: Boundaries, meta: Meta, outlook: OutlookTimeline[] | E
   renderMapLegend();
   update({}, { fit: false });
   map.map.once("load", fitSelection);
+  // Email alerts, offered only when the server has them set up
+  void alertsStatus().then((s) => {
+    if (!s.enabled) return;
+    const dialog = new AlertsDialog($<HTMLDialogElement>("#alerts"), regions, subscribeAlerts, s.max_regions);
+    const open = $("#alerts-open");
+    open.hidden = false;
+    open.addEventListener("click", () => dialog.open(filters.mode === "area" ? regions.normalise(filters.regionIds).filter((id) => id !== "idn") : []));
+  });
   $("#data-notice-reload").addEventListener("click", () => location.reload());
   watchData(() => api.meta(), meta, (now) => {
     $("#data-notice-text").textContent = `Newer fire data has arrived, up to ${formatDay(toDay(now.record.end))}.`;

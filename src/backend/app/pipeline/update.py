@@ -17,6 +17,10 @@ Nothing the API serves changes before step 5. A failed download leaves the raw f
 and the update carries on with what it has; a failure in steps 3 or 4 removes the unfinished
 release. Either way the last valid data stays in place.
 
+Every round ends by sending the email alerts that are due (`app.alerts`), also when nothing was
+rebuilt, so a new subscriber hears of an anomaly already under way. A failure there is logged and
+never fails the update.
+
 With `--every N`, the update repeats every N minutes and survives failed rounds.
 """
 
@@ -272,6 +276,7 @@ def run_once(fetch: bool = True) -> dict | None:
         prints = fingerprint()
         if served is not None and all(served.get(k) == v for k, v in prints.items()):
             log.info("no new data since release %s; nothing to rebuild", served.get("release"))
+            send_alerts()
             return None
         same_code = served is not None and served.get("normalise_code") == prints["normalise_code"]
         reuse = tuple(k for k, fp in prints["inputs"].items()
@@ -298,10 +303,20 @@ def run_once(fetch: bool = True) -> dict | None:
             **prints,
         }
         publish(release, version)
+        send_alerts()
     added = new["detections"] - (old["detections"] if old else 0)
     log.info("published release %s: record to %s, %d detections (%+d)", release.name, version["record_end"],
              new["detections"], added)
     return version
+
+
+def send_alerts() -> None:
+    """Sends the email alerts due on the data being served; a failure is logged, not raised."""
+    try:
+        from ..alerts import detect
+        detect.run()
+    except Exception as exc:  # noqa: BLE001 - alerts must never fail the update
+        log.error("email alerts failed: %s", download.REDACT(str(exc)))
 
 
 def run(every: float | None = None, fetch: bool = True) -> None:

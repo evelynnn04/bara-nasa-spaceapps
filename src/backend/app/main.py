@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from .alerts.api import router as alerts_router
 from .api import router
 
 #: Built frontend (`npm run build` output): the landing page at `/` and the dashboard at `/dashboard/`,
@@ -20,6 +21,7 @@ def create_app(dashboard_dir: Path | None = DASHBOARD_DIR) -> FastAPI:
     # Map cells and series run to hundreds of kilobytes; compressed they are about a third of that.
     app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.include_router(router)
+    app.include_router(alerts_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:
