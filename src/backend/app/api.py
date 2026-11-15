@@ -24,6 +24,7 @@ import datetime as dt
 import io
 import re
 import threading
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
@@ -36,6 +37,7 @@ from fastapi.responses import StreamingResponse
 from . import anomaly, config, critical, geo, queries, store
 from .db import quote
 from .harmonise import fit, weights
+from .pipeline import update
 from .pipeline.celldays import cell_expr, qualifying_sql
 from .pipeline.normalise import MASK_RES
 
@@ -54,6 +56,8 @@ AREA_ID = re.compile(r"^idn(-[a-z0-9]+)*$")
 
 _lock = threading.Lock()
 _state: dict = {}
+#: Seconds between looks at the data version marker for a change.
+RELOAD_CHECK_SECONDS = 30
 
 
 REQUIRED = ("celldays", "days", "cells", "region_daily")
@@ -71,30 +75,54 @@ def _problem(con: duckdb.DuckDBPyConnection) -> str | None:
     return None
 
 
+def _clear_caches() -> None:
+    """Drops every cached answer derived from the tables."""
+    _daily.cache_clear()
+    _flags.cache_clear()
+    _parents.cache_clear()
+
+
 def configure(con: duckdb.DuckDBPyConnection | None, params: dict | None) -> None:
-    """Sets the connection and parameters the endpoints use (tests pass synthetic ones)."""
+    """Sets the connection and parameters the endpoints use (tests pass synthetic ones). A
+    connection set here is never reloaded."""
     with _lock:
         _state.clear()
         if con is not None:
-            _state.update(con=con, params=params, problem=_problem(con))
-        _daily.cache_clear()
-        _flags.cache_clear()
-        _parents.cache_clear()
+            _state.update(con=con, params=params, problem=_problem(con), managed=False)
+        _clear_caches()
+
+
+def _data_version() -> int | None:
+    """Modification time of the marker `python -m app update` writes last, or None without one."""
+    try:
+        return update.version_path().stat().st_mtime_ns
+    except OSError:
+        return None
 
 
 def _ready() -> dict:
     """The shared connection and parameters, opened on first use.
 
     Whether the derived tables exist with the expected columns is checked once, when the
-    connection is opened; a problem closes it again so the next request retries."""
+    connection is opened; a problem closes it again so the next request retries. Every
+    `RELOAD_CHECK_SECONDS` the data version marker is looked at, and when an update has replaced
+    the tables the connection is reopened and the caches dropped. The old connection is left to
+    requests still using it."""
     with _lock:
+        if _state.get("managed") and time.monotonic() - _state["checked"] >= RELOAD_CHECK_SECONDS:
+            _state["checked"] = time.monotonic()
+            if _data_version() != _state["version"]:
+                _state.clear()
+                _clear_caches()
         if not _state:
             try:
                 params = weights.load_params()
             except RuntimeError as err:
                 raise HTTPException(503, str(err)) from err
+            version = _data_version()
             con = store.connect(params)
-            _state.update(con=con, params=params, problem=_problem(con))
+            _state.update(con=con, params=params, problem=_problem(con), managed=True, version=version,
+                          checked=time.monotonic())
         if _state["problem"]:
             problem = _state["problem"]
             con = _state.pop("con")
@@ -182,8 +210,12 @@ def _fmt(v: float | None, digits: int = 4) -> float | None:
 
 @router.get("/meta")
 def meta() -> dict:
-    """Record span, unit, the fitted factors and the national evaluation."""
-    p = _ready()["params"]
+    """Record span, unit, the fitted factors and the national evaluation. `data` says when the
+    tables were last replaced by `python -m app update` and when each stream was last fetched
+    (null for data that was built by hand)."""
+    state = _ready()
+    p = state["params"]
+    version = update.load_version() if state.get("managed") else None
     flags = _flags()
     last = {name: d for name, d in cursor().execute("""
         SELECT 'aqua', max(local_date) FILTER (WHERE aqua) FROM days UNION ALL
@@ -223,6 +255,7 @@ def meta() -> dict:
         "default_hotspots": p.get("default_hotspots", "vegetation"),
         "verdict": p.get("verdict"),
         "settings": settings,
+        "data": None if version is None else {"updated": version.get("updated"), "fetched": version.get("fetched")},
     }
 
 
