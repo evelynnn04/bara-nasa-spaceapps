@@ -71,54 +71,32 @@ function shiftYears(day: number, years: number): number {
   return Math.round(Date.UTC(p.year + years, p.month, p.date) / 86_400_000);
 }
 
-export interface PeriodComparison {
+/** A date range's total against the same dates one year earlier. */
+export interface YearOnYear {
   total: number;
+  /** Total over the same dates a year earlier, or null when they fall before the record. */
   previous: number | null;
   previousFrom: number;
   previousTo: number;
-  historicalMean: number | null;
-  historicalMedian: number | null;
-  /** How many same-length windows from other years the historical values use. */
-  historicalWindows: number;
-  vsPrevious: number | null;
-  vsMean: number | null;
-  vsMedian: number | null;
+  /** Percentage change from the year before, or null when there is nothing to compare with. */
+  change: number | null;
+  /** True when the range is shorter than a year, the only case where the comparison is shown. */
+  shorterThanYear: boolean;
 }
 
-/**
- * Compares a date range with the period just before it and with the same calendar window
- * in other years of the record.
- */
-export function comparePeriod(s: Series, from: number, to: number): PeriodComparison {
+/** Compares a date range with the same dates one year earlier (29 February maps to 1 March). */
+export function yearOnYear(s: Series, from: number, to: number): YearOnYear {
   const total = sum(s, from, to);
-  const len = to - from + 1;
-  const previousFrom = from - len;
-  const previousTo = from - 1;
+  const previousFrom = shiftYears(from, -1);
+  const previousTo = shiftYears(to, -1);
   const previous = previousFrom >= s.firstDay ? sum(s, previousFrom, previousTo) : null;
-
-  const span = Math.max(1, Math.ceil(len / 366));
-  const windows: number[] = [];
-  for (const dir of [-1, 1]) {
-    for (let k = 1; ; k++) {
-      const a = shiftYears(from, dir * k * span);
-      const b = a + len - 1;
-      if (a < s.firstDay || b > s.lastDay) break;
-      windows.push(sum(s, a, b));
-    }
-  }
-  const historicalMean = windows.length ? mean(windows) : null;
-  const historicalMedian = windows.length ? median(windows) : null;
   return {
     total,
     previous,
     previousFrom,
     previousTo,
-    historicalMean,
-    historicalMedian,
-    historicalWindows: windows.length,
-    vsPrevious: deviation(total, previous),
-    vsMean: deviation(total, historicalMean),
-    vsMedian: deviation(total, historicalMedian),
+    change: deviation(total, previous),
+    shorterThanYear: to < shiftYears(from, 1) - 1,
   };
 }
 
@@ -209,16 +187,13 @@ export interface AnomalyResult {
   title: string;
   labels: string[];
   values: number[];
+  /** Reference lines and the top of the usual range, per point. */
   mean: number[];
   median: number[];
   threshold: number[];
   unusual: boolean[];
-  /** Index of the selected period in `labels`, or -1 when the chart shows the months of one year. */
-  selectedIndex: number;
-  selected: { label: string; value: number; mean: number; median: number; threshold: number };
-  verdict: Verdict;
-  /** Other periods in the record that were unusually high. */
-  history: string[];
+  /** How each point compares with the same period in the other years. */
+  verdicts: Verdict[];
 }
 
 function verdictFor(value: number, med: number, threshold: number): Verdict {
@@ -236,31 +211,29 @@ function leaveOneOut(values: number[]): { mean: number; median: number; threshol
   });
 }
 
-/** Compares one month with the same month in every other year of the record. */
-export function anomalyForMonth(s: Series, year: number, month: number): AnomalyResult {
+/**
+ * One calendar month in every year of the record, each year against the other years (leave one out).
+ * The average, median and usual range at each point are that year's references, the same ones its
+ * reading uses, so a point drawn inside the usual range is never called unusual.
+ */
+export function anomalyForMonth(s: Series, month: number): AnomalyResult {
   const years = recordYears(s);
   const values = years.map((y) => monthCount(s, y, month));
   const refs = leaveOneOut(values);
-  const unusual = values.map((v, i) => v > refs[i].threshold && v > 0);
-  const idx = Math.max(0, years.indexOf(year));
-  const ref = refs[idx];
   return {
     kind: "month",
     title: `${MONTHS[month]} in every year`,
     labels: years.map(String),
     values,
-    mean: values.map(() => ref.mean),
-    median: values.map(() => ref.median),
-    threshold: values.map(() => ref.threshold),
-    unusual,
-    selectedIndex: idx,
-    selected: { label: `${MONTHS[month]} ${years[idx]}`, value: values[idx], ...ref },
-    verdict: verdictFor(values[idx], ref.median, ref.threshold),
-    history: years.filter((_, i) => unusual[i] && i !== idx).map((y) => `${MONTHS[month]} ${y}`),
+    mean: refs.map((r) => r.mean),
+    median: refs.map((r) => r.median),
+    threshold: refs.map((r) => r.threshold),
+    unusual: values.map((v, i) => v > refs[i].threshold && v > 0),
+    verdicts: values.map((v, i) => verdictFor(v, refs[i].median, refs[i].threshold)),
   };
 }
 
-/** Compares each month of one year with the same month in the other years, and the year total with other years. */
+/** Compares each month of one year with the same month in the other years. */
 export function anomalyForYear(s: Series, year: number): AnomalyResult {
   const years = recordYears(s);
   const grid = years.map((y) => MONTHS.map((_, m) => monthCount(s, y, m)));
@@ -277,8 +250,6 @@ export function anomalyForYear(s: Series, year: number): AnomalyResult {
     thresholdM.push(mu + UNUSUAL_SD * std(col));
   });
   const values = grid[idx];
-  const totals = grid.map((row) => row.reduce((a, b) => a + b, 0));
-  const refs = leaveOneOut(totals);
   return {
     kind: "year",
     title: `Months of ${years[idx]} against other years`,
@@ -288,9 +259,6 @@ export function anomalyForYear(s: Series, year: number): AnomalyResult {
     median: medianM,
     threshold: thresholdM,
     unusual: values.map((v, m) => v > thresholdM[m] && v > 0),
-    selectedIndex: -1,
-    selected: { label: String(years[idx]), value: totals[idx], ...refs[idx] },
-    verdict: verdictFor(totals[idx], refs[idx].median, refs[idx].threshold),
-    history: years.filter((_, i) => i !== idx && totals[i] > refs[i].threshold && totals[i] > 0).map(String),
+    verdicts: values.map((v, m) => verdictFor(v, medianM[m], thresholdM[m])),
   };
 }

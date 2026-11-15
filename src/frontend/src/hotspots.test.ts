@@ -10,6 +10,7 @@ const defaults: ViewState = {
   daynight: "all",
   hotspots: "vegetation",
   cause: null,
+  step: null,
 };
 
 /** Points `location` and `history` at a fake page URL and returns what `replaceState` was given. */
@@ -62,6 +63,18 @@ describe("fire cause in the URL", () => {
 
   it("is sent with the events request", () => {
     expect(apiUrl("events", { area: "idn", cause: "wildfire" })).toBe("/api/events?area=idn&cause=wildfire");
+  });
+});
+
+describe("timeline step in the URL", () => {
+  it("keeps a picked step across reloads and ignores unknown ones", () => {
+    const page = fakePage("");
+    writeUrlState({ ...defaults, step: "day" }, defaults);
+    expect(page.replaced).toEqual(["/?step=day"]);
+    fakePage("?step=day");
+    expect(readUrlState(defaults, () => true, "2002-07-04", "2026-11-14").step).toBe("day");
+    fakePage("?step=week");
+    expect(readUrlState(defaults, () => true, "2002-07-04", "2026-11-14").step).toBeNull();
   });
 });
 

@@ -1,7 +1,7 @@
 import type { FireEvent } from "./api";
 import { badgeText, causeLabel, evidenceRows, groupIndicators, indicatorState, type Attribution, type AttributionInfo, type Cause } from "./attribution";
 import { formatDay, toDay } from "./dates";
-import { UNIT_SHORT, escapeXml, fmtInt, fmtVal } from "./format";
+import { UNIT_SHORT, escapeXml, fmtVal } from "./format";
 import type { RegionIndex } from "./regions";
 
 /** What the events card needs besides the events: the disclaimer, source citations and the active cause filter. */
@@ -13,7 +13,7 @@ export interface EventsContext {
 
 const NO_CONTEXT: EventsContext = { disclaimer: null, sources: {}, cause: null };
 
-/** "Largest fire events": the biggest events active in the selected period, each one clickable, with its likely cause. */
+/** "Largest fire events": the biggest events active in the selected period (place, hotspots, dates), each one clickable, with its likely cause. */
 export class EventsView {
   private events: FireEvent[] = [];
 
@@ -40,12 +40,12 @@ export class EventsView {
     });
   }
 
-  /** Where an event is: its main city/regency and province. */
-  place(e: FireEvent): string {
+  /** Where an event is: its main city/regency, and its province (empty when there is no city/regency). */
+  place(e: FireEvent): { name: string; province: string } {
     const regency = e.regency_id ? this.regions.byId.get(e.regency_id) : undefined;
     const province = e.province_id ? this.regions.byId.get(e.province_id) : undefined;
-    if (regency && province) return `${regency.name}, ${province.name}`;
-    return regency?.name ?? province?.name ?? `${e.lat.toFixed(2)}°, ${e.lon.toFixed(2)}°`;
+    if (regency) return { name: regency.name, province: province?.name ?? "" };
+    return { name: province?.name ?? `${e.lat.toFixed(2)}°, ${e.lon.toFixed(2)}°`, province: "" };
   }
 
   render(events: FireEvent[], ctx: EventsContext = NO_CONTEXT): void {
@@ -56,21 +56,20 @@ export class EventsView {
       return;
     }
     const items = events
-      .map((e, i) => {
+      .map((e) => {
         const span = e.start === e.end ? formatDay(toDay(e.start)) : `${formatDay(toDay(e.start))} – ${formatDay(toDay(e.end))}`;
+        const place = this.place(e);
         return `<li class="ev-row"><button type="button" class="ev-item" data-event="${e.event}" aria-pressed="false">
-          <span class="ev-rank" aria-hidden="true">${i + 1}</span>
-          <span class="ev-main"><span class="ev-place">${escapeXml(this.place(e))}</span>
-            <span class="mini-note">${span} &middot; ${e.duration_days} day${e.duration_days === 1 ? "" : "s"}, peak ${formatDay(toDay(e.peak_day))}</span>
-            <span class="mini-note">${fmtInt(e.cells)} cells &middot; ${fmtInt(e.pixels)} raw hotspots &middot; up to ${fmtInt(e.frp_max)} MW</span></span>
+          <span class="ev-main"><span class="ev-place">${escapeXml(place.name)}</span>
+            ${place.province ? `<span class="mini-note">${escapeXml(place.province)}</span>` : ""}
+            <span class="mini-note">${span}</span></span>
           <span class="ev-v">${fmtVal(e.harmonised)}<span class="mini-note">${UNIT_SHORT}</span></span></button>
           ${causeRow(e, ctx.sources)}</li>`;
       })
       .join("");
     const attributed = events.some((e) => e.attribution);
     const disclaimer = attributed && ctx.disclaimer ? `<p class="ev-disclaimer" role="note">${escapeXml(ctx.disclaimer)}</p>` : "";
-    this.root.innerHTML = `<ol class="ev-list">${items}</ol>${disclaimer}
-      <p class="mini-note">An event joins burning cells that touch and are active within a day of each other. Its figures cover the whole event, also outside the selected dates, and always count day and night detections. Pick one to frame it on the map.</p>`;
+    this.root.innerHTML = `<ol class="ev-list">${items}</ol>${disclaimer}`;
   }
 }
 

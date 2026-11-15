@@ -1,5 +1,6 @@
 import { isCause, type Cause } from "./attribution";
 import { RAMPS, type RampName } from "./ramps";
+import type { Interval } from "./timeline";
 import type { DayNight, Filters, Hotspots, LngLat } from "./types";
 
 export interface ViewState {
@@ -9,6 +10,8 @@ export interface ViewState {
   hotspots: Hotspots;
   /** Show only fire events attributed to this cause; null shows every event. */
   cause: Cause | null;
+  /** Timeline interval the viewer picked; null follows the default for the length of the dates. */
+  step: Interval | null;
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -50,12 +53,14 @@ export function readUrlState(
   const hotspots = ht === "all" || ht === "vegetation" ? ht : defaults.hotspots;
   const c = q.get("cause");
   const cause = isCause(c) ? c : defaults.cause;
-  return { filters: f, ramp, daynight, hotspots, cause };
+  const st = q.get("step");
+  const step = st === "day" || st === "month" || st === "year" ? st : defaults.step;
+  return { filters: f, ramp, daynight, hotspots, cause, step };
 }
 
 /** Writes the state into the URL query, leaving out values equal to `defaults`, without adding a history entry. */
 export function writeUrlState(state: ViewState, defaults: ViewState): void {
-  const { filters: f, ramp, daynight, hotspots, cause } = state;
+  const { filters: f, ramp, daynight, hotspots, cause, step } = state;
   const d = defaults.filters;
   const q = new URLSearchParams();
   if (f.mode !== d.mode) q.set("mode", f.mode);
@@ -67,6 +72,7 @@ export function writeUrlState(state: ViewState, defaults: ViewState): void {
   if (daynight !== defaults.daynight) q.set("dn", daynight);
   if (hotspots !== defaults.hotspots) q.set("ht", hotspots);
   if (cause && cause !== defaults.cause) q.set("cause", cause);
+  if (step && step !== defaults.step) q.set("step", step);
   const search = q.toString();
   const url = `${location.pathname}${search ? `?${search.replace(/%2C/g, ",").replace(/%3B/g, ";")}` : ""}${location.hash}`;
   if (url !== `${location.pathname}${location.search}${location.hash}`) history.replaceState(null, "", url);
