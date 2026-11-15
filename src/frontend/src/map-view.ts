@@ -58,6 +58,8 @@ export class MapView {
   private eventBox: GeoFC = EMPTY;
   /** Lower bounds of the colour classes for the current cells. */
   breaks: number[] = [0];
+  /** Side of the delivered cells in degrees (0.05, or 0.25 for an unusually large layer). */
+  private resDeg = 0.05;
   private polygon: LngLat[] | null = null;
   private outlineIds: string[] = [];
   private draft: LngLat[] = [];
@@ -134,6 +136,7 @@ export class MapView {
   /** Shows the active cells of the period, coloured by harmonised value with quantile classes. */
   setCells(c: CellsResponse | null): void {
     const cells = c?.cells;
+    this.resDeg = c?.res_deg ?? 0.05;
     this.breaks = cells ? quantileBreaks(cells.value, RAMPS[this.ramp].steps.length) : [0];
     this.hotspots = {
       type: "FeatureCollection",
@@ -350,7 +353,7 @@ export class MapView {
       m.getCanvas().style.cursor = "pointer";
       this.popup
         .setLngLat(e.lngLat)
-        .setHTML(`<strong>${fmtVal(p.value)} ${UNIT_SHORT}</strong> in this 0.05° cell<br>Raw pixels: VIIRS ${fmtInt(p.viirs)} &middot; MODIS ${fmtInt(p.modis)}<br>Highest fire radiative power ${p.frp} MW`)
+        .setHTML(`<strong>${fmtVal(p.value)} ${UNIT_SHORT}</strong> in this ${this.resDeg}° cell<br>Raw pixels: VIIRS ${fmtInt(p.viirs)} &middot; MODIS ${fmtInt(p.modis)}<br>Highest fire radiative power ${p.frp} MW`)
         .addTo(m);
     });
     m.on("mouseleave", "hotspots", () => {

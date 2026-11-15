@@ -194,3 +194,12 @@ def test_real_polygons_reusing_the_cache_match_the_direct_path(monkeypatch):
                 assert reused[d] == pytest.approx(direct[d], abs=1e-6)
         checked += 1
     assert checked >= 6
+
+
+def test_map_layer_falls_back_to_blocks_above_the_cell_bound(client, monkeypatch):
+    full = client.get("/api/cells?from=2015-09-01&to=2015-09-30").json()
+    assert full["res_deg"] == pytest.approx(0.05) and full["count"] == 2
+    monkeypatch.setattr(api, "MAX_MAP_CELLS", 1)
+    coarse = client.get("/api/cells?from=2015-09-01&to=2015-09-30").json()
+    assert coarse["res_deg"] == pytest.approx(0.25) and coarse["active_cells"] == 2
+    assert sum(coarse["cells"]["value"]) == pytest.approx(full["total"], abs=1e-2)
