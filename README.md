@@ -15,7 +15,7 @@ Requires Docker with Compose v2.
 docker compose up --build
 ```
 
-The dashboard and the API run as one service on `http://localhost:8000`: the dashboard at `/`, the API under `/api`. Check it with `curl http://localhost:8000/health`, which returns `{"status":"ok"}`. Interactive API docs are at `http://localhost:8000/docs`. Stop it with `docker compose down`. The data must be in place first (see "Fire data").
+The website and the API run as one service on `http://localhost:8000`: the landing page at `/`, the dashboard at `/dashboard/`, the API under `/api`. Check it with `curl http://localhost:8000/health`, which returns `{"status":"ok"}`. Interactive API docs are at `http://localhost:8000/docs`. Stop it with `docker compose down`. The data must be in place first (see "Fire data").
 
 ### Local development without Docker
 Dependencies are managed with [uv](https://docs.astral.sh/uv/) and pinned in `src/backend/uv.lock`.
@@ -110,11 +110,15 @@ zip -r spaceapps-fire-data-YYYY-MM-DD.zip data
 
 With the data in place, `docker compose up --build` mounts `data/` into the backend. The API is
 documented at `http://localhost:8000/docs`; the main endpoints are `/api/meta`, `/api/series`,
-`/api/cells`, `/api/agreement`, `/api/events`, `/api/attribution`, `/api/anomalies`, `/api/critical`
+`/api/cells`, `/api/agreement`, `/api/events`, `/api/attribution`, `/api/anomalies`, `/api/critical`, `/api/outlook`
 and `/api/detections.csv`. The anomaly method is described in [docs/anomaly.md](docs/anomaly.md). How
 `/api/critical` finds historically critical fire periods is described in
 [docs/critical-periods.md](docs/critical-periods.md); `uv run python -m app validate-critical` (in
-`src/backend`) reproduces its validation on the local data.
+`src/backend`) reproduces its validation on the local data. The fire outlook per cell behind the
+forecast timeline (30 days, 12 months, 5 years), how it is counted and its evaluation on held-out
+years are described in [docs/fire-outlook.md](docs/fire-outlook.md); `uv run python -m app
+validate-outlook` reproduces the evaluation. The outlook is built by `cache`, so data cached before
+it needs `uv run python -m app cache` once.
 
 ### Fire cause attribution
 Fire events can carry a likely cause (land clearing, agricultural burning, wildfire or unknown) with
@@ -148,7 +152,8 @@ npm ci
 npm run dev
 ```
 
-The dev server proxies `/api` to `http://localhost:8000` (set `API_PROXY` to use another address).
+The landing page opens at `http://localhost:5173/` and the dashboard at
+`http://localhost:5173/dashboard/`. The dev server proxies `/api` to `http://localhost:8000` (set `API_PROXY` to use another address).
 A production build (`npm run build`) expects the API on the same origin, or at `VITE_API_BASE`.
 Frontend tests run with `npm test`.
 
@@ -161,7 +166,8 @@ uv run pytest
 
 ## Deploying to Cloud Run
 The dashboard and the API deploy as one Cloud Run service from the `Dockerfile` at the repository
-root: it builds the dashboard and serves it at `/`, next to the API under `/api`.
+root: it builds the landing page and the dashboard and serves them at `/` and `/dashboard/`, next to the
+API under `/api`.
 
 The data is not committed, so the service reads it from a Cloud Storage bucket mounted read-only.
 It needs `data/derived/` and `data/parquet/` (about 220 MB); the region outlines are part of the

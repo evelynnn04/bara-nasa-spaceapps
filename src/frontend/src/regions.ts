@@ -10,6 +10,13 @@ export interface BoundaryProps {
 
 export type Boundaries = GeoJSON.FeatureCollection<GeoJSON.MultiPolygon, BoundaryProps>;
 
+/** Fetches the country, province and city/regency outlines in public/boundaries.geojson. */
+export async function loadBoundaries(): Promise<Boundaries> {
+  const res = await fetch(`${import.meta.env.BASE_URL}boundaries.geojson`);
+  if (!res.ok) throw new Error(`boundaries: HTTP ${res.status}`);
+  return res.json();
+}
+
 /** Outer rings of every area, keyed by region id. */
 export type Shapes = Map<string, LngLat[][]>;
 
