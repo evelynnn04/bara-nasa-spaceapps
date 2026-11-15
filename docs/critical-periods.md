@@ -6,10 +6,11 @@ activity in an area. This document describes how those periods are found. The co
 
 ## Input
 
-The harmonised daily record of the requested area (MODIS-equivalent active fire cell-days, see
+The harmonised daily record of the requested area (hotspots, Aqua MODIS-equivalent, see
 [harmonisation.md](harmonisation.md)), for the requested detections (day and night, day only or
-night only). The record covers the whole archive, so the endpoint takes no date range: the critical
-periods depend only on the area and the day/night filter.
+night only) and hotspot types (vegetation fires or all types). The record covers the whole archive,
+so the endpoint takes no date range: the critical periods depend only on the area, the day/night
+filter and the hotspot types.
 
 Days the record's satellite did not observe have no value and are left out of every average below,
 so an outage neither lowers nor raises a period.
@@ -36,7 +37,7 @@ For each year *y* and period *p*:
 - the **intensity** is the period rate divided by the year rate.
 
 An intensity of 2 means the period burned at twice the average daily rate of its own year. Comparing
-each period with its own year, rather than with a long-term average in fire cell-days, keeps a single
+each period with its own year, rather than with a long-term average in hotspots, keeps a single
 extreme year (2015 in Indonesia) from deciding the season on its own: every year counts once, however
 large it was. Years without any fire activity in the area have no intensity and are skipped.
 
@@ -61,17 +62,17 @@ The thresholds are `RATIO_MIN`, `RECURRENCE_MIN`, `MIN_YEARS` and `WEEK_WINDOW` 
 ## Confidence
 
 An area with little fire gives unstable results: a handful of detections decides each flag. The
-response rates the result from the area's **mean annual activity** (fire cell-days per complete
-calendar year):
+response rates the result from the area's **mean annual activity** (hotspots per complete calendar
+year, vegetation fires, day and night):
 
 | Mean annual activity | Confidence | Even and odd years agree on the critical months (Jaccard) |
 |---|---|---|
-| under 2 | `low` | 0.27 to 0.47 |
-| 2 to 20 | `moderate` | 0.64 to 0.72 |
-| 20 or more | `high` | 0.76 to 0.85 |
+| under 2 | `low` | 0.24 to 0.36 |
+| 2 to 20 | `moderate` | 0.64 to 0.66 |
+| 20 or more | `high` | 0.74 to 0.81 |
 
 The thresholds are `CONFIDENCE_FROM` in `backend/app/critical.py`. In the record of 14 November
-2026, 115 of the 538 provinces and cities/regencies with any fire are `low`.
+2026, 112 of the 538 provinces and cities/regencies with any fire are `low`.
 
 ### Example
 
@@ -83,7 +84,7 @@ critical.
 
 ## API
 
-`GET /api/critical?area=...&daynight=...` (or `poly=...` for a drawn polygon) returns `method` (the
+`GET /api/critical?area=...&daynight=...&hotspots=...` (or `poly=...` for a drawn polygon) returns `method` (the
 thresholds), `activity` (`mean_annual` and `confidence`) and, for `months` and for `weeks`:
 
 - `years`: the complete years used;
@@ -100,8 +101,8 @@ thresholds), `activity` (`mean_annual` and `confidence`) and, for `months` and f
 ## Validation
 
 The definition was checked against the literature and on the record of 14 November 2026 (complete
-years 2003 to 2025), for Indonesia, its 34 provinces and 504 cities/regencies, day and night
-detections. Every number below is printed by
+years 2003 to 2025), for Indonesia, its 34 provinces and 504 cities/regencies, counting vegetation
+fires by day and night. Every number below is printed by
 
 ```bash
 cd backend
@@ -113,21 +114,21 @@ permutation test uses a fixed seed, so the output is the same on every run over 
 
 ### Against known fire seasons
 
-- **Indonesia** comes out as August, September and October, peaking in September at 3.2 times the
+- **Indonesia** comes out as August, September and October, peaking in September at 3.3 times the
   year's average rate. This matches the reported dry-season peak of fire activity in Sumatra and
   Kalimantan ([Field et al. 2016](https://pmc.ncbi.nlm.nih.gov/articles/PMC4995960);
   [NASA Earth Observatory](https://earthobservatory.nasa.gov/images/145614/smoke-blankets-borneo)).
 - **Central, South and East Kalimantan, South Sumatra and Lampung** come out as August to October
-  (West and North Kalimantan August and September); **Riau, North Sumatra, West Sumatra and Aceh**
-  earlier, June to August; most of **Sulawesi** later, September and October, reaching November in
-  Southeast Sulawesi and Maluku.
+  (West and North Kalimantan August and September); **North Sumatra, West Sumatra and Aceh**
+  earlier, June to August, and **Riau** July and August; most of **Sulawesi** later, September and
+  October, reaching November in Southeast Sulawesi and Maluku.
 - **Riau Islands** comes out as February and March, in line with the second, February-March dry
   season reported for this part of Sumatra
   ([Mongabay 2024](https://news.mongabay.com/2024/03/sumatra-firefighters-on-alert-as-burning-heralds-start-of-riau-dry-season/)).
   In Riau and Aceh that second season is visible but weaker than the main one: Riau's February is
-  1.4 times its year's average, above average in 12 of 23 years (p = 0.038, not significant once
-  corrected for the twelve months), so it stays just under the threshold. The looser 10 % rule
-  below does include February and March in both provinces.
+  1.51 times its year's average and above average in 13 of 23 years, so it is just critical, but
+  p = 0.030 is not significant once corrected for the twelve months. Aceh's February stays under
+  the threshold. The looser 10 % rule below includes February and March in both provinces.
 
 ### Against other definitions
 
@@ -136,8 +137,8 @@ monthly record of the 35 areas (country and provinces):
 
 | Definition | Mean Jaccard with ours |
 |---|---|
-| Months whose mean count is at least 10 % of the mean annual count ([Giglio et al. 2006](https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2005JG000142)) | 0.81 |
-| Shortest run of consecutive months holding over 80 % of the fires, the "critical fire period" of an Amazon study ([Environ. Res. Lett.](https://iopscience.iop.org/article/10.1088/1748-9326/ac3aa3)) | 0.60 |
+| Months whose mean count is at least 10 % of the mean annual count ([Giglio et al. 2006](https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2005JG000142)) | 0.79 |
+| Shortest run of consecutive months holding over 80 % of the fires, the "critical fire period" of an Amazon study ([Environ. Res. Lett.](https://iopscience.iop.org/article/10.1088/1748-9326/ac3aa3)) | 0.62 |
 
 Both rely on the mean count over years, so large years such as 2015 weigh more. The 10 % rule is
 close to ours (10 % of the year is an intensity of about 1.2) but adds shoulder months; the 80 % run
@@ -152,15 +153,15 @@ recomputed, giving a p-value under the hypothesis of no seasonality; p-values we
 
 | Mean annual activity | Areas | Critical months that are significant | Significant months not called critical, per area |
 |---|---|---|---|
-| under 5 | 171 | 65 % | 0.03 |
-| 5 to 50 | 222 | 85 % | 0.02 |
-| 50 to 500 | 128 | 92 % | 0.02 |
-| 500 or more | 17 | 91 % | 0.00 |
+| under 5 | 159 | 61 % | 0.05 |
+| 5 to 50 | 209 | 81 % | 0.02 |
+| 50 to 500 | 137 | 89 % | 0.03 |
+| 500 or more | 33 | 85 % | 0.00 |
 
-Almost every critical month in an area with real fire activity is statistically significant, and
-almost no significant month is missed: the 1.5 threshold sits where the elevation becomes
-significant. In areas with very little fire a third of the critical months could be chance, which
-the `low` and `moderate` confidence levels report.
+Most critical months in an area with real fire activity are statistically significant, and almost
+no significant month is missed: the 1.5 threshold sits where the elevation becomes significant. In
+areas with very little fire about two in five critical months could be chance, which the `low` and
+`moderate` confidence levels report.
 
 ### Sensitivity and stability
 
@@ -170,24 +171,25 @@ reflects a recurring season; and the share of flags that change when any one yea
 
 | Variant (months) | Even/odd agreement, 5-50 / 50-500 / 500+ per year | Flags changed by leaving out one year |
 |---|---|---|
-| **Chosen: mean intensity >= 1.5, above average in >= half the years** | **0.72 / 0.85 / 0.84** | **0.1 to 1.1 %** |
-| Intensity >= 1.25 | 0.74 / 0.84 / 0.88 | 0.7 to 1.2 % |
-| Intensity >= 2.0 | 0.63 / 0.78 / 0.71 | 0.3 to 1.0 % |
-| Above average in >= two thirds of the years | 0.62 / 0.81 / 0.80 | 0.6 to 0.7 % |
-| Median instead of mean intensity | 0.66 / 0.82 / 0.71 | 0.8 to 1.1 % |
-| Leave out years under 5 fire cell-days | 0.73 / 0.84 / 0.84 | 0.1 to 0.9 % |
-| Leave out years under a quarter of the median year | 0.72 / 0.82 / 0.84 | 0.5 to 1.2 % |
+| **Chosen: mean intensity >= 1.5, above average in >= half the years** | **0.69 / 0.81 / 0.83** | **0.3 to 1.3 %** |
+| Intensity >= 1.25 | 0.70 / 0.80 / 0.83 | 0.6 to 1.4 % |
+| Intensity >= 2.0 | 0.63 / 0.73 / 0.81 | 0.4 to 1.2 % |
+| Above average in >= two thirds of the years | 0.59 / 0.74 / 0.82 | 0.5 to 0.7 % |
+| Median instead of mean intensity | 0.64 / 0.76 / 0.76 | 0.9 to 1.3 % |
+| Leave out years under 5 hotspots | 0.72 / 0.81 / 0.83 | 0.3 to 1.0 % |
+| Leave out years under a quarter of the median year | 0.71 / 0.82 / 0.82 | 0.3 to 1.2 % |
 
 - The chosen thresholds are as stable as any variant; leaving out any one year changes on average
   about 1 % of the flags or fewer.
 - A lower threshold (1.25) is about as stable but adds shoulder months and splits more seasons in
-  two (9 % against 6 % of areas with 50 to 500 per year); stricter thresholds lose stability.
-- Leaving out years with little fire, or using the median, does not improve the result: the
-  recurrence condition already keeps a few small years from making a season. Both were therefore
-  not adopted.
-- Weekly flags were much less stable than monthly ones (even/odd agreement 0.48 to 0.73, with 29 to
-  49 % of areas showing broken-up seasons). A centred 3-week window raises the agreement to 0.65 to
-  0.82 and roughly halves the broken-up seasons (12 to 27 %) while keeping the national season almost
+  two (7 % against 5 % of areas with 50 to 500 per year); stricter thresholds lose stability.
+- Using the median does not improve the result. Leaving out years under 5 hotspots helps areas with
+  5 to 50 per year slightly (0.72 against 0.69) but loses agreement in areas with less (0.31 against
+  0.41): the recurrence condition already keeps a few small years from making a season. Neither was
+  adopted.
+- Weekly flags were much less stable than monthly ones (even/odd agreement 0.44 to 0.72, with 24 to
+  48 % of areas showing broken-up seasons). A centred 3-week window raises the agreement to 0.64 to
+  0.80 and cuts the broken-up seasons to 21 to 29 % while keeping the national season almost
   unchanged (weeks 30 to 42 instead of 30 to 43); a 5-week window adds little more and blurs the edges, so 3 weeks was adopted.
 
 ### Limitations

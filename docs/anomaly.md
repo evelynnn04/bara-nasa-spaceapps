@@ -17,15 +17,17 @@ Aqua MODIS from 4 July 2002, and the day's VIIRS reference satellite (S-NPP, els
 NOAA-21) from 1 February 2012. This gives every month 23 or 24 earlier and later years to compare
 with. Two indicators are scored, both in MODIS-equivalent units:
 
-- **Activity**, in fire cell-days: a MODIS cell-day counts 1, a VIIRS cell-day
-  `sqrt(pixels) / k[island group, month]`.
-- **FRP**, summed fire radiative power in MW: Aqua FRP as it is, VIIRS FRP divided by
-  `kf[island group, month]` (see "FRP harmonisation" below).
+- **Activity**, in hotspots (Aqua MODIS-equivalent): an Aqua hotspot counts 1, a VIIRS hotspot
+  `1 / k_d[island group, month]` for its half of the day `d`.
+- **FRP**, summed fire radiative power in MW: Aqua FRP as it is, VIIRS FRP of each half of the day
+  divided by `kf_d[island group, month]` (see "FRP harmonisation" below).
 
-A pixel counts under the same rule as the rest of the record: presumed vegetation fires only (FIRMS
-`type = 0`), all confidence classes, exact duplicates removed. Untyped near-real-time pixels on the
-static-source mask (volcanoes, gas flares, other industrial sources) are removed. A day the record's
-satellite did not observe Indonesia is missing, never zero.
+Hotspots count under the same rule as the rest of the record: with `hotspots=vegetation` (the
+default) presumed vegetation fires only (FIRMS `type = 0`), untyped near-real-time hotspots on the
+static-source mask (volcanoes, gas flares, other industrial sources) removed; with `hotspots=all`
+every hotspot type, each setting with its own factors. All confidence classes count and exact
+duplicates are removed. A day the record's satellite did not observe Indonesia is missing, never
+zero.
 
 ### 2. One base grid, two kinds of units
 
@@ -100,28 +102,30 @@ given rather than a misleading `normal`.
 Where a place usually has no fire in that month, a few detections already beat most reference years.
 Records whose reference median activity is zero carry `sparse_history: true`, and when such a record
 is `elevated` or higher it also carries a `disclaimer` saying that the label comes from only a few
-detections in a place that usually has none. This matters mostly for grid cells: in November 2026,
-457 of the 535 `anomalous` grid cells (85 %) are sparse. Neither the flag nor the disclaimer changes
+detections in a place that usually has none. This matters mostly for grid cells: in November 2026
+(to 14 November), 446 of the 524 `anomalous` grid cells (85 %) are sparse. Neither the flag nor the disclaimer changes
 the score or the label.
 
 ## FRP harmonisation
 
-FRP is harmonised like the cell-day weight, without the square root, because FRP is a physical
-quantity that adds up over pixels. A VIIRS cell-day's FRP is divided by
+FRP is harmonised like the hotspot counts, by day and by night separately. FRP is a physical
+quantity that adds up over hotspots, so the VIIRS FRP of each half of a cell-day is divided by
 
 ```
-ln kf[r, m] = mu + rho_r + sigma_m
+ln kf_d[r, m] = mu_d + rho_d,r + sigma_d,m
 ```
 
 fitted with the same shrunk iterative proportional fit, on the same paired days (1 February 2012 to
-31 December 2025), on monthly sums of Aqua FRP against VIIRS-reference FRP. The shrinkage weight is
-each stratum's MODIS cell-days, as for the count factors. The factors are stored under `frp` in
-`backend/app/harmonise/params.json` by `python -m app fit`.
+31 December 2025), on monthly sums of Aqua FRP against VIIRS-reference FRP of that half, for each
+hotspot type setting. The shrinkage weight is each stratum's Aqua hotspots, as for the count
+factors. The factors are stored in the `k_table` of `backend/app/harmonise/params.json` (`kf_day`,
+`kf_night`) by `python -m app fit`.
 
-VIIRS measures about 1.9 times the FRP of Aqua over the same days (base factor 1.881). Leave one
-year out, nationally: `r_log` 0.994, `malr` 0.126, bias 1.09, peak agreement 10/14, verdict
-**partial**. By island group, Sumatra and Kalimantan are **converged**; Java-Bali-NT,
-Sulawesi-Maluku and Papua are **partial**, with biases of 1.07 to 1.33.
+Separate halves matter for FRP as for counts: on paired days, VIIRS measures 1.7 to 2.6 times
+Aqua's FRP by day across 2012–2025, but 1.4 to 8.4 times at night. For vegetation fires the base
+factors are 1.85 by day and 2.13 at night. Leave one year out, nationally, day and night together:
+`r_log` 0.994, `malr` 0.128, bias 1.09, verdict **partial**; day only 0.994, 0.113, 1.07; night only
+0.953, 0.498, 1.62.
 
 ## How far down the harmonised record holds
 
@@ -140,8 +144,11 @@ Aqua and once from harmonised VIIRS (units active in at least five years):
 
 The two sensors see different fires: VIIRS detects small fires MODIS misses, and a small place holds
 too few detections a month for that to average out. Agreement grows with the size of the area and
-is good from the province upward. A better conversion cannot fix this, because raw VIIRS pixel
-counts agree with MODIS no better than the harmonised values.
+is good from the province upward. A better conversion cannot fix this, because raw VIIRS hotspot
+counts agree with MODIS no better than the harmonised values. Moving the record from cell-days to
+hotspots does not change this: on the same unit-months (Spearman correlation of the yearly values of
+each unit and calendar month, 2012–2025), the agreement of the two units differs by at most 0.01 at
+every scale, and the share of MODIS alerts also raised by VIIRS by at most 3 points.
 
 So the labels of grid cells and cities/regencies partly depend on which sensor saw which year, and
 should be read as indicative. The grid uses 0.25° rather than the 0.05° base grid because agreement
@@ -149,17 +156,15 @@ is lower at 0.05° and most 0.05° cells burn in only one or two months of the y
 
 ## Endpoint
 
-`GET /api/anomalies?area=...|poly=...&year=YYYY&month=M&reference=other|prior&grids=true|false&daynight=all|day|night`
+`GET /api/anomalies?area=...|poly=...&year=YYYY&month=M&reference=other|prior&grids=true|false&daynight=all|day|night&hotspots=vegetation|all`
 
-`year` and `month` default to the last data month. The area selection and `daynight` work as for
-the other endpoints. `grids` defaults to `false`.
+`year` and `month` default to the last data month. The area selection, `daynight` and `hotspots`
+work as for the other endpoints. `grids` defaults to `false`.
 
 With `daynight=day` or `night`, both indicators count only that half of the day, in the target and
-the reference years alike: activity as in the dashboard's series (a MODIS cell-day counts only if it
-has pixels in that half), and FRP from the cell-day table's `frp_day` or `frp_night`. The factors
-`k` and `kf` are fitted on day and night together and applied to either half unchanged. Data built
-before these columns existed answers day/night requests with 503 until `python -m app build` and
-`python -m app cache` are run again.
+the reference years alike, each divided by that half's own factor (`k_d`, `kf_d`). Data built before
+the hotspot unit answers with 503 until `python -m app build` and `python -m app cache` are run
+again.
 
 | Field | Content |
 |---|---|
@@ -171,7 +176,7 @@ before these columns existed answers day/night requests with 503 until `python -
 | `area` | the record of the whole selection, with `years` |
 | `grids`, `counts`, `grid_deg` | with `grids=true` only: one record per 0.25° cell touching the selection with activity in the month (highest label first), and the number of cells per label |
 
-Each record carries `period_start`, `period_end`, `product`, `activity` (fire cell-days),
+Each record carries `period_start`, `period_end`, `product`, `activity` (hotspots),
 `frp_mw`, `activity_score`, `frp_score`, both per-indicator labels and ceiling flags, `label`,
 `dominant_indicator`, `historical_sample_size`, `baseline_granularity`, `score_calibration_status`
 (`uncalibrated`), `sparse_history`, `disclaimer` and `history` (mean, median, standard deviation,
@@ -182,7 +187,7 @@ year, oldest first, so a chart can plot the month against its history.
 
 ### Year view
 
-`GET /api/anomalies?period=year&year=YYYY&area=...|poly=...&reference=...&daynight=...`
+`GET /api/anomalies?period=year&year=YYYY&area=...|poly=...&reference=...&daynight=...&hotspots=...`
 
 `months` lists every month of the year inside the record. Each is scored against the same month in
 the reference years, exactly as `period=month` would score it: each entry has the fields of the
@@ -196,13 +201,14 @@ in other years. The Year view therefore stays a set of monthly scores. `period=y
 
 A grid record also has `grid_id`, its centre, `bbox`, `in_area_share` (the share of its activity
 inside the selection) and `environmental_context`: the cell's main island group, province and
-city/regency, its active 0.05° cells, the night share of its pixels and its highest pixel FRP. The
+city/regency, its active 0.05° cells, the night share of its hotspots and its highest hotspot FRP. The
 context sits beside the score and never changes it. Forest cover and wind are not available yet;
 they are `null` and listed in `unavailable`.
 
 ## Evaluation
 
-`python -m app anomaly-eval --unit province|regency|grid` scores every complete month of every year
+`python -m app anomaly-eval --unit province|regency|grid [--hotspots vegetation|all]` scores every
+complete month of every year
 against all other years (leave one year out), for every unit active in that calendar month in any
 year. With 24 reference years and no ties, `elevated` or higher would fire 20 % of the time and
 `anomalous` 8 %.
@@ -211,15 +217,15 @@ Result on the record up to 14 November 2026:
 
 | Unit | Unit-months | Indicator | `elevated` or higher | `anomalous` |
 |---|---|---|---|---|
-| Province | 9,836 | Activity | 16.9 % | 8.0 % |
+| Province | 9,860 | Activity | 16.8 % | 8.1 % |
 | | | FRP | 17.2 % | 8.3 % |
-| City/regency | 136,806 | Activity | 14.8 % | 7.3 % |
+| City/regency | 137,599 | Activity | 14.9 % | 7.3 % |
 | | | FRP | 15.9 % | 8.0 % |
-| 0.25° grid | 714,088 | Activity | 13.1 % | 6.8 % |
-| | | FRP | 14.2 % | 7.7 % |
+| 0.25° grid | 726,968 | Activity | 13.0 % | 6.7 % |
+| | | FRP | 14.0 % | 7.5 % |
 
 Province rates match the expected rates. Smaller units come out lower because many of their months
-tie at zero. Among grid-months with any activity, 37 % of cells are `elevated` or higher, which is
+tie at zero. Among grid-months with any activity, 38 % of cells are `elevated` or higher, which is
 the sparse-place effect above. No calendar month goes above 20 % `elevated` or higher for any unit.
 
 ### Known fire seasons
@@ -230,10 +236,10 @@ the sparse-place effect above. No calendar month goes above 20 % `elevated` or h
 | Area | Elevated or higher |
 |---|---|
 | Indonesia | 2002 (Aug A, Oct E), 2004 (Aug A, Oct E), 2006 (A all three), 2009 (Aug, Sep E), 2015 (Sep, Oct A), Sep 2019 (E) |
-| Riau | 2002, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2013, 2015, 2019 |
-| South Sumatra | 2002, 2004, 2006, 2009, 2011, 2012, 2014, 2015 |
+| Riau | 2002, 2004, 2005, 2006, 2007, 2008, 2010, 2011, 2013, 2015, 2019 |
+| South Sumatra | 2002, 2004, 2006, 2009, 2011, 2012, 2014, 2015, 2019 |
 | Central Kalimantan | 2002, 2004, 2006, 2009, 2015, 2019 |
-| West Kalimantan | 2002, 2004, 2006, 2009, 2010, 2012, 2013, 2014, 2015, 2019 |
+| West Kalimantan | 2002, 2004, 2006, 2009, 2012, 2013, 2014, 2015, 2019 |
 
 These include the El Niño fire years of 2002, 2004, 2006, 2009, 2015 and 2019, and the Riau haze
 episodes of 2005 and 2013. The years after 2015 are `normal` except 2019. The 2023 El Niño season is

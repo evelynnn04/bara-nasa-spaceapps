@@ -37,7 +37,7 @@ SEED = 7
 PERMUTATIONS = 4000
 #: False discovery rate of the Benjamini-Hochberg correction.
 FDR = 0.05
-#: Mean annual activity (fire cell-days) bands the results are reported in.
+#: Mean annual activity (hotspots) bands the results are reported in.
 TIERS = ((0, 5), (5, 50), (50, 500), (500, math.inf))
 CONFIDENCE_BANDS = (0, 1, 2, 5, 10, 20, 50, math.inf)
 WINDOWS = (1, 3, 5)
@@ -70,7 +70,7 @@ VARIANTS: dict[str, tuple[dict, YearFilter]] = {
     "intensity >= 2.0": ({"ratio_min": 2.0}, _all_active),
     "above average in >= 2/3": ({"recurrence_min": 2 / 3}, _all_active),
     "median instead of mean": ({"stat": median}, _all_active),
-    "leave out years < 5 cell-days": ({}, _at_least(5)),
+    "leave out years < 5 hotspots": ({}, _at_least(5)),
     "leave out years < 1/4 of median year": ({}, _share_of_median(0.25)),
 }
 
@@ -229,7 +229,7 @@ def report(areas: list[Area]) -> None:
     print(f"Record: complete years {areas[0].months.years[0]}-{areas[0].months.years[-1]}; "
           f"{len(local)} provinces and cities/regencies with any fire.\n")
     print("1. Critical months of the country and provinces, against published definitions")
-    print(f"   {'area':28} {'cd/yr':>8}  {'critical':20} {'significant':20} {'Giglio 10%':22} {'80% run':26} peak")
+    print(f"   {'area':28} {'hs/yr':>8}  {'critical':20} {'significant':20} {'Giglio 10%':22} {'80% run':26} peak")
     jg, jr = [], []
     for a in top:
         crit = flags(a.months, 12)
@@ -249,7 +249,7 @@ def report(areas: list[Area]) -> None:
             for p in range(1, 13) for v in [critical.assess(critical.column(riau.months, p))]))
 
     print("\n2. Permutation test of months (Benjamini-Hochberg, q = 0.05)")
-    print(f"   {'cd/yr':10} {'areas':>6} {'critical months significant':>28} {'significant, not critical, per area':>36}")
+    print(f"   {'hs/yr':10} {'areas':>6} {'critical months significant':>28} {'significant, not critical, per area':>36}")
     for lo, hi in TIERS:
         sel = [a for a in local if _tier(a, lo, hi)]
         hit, miss = [], []
@@ -260,7 +260,7 @@ def report(areas: list[Area]) -> None:
             miss.append(sum(s and not c for c, s in zip(crit, sig)))
         print(f"   {_label(lo, hi):10} {len(sel):6} {100 * mean(hit):27.0f}% {mean(miss):36.2f}")
 
-    print("\n3. Stability of month flags by variant, per mean annual activity (cell-days/yr)")
+    print("\n3. Stability of month flags by variant, per mean annual activity (hotspots/yr)")
     print("   even/odd agreement | flags changed by leaving one year out | areas with broken-up season | same as chosen")
     print(f"   {'variant':40}" + "".join(f"{_label(lo, hi):>30}" for lo, hi in TIERS))
     for name in VARIANTS:
@@ -284,7 +284,7 @@ def report(areas: list[Area]) -> None:
             print(f"   Indonesia, {w}-week window: weeks {wk[0]}-{wk[-1]} ({len(wk)})" if wk else f"   {w}-week: none")
 
     print("\n5. Even/odd agreement by mean annual activity (confidence levels)")
-    print(f"   {'cd/yr':10} {'areas':>6} {'months':>8} {'weeks (3)':>10}")
+    print(f"   {'hs/yr':10} {'areas':>6} {'months':>8} {'weeks (3)':>10}")
     for lo, hi in zip(CONFIDENCE_BANDS, CONFIDENCE_BANDS[1:]):
         sel = [a for a in local if lo <= a.mean_annual < hi]
         m = stability_halves(sel, lambda a: a.months, 12)

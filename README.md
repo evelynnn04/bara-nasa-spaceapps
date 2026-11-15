@@ -116,9 +116,10 @@ documented at `http://localhost:8000/docs`; the main endpoints are `/api/meta`, 
 [docs/critical-periods.md](docs/critical-periods.md); `uv run python -m app validate-critical` (in
 `backend`) reproduces its validation on the local data.
 
-Data unzipped from a zip made before the anomaly endpoint lacks the day and night fire radiative
-power. Run `uv run python -m app build` and `uv run python -m app cache` once (about 20 seconds, no
-FIRMS key needed) to add it; until then the anomaly endpoint answers only for day and night together.
+Values are in hotspots (Aqua MODIS-equivalent); every endpoint takes `hotspots=vegetation` (the
+default) or `hotspots=all`. Data unzipped from a zip made before the hotspot unit lacks the counts of
+the other hotspot types, and the API answers 503 until `uv run python -m app build` and
+`uv run python -m app cache` are run once (about 30 seconds, no FIRMS key needed).
 
 ## Running the dashboard
 The dashboard in `src/frontend/` reads everything from the backend. Start the backend first (with
