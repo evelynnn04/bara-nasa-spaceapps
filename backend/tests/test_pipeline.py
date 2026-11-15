@@ -6,8 +6,8 @@ import datetime as dt
 
 import pytest
 
-from app import geo, queries, store
-from app.pipeline import aggregate, events
+from app import config, geo, queries, store
+from app.pipeline import aggregate, download, events, normalise
 from app.pipeline.cells import CellLocator
 
 from .conftest import BALI, RIAU, day_row, reference_params, write_dataset
@@ -83,3 +83,50 @@ def test_event_ties_resolve_to_earliest_day_and_first_area(tmp_path):
         assert events.build(con, dest) == 1
         row = con.execute(f"SELECT peak_day, regency_id FROM read_parquet('{dest}')").fetchone()
         assert row == (d1, "idn-riau-a")
+
+
+def test_normalise_ids_drops_areas_under_a_selected_parent():
+    parents = {"idn": None, "idn-riau": "idn", "idn-riau-a": "idn-riau", "idn-bali-a": "idn-bali"}
+    assert queries.normalise_ids(["idn-riau-a", "idn-riau", "idn-bali-a"], parents) == ["idn-bali-a", "idn-riau"]
+    assert queries.normalise_ids(["idn-riau", "idn"], parents) == ["idn"]
+
+
+def test_nrt_windows_keep_their_names_as_the_standard_product_advances():
+    stream = config.STREAMS["modis"]
+    nrt = (dt.date(2025, 11, 1), dt.date(2026, 11, 14))
+
+    def names(sp_last):
+        avail = {stream.api_sp: (dt.date(2000, 11, 1), sp_last), stream.api_nrt: nrt}
+        return {w.rel for w in download.plan_api(avail, 2025) if w.source == stream.api_nrt}
+
+    before, after = names(dt.date(2026, 8, 31)), names(dt.date(2026, 9, 30))
+    assert after < before
+    assert min(after).startswith(f"{stream.api_nrt}/2026-09-2")
+
+
+def test_nrt_windows_start_no_earlier_than_the_product():
+    stream = config.STREAMS["modis"]
+    avail = {stream.api_nrt: (dt.date(2026, 3, 3), dt.date(2026, 3, 20))}
+    nrt = [w for w in download.plan_api(avail, 2025) if w.source == stream.api_nrt]
+    assert nrt[0].start == dt.date(2026, 3, 3) and nrt[0].end == dt.date(2026, 3, 6)
+    assert nrt[-1].end == dt.date(2026, 3, 20)
+
+
+def test_failed_normalise_leaves_previous_detections(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    old = normalise.detections_dir() / "modis_2015.parquet"
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b"previous")
+    monkeypatch.setattr(normalise, "_load_clip", lambda con: None)
+
+    def fail(con, stream, out):
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "partial.parquet").write_bytes(b"partial")
+        raise ValueError("rows failing validation")
+
+    monkeypatch.setattr(normalise, "normalise_stream", fail)
+    with pytest.raises(ValueError):
+        normalise.run()
+    assert [p.name for p in old.parent.iterdir()] == ["modis_2015.parquet"]
+    assert old.read_bytes() == b"previous"
+    assert not old.parent.with_name("detections.new").exists()

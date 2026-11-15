@@ -164,7 +164,12 @@ def availability(key: str) -> dict[str, tuple[dt.date, dt.date]]:
 
 
 def plan_api(avail: dict[str, tuple[dt.date, dt.date]], archive_last_year: int) -> list[Window]:
-    """Windows for what the archive lacks: years after it, and all of NOAA-21."""
+    """Windows for what the archive lacks: years after it, and all of NOAA-21.
+
+    Near-real-time windows are anchored at the same fixed date as the stream's start, not at the
+    end of the standard product, so they keep their names as the standard product advances; only
+    windows reaching past the standard product are requested. Days that both cover are resolved
+    by the source ranking in `normalise`."""
     todo: list[Window] = []
     for s in config.STREAMS.values():
         start = s.first_date if s.archive_name is None else dt.date(archive_last_year + 1, 1, 1)
@@ -174,7 +179,12 @@ def plan_api(avail: dict[str, tuple[dt.date, dt.date]], archive_last_year: int) 
             sp_last = sp[1]
             todo += windows(s, s.api_sp, max(start, sp[0]), sp_last)
         if nrt:
-            todo += windows(s, s.api_nrt, max(start, sp_last + dt.timedelta(days=1), nrt[0]), nrt[1])
+            for w in windows(s, s.api_nrt, start, nrt[1]):
+                if w.end <= sp_last or w.end < nrt[0]:
+                    continue
+                if w.start < nrt[0]:
+                    w = Window(w.stream, w.sensor, w.source, nrt[0], (w.end - nrt[0]).days + 1)
+                todo.append(w)
     return todo
 
 
