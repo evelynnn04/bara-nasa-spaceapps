@@ -16,13 +16,14 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("normalise", help="raw CSV -> one Parquet file per product and year")
     sub.add_parser("build", help="cell-day table, day status and cell lookup")
     sub.add_parser("fit", help="fit the VIIRS factors, evaluate them and write params.json")
-    sub.add_parser("cache", help="region cache and fire events (needs params.json from fit)")
+    sub.add_parser("cache", help="region cache, fire events and the fire outlook (needs params.json from fit)")
     ev = sub.add_parser("anomaly-eval", help="leave-one-year-out alert rates of the anomaly labels")
     ev.add_argument("--unit", choices=("province", "regency", "grid"), default="province")
     ev.add_argument("--hotspots", choices=("vegetation", "all"), default="vegetation")
     every = sub.add_parser("all", help="download, normalise, build, fit, cache")
     every.add_argument("--no-api", action="store_true")
     sub.add_parser("validate-critical", help="check the critical-period definition on the full record")
+    sub.add_parser("validate-outlook", help="score the fire outlook per cell on held-out years")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s",
@@ -45,6 +46,9 @@ def main(argv: list[str] | None = None) -> None:
         from .pipeline import aggregate, events
         aggregate.run()
         events.run()
+        from . import outlook, store
+        from .harmonise import weights
+        outlook.build(store.connect(weights.load_params()))
     if args.cmd == "anomaly-eval":
         import json
         from . import anomaly, queries, store
@@ -54,4 +58,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "validate-critical":
         from . import critical_validation
         critical_validation.run()
+    if args.cmd == "validate-outlook":
+        from . import outlook_validation
+        outlook_validation.run()
     logging.getLogger("app").info("done in %.0f s", time.time() - t0)
