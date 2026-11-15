@@ -7,8 +7,10 @@ Every endpoint takes the same area selection:
 - `poly`: a drawn polygon as `lon,lat;lon,lat;...`, which selects the cells whose centre lies
   inside it.
 
-`daynight` is `all`, `day` or `night`. Values are in MODIS-equivalent active fire cell-days (see
-`docs/harmonisation.md`). A day the record's satellite did not observe is `null`, never 0.
+`daynight` is `all`, `day` or `night`, and `hotspots` is `vegetation` (presumed vegetation fires,
+the default) or `all` (every hotspot type), each with its own fitted factors. Values are in
+hotspots, Aqua MODIS-equivalent (see `docs/harmonisation.md`). A day the record's satellite did not
+observe is `null`, never 0.
 
 Named areas are answered from the region cache. A polygon reuses the cache for regencies lying
 wholly inside it and aggregates its remaining cells on demand. All paths build their numbers from
@@ -40,6 +42,7 @@ from .pipeline.normalise import MASK_RES
 router = APIRouter(prefix="/api")
 
 DayNight = Literal["all", "day", "night"]
+Hotspots = Literal["vegetation", "all"]
 
 #: Grid cells per side of the block (0.25°) used to find the most active spot.
 COARSE = 5
@@ -54,6 +57,18 @@ _state: dict = {}
 
 
 REQUIRED = ("celldays", "days", "cells", "region_daily")
+#: Columns that tables built before the hotspot unit lack.
+REQUIRED_COLUMNS = {"celldays": ("n_day_all", "frp_day_all"), "region_daily": ("hotspots", "aqua")}
+
+
+def _problem(con: duckdb.DuckDBPyConnection) -> str | None:
+    """Why the derived tables cannot be served, or None."""
+    if not store.has(con, *REQUIRED):
+        return "The derived tables are missing. Run `python -m app all` first."
+    if not all(store.has_columns(con, t, *cols) for t, cols in REQUIRED_COLUMNS.items()):
+        return ("The derived tables predate the hotspot unit. Run `python -m app build` and "
+                "`python -m app cache` again.")
+    return None
 
 
 def configure(con: duckdb.DuckDBPyConnection | None, params: dict | None) -> None:
@@ -61,7 +76,7 @@ def configure(con: duckdb.DuckDBPyConnection | None, params: dict | None) -> Non
     with _lock:
         _state.clear()
         if con is not None:
-            _state.update(con=con, params=params, complete=store.has(con, *REQUIRED))
+            _state.update(con=con, params=params, problem=_problem(con))
         _daily.cache_clear()
         _flags.cache_clear()
         _parents.cache_clear()
@@ -70,8 +85,8 @@ def configure(con: duckdb.DuckDBPyConnection | None, params: dict | None) -> Non
 def _ready() -> dict:
     """The shared connection and parameters, opened on first use.
 
-    Whether the derived tables exist is checked once, when the connection is opened; a missing
-    table closes it again so the next request retries."""
+    Whether the derived tables exist with the expected columns is checked once, when the
+    connection is opened; a problem closes it again so the next request retries."""
     with _lock:
         if not _state:
             try:
@@ -79,12 +94,13 @@ def _ready() -> dict:
             except RuntimeError as err:
                 raise HTTPException(503, str(err)) from err
             con = store.connect(params)
-            _state.update(con=con, params=params, complete=store.has(con, *REQUIRED))
-        if not _state["complete"]:
+            _state.update(con=con, params=params, problem=_problem(con))
+        if _state["problem"]:
+            problem = _state["problem"]
             con = _state.pop("con")
             _state.clear()
             con.close()
-            raise HTTPException(503, "The derived tables are missing. Run `python -m app all` first.")
+            raise HTTPException(503, problem)
         return _state
 
 
@@ -150,14 +166,14 @@ def _flags() -> list[tuple]:
 
 
 @lru_cache(maxsize=256)
-def _daily(area: Area, daynight: str) -> dict[dt.date, tuple]:
+def _daily(area: Area, daynight: str, hotspots: str = "vegetation") -> dict[dt.date, tuple]:
     """Daily sums for an area: the region cache for named areas; for a polygon, the cache for the
     regencies wholly inside it plus the remaining cells."""
     cur = cursor()
     if area.ring is None:
-        return queries.daily_cached(cur, daynight, list(area.ids))
+        return queries.daily_cached(cur, daynight, list(area.ids), hotspots)
     n = queries.polygon_cells(cur, list(area.ring), "sel")
-    return queries.daily_polygon(cur, daynight, "sel", n)
+    return queries.daily_polygon(cur, daynight, "sel", n, hotspots)
 
 
 def _fmt(v: float | None, digits: int = 4) -> float | None:
@@ -175,7 +191,24 @@ def meta() -> dict:
         SELECT 'noaa20', max(local_date) FILTER (WHERE noaa20) FROM days UNION ALL
         SELECT 'noaa21', max(local_date) FILTER (WHERE noaa21) FROM days
     """).fetchall()}
-    ev = p.get("evaluation", {})
+    settings = {}
+    for name, s in p.get("settings", {}).items():
+        ev = s.get("evaluation", {})
+        loyo = ev.get("leave_one_year_out", {})
+        settings[name] = {
+            "factors": s.get("factors"),
+            "verdict": s.get("verdict"),
+            "evaluation": {
+                "leave_one_year_out": loyo.get("national"),
+                "day_only": loyo.get("national_day"),
+                "night_only": loyo.get("national_night"),
+                "island_groups": loyo.get("island_groups"),
+                "split_even_train_odd_test": ev.get("split_even_train_odd_test"),
+                "control_snpp_vs_noaa20": ev.get("control_snpp_vs_noaa20"),
+                "peak_misses": ev.get("peak_misses"),
+                "story_2015": ev.get("story_2015"),
+            },
+        }
     return {
         "record": {"start": flags[0][0], "end": flags[-1][0], "splice": config.SPLICE,
                    "unobserved_days": sum(1 for f in flags if f[1] is None)},
@@ -183,35 +216,28 @@ def meta() -> dict:
         "unit": fit.UNIT,
         "grid_deg": config.GRID,
         "method": {
-            "summary": "Fire activity is counted in grid cells per day. A VIIRS cell counts the square root of "
-                       "its pixels divided by an island-group and month factor; a MODIS cell counts once.",
-            "alpha": p.get("alpha"), "base_factor": p.get("base_factor"),
-            "region_factor": p.get("region_factor"), "month_factor": p.get("month_factor"),
-            "fit_window": p.get("fit_window"), "fitted": p.get("fitted"),
+            "summary": "Fire activity is counted in hotspots. An Aqua MODIS hotspot counts 1; a VIIRS hotspot counts "
+                       "1 divided by a factor for its island group, calendar month and half of the day.",
+            "fit_window": p.get("fit_window"), "fitted": p.get("fitted"), "n0": p.get("n0"),
         },
+        "default_hotspots": p.get("default_hotspots", "vegetation"),
         "verdict": p.get("verdict"),
-        "evaluation": {
-            "leave_one_year_out": ev.get("leave_one_year_out", {}).get("national"),
-            "island_groups": ev.get("leave_one_year_out", {}).get("island_groups"),
-            "split_even_train_odd_test": ev.get("split_even_train_odd_test"),
-            "control_snpp_vs_noaa20": ev.get("control_snpp_vs_noaa20"),
-            "story_2015": ev.get("story_2015"),
-        },
-        "distribution": p.get("distribution"),
+        "settings": settings,
     }
 
 
 @router.get("/series")
-def series(area: Area = Depends(area_param), daynight: DayNight = "all") -> dict:
+def series(area: Area = Depends(area_param), daynight: DayNight = "all", hotspots: Hotspots = "vegetation") -> dict:
     """The daily harmonised record of an area over the whole record, one value per day from `start`."""
     flags = _flags()
-    values = queries.record_series(_daily(area, daynight), flags)
+    values = queries.record_series(_daily(area, daynight, hotspots), flags)
     return {"start": flags[0][0], "end": flags[-1][0], "unit": fit.UNIT, "daynight": daynight,
-            "values": [_fmt(v) for v in values]}
+            "hotspots": hotspots, "values": [_fmt(v) for v in values]}
 
 
 @router.get("/critical")
-def critical_periods(area: Area = Depends(area_param), daynight: DayNight = "all") -> dict:
+def critical_periods(area: Area = Depends(area_param), daynight: DayNight = "all",
+                     hotspots: Hotspots = "vegetation") -> dict:
     """Calendar months and ISO weeks that historically hold elevated fire activity in an area.
 
     Each period of each complete year is compared with its own year: its intensity is its mean
@@ -223,31 +249,33 @@ def critical_periods(area: Area = Depends(area_param), daynight: DayNight = "all
     follow `years`: the period's value in that year, and what it would hold at its year's average
     rate; both are `null` when the period does not occur that year (ISO week 53)."""
     flags = _flags()
-    values = queries.record_series(_daily(area, daynight), flags)
-    return {"unit": fit.UNIT, "daynight": daynight, **critical.critical_periods([f[0] for f in flags], values)}
+    values = queries.record_series(_daily(area, daynight, hotspots), flags)
+    return {"unit": fit.UNIT, "daynight": daynight, "hotspots": hotspots,
+            **critical.critical_periods([f[0] for f in flags], values)}
 
 
 @router.get("/cells")
 def cells(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depends(period),
-          daynight: DayNight = "all") -> dict:
+          daynight: DayNight = "all", hotspots: Hotspots = "vegetation") -> dict:
     """Active cells of the harmonised record in a period, for the map.
 
-    Each 0.05° cell carries its harmonised value, the raw pixels of each sensor and its highest
-    pixel fire radiative power. Cells are sent at full resolution, so the map looks the same for
+    Each 0.05° cell carries its harmonised value, the raw hotspots of each sensor and its highest
+    hotspot fire radiative power. Cells are sent at full resolution, so the map looks the same for
     every filter; only above `MAX_MAP_CELLS` (never reached by the current record) is the layer
     summed onto 0.25° blocks, with `res_deg` saying which. `top` is the most active 0.25° block and
     the city/regency holding most of it."""
     cur = cursor()
-    w, n = weights.weight_sql(daynight), weights.pixels_sql(daynight)
+    w, n = weights.weight_sql(daynight, hotspots), weights.hotspots_sql(daynight, hotspots)
+    frp_max = f"c.frp_max{weights.HOTSPOTS[hotspots]}"
     where = f"c.local_date BETWEEN DATE '{span[0]}' AND DATE '{span[1]}' AND ({area.where(cur)})"
     rows = cur.execute(f"""
         SELECT c.cx, c.cy,
                sum(CASE WHEN c.platform = c.record_platform THEN {w} ELSE 0 END) AS value,
                sum(CASE WHEN c.side = 'a' THEN {n} ELSE 0 END) AS modis_px,
                sum(CASE WHEN c.side = 'b' THEN {n} ELSE 0 END) AS viirs_px,
-               max(CASE WHEN c.platform = c.record_platform AND {n} > 0 THEN c.frp_max END) AS frp_max,
+               max(CASE WHEN c.platform = c.record_platform AND {n} > 0 THEN {frp_max} END) AS frp_max,
                any_value(c.regency_id) AS regency_id
-        FROM ({weights.observations_sql(where)}) c
+        FROM ({weights.observations_sql(where, hotspots)}) c
         GROUP BY c.cx, c.cy HAVING value > 0
         ORDER BY c.cx, c.cy
     """).fetchall()
@@ -290,25 +318,27 @@ def cells(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depe
 
 
 @router.get("/agreement")
-def agreement(area: Area = Depends(area_param), daynight: DayNight = "all") -> dict:
+def agreement(area: Area = Depends(area_param), daynight: DayNight = "all",
+              hotspots: Hotspots = "vegetation") -> dict:
     """MODIS against VIIRS for an area, month by month, on paired days only.
 
     Paired days are days both Aqua and the VIIRS reference satellite observed Indonesia. `months`
     runs from the splice to the last data day. The metrics and verdicts cover the fit window, once
-    for the harmonised values and once for raw pixel counts."""
+    for the harmonised values and once for raw VIIRS hotspots. `modis` and `modis_px` are both the
+    Aqua hotspot count; `viirs_px` is the raw VIIRS-reference hotspot count."""
     flags = _flags()
     start, end = config.SPLICE, flags[-1][0]
-    monthly = queries.monthly_paired(_daily(area, daynight), flags, start, end)
+    monthly = queries.monthly_paired(_daily(area, daynight, hotspots), flags, start, end)
     paired_days: dict[tuple[int, int], int] = defaultdict(int)
     for d, _, paired in flags:
         if paired and start <= d <= end:
             paired_days[(d.year, d.month)] += 1
     window = {k: v for k, v in monthly.items() if config.FIT_START <= dt.date(k[0], k[1], 1) <= config.FIT_END}
     return {
-        "unit": fit.UNIT, "daynight": daynight,
+        "unit": fit.UNIT, "daynight": daynight, "hotspots": hotspots,
         "window": [config.FIT_START, config.FIT_END],
         "months": [{"year": y, "month": m, "paired_days": paired_days[(y, m)],
-                    "modis": _fmt(v[0]), "viirs": _fmt(v[2]), "modis_px": int(v[1]), "viirs_px": int(v[3])}
+                    "modis": _fmt(v[0]), "viirs": _fmt(v[1]), "modis_px": int(v[0]), "viirs_px": int(v[2])}
                    for (y, m), v in sorted(monthly.items())],
         "harmonised": queries.agreement(window, harmonised=True),
         "raw": queries.agreement(window, harmonised=False),
@@ -341,11 +371,11 @@ def anomalies(area: Area = Depends(area_param),
               reference: Literal["other", "prior"] = Query(
                   "other", description="Reference years: every other year, or only earlier years."),
               grids: bool = Query(False, description="Also score every active 0.25° grid cell of the area."),
-              daynight: DayNight = "all") -> dict:
+              daynight: DayNight = "all", hotspots: Hotspots = "vegetation") -> dict:
     """How unusual a month's fire activity is in an area, against the same month in other years.
 
     Both indicators come from the harmonised record (2002 on) in MODIS-equivalent units: `activity`
-    in fire cell-days and `frp_mw`, summed fire radiative power. Each is scored independently with
+    in hotspots and `frp_mw`, summed fire radiative power. Each is scored independently with
     the empirical upper-tail rank `A = 1 - (1 + #{X_j >= x}) / (n + 1)` against the reference years.
     Labels: normal below 0.80, elevated from 0.80, anomalous from 0.90, extreme from 0.97. The
     thresholds are provisional and uncalibrated; with n reference years the highest score is
@@ -368,7 +398,7 @@ def anomalies(area: Area = Depends(area_param),
     if period == "year":
         if month is not None or grids:
             raise HTTPException(400, "period=year takes neither `month` nor `grids`")
-        return _year_view(area, year, reference, daynight)
+        return _year_view(area, year, reference, daynight, hotspots)
     month = month or last.month
     try:
         b = anomaly.baseline(flags, year, month, reference)
@@ -378,18 +408,19 @@ def anomalies(area: Area = Depends(area_param),
     where = area.where(cur)
     common = _common(b)
     try:
-        anomaly.check_daynight(cur, daynight)
-        whole = anomaly.record(anomaly.totals(cur, b.windows, where, daynight=daynight).get(None, {}), b, years=True)
-        cells = _anomaly_grids(cur, b, where, common, daynight) if grids else None
-    except (anomaly.MissingFactors, anomaly.MissingColumns) as err:
+        whole = anomaly.record(anomaly.totals(cur, b.windows, where, daynight=daynight, hotspots=hotspots)
+                               .get(None, {}), b, years=True)
+        cells = _anomaly_grids(cur, b, where, common, daynight, hotspots) if grids else None
+    except anomaly.MissingFactors as err:
         raise HTTPException(503, str(err)) from err
     out = {
         "period": {"year": year, "month": month, "start": b.target.start, "end": b.target.end,
                    "provisional": b.provisional},
         "unit": fit.UNIT, "product": anomaly.PRODUCT, "reference": reference, "daynight": daynight,
+        "hotspots": hotspots,
         "baseline": _baseline_info(b),
         "thresholds": {name: lower for name, lower in anomaly.THRESHOLDS},
-        "data_quality": anomaly.data_quality(b),
+        "data_quality": anomaly.data_quality(b, hotspots),
         "area": {**common, **whole},
     }
     if cells is not None:
@@ -400,7 +431,7 @@ def anomalies(area: Area = Depends(area_param),
     return out
 
 
-def _year_view(area: Area, year: int, reference: str, daynight: str) -> dict:
+def _year_view(area: Area, year: int, reference: str, daynight: str, hotspots: str) -> dict:
     """Every month of a year inside the record, each scored against the same month in other years."""
     flags = _flags()
     try:
@@ -409,14 +440,13 @@ def _year_view(area: Area, year: int, reference: str, daynight: str) -> dict:
         raise HTTPException(400, str(err)) from err
     cur = cursor()
     try:
-        anomaly.check_daynight(cur, daynight)
-        values = anomaly.month_totals(cur, baselines, area.where(cur), daynight)
-    except (anomaly.MissingFactors, anomaly.MissingColumns) as err:
+        values = anomaly.month_totals(cur, baselines, area.where(cur), daynight, hotspots)
+    except anomaly.MissingFactors as err:
         raise HTTPException(503, str(err)) from err
     months = []
     for m, b in baselines:
         months.append({"month": m, "provisional": b.provisional, "baseline": _baseline_info(b),
-                       "data_quality": anomaly.data_quality(b), **_common(b),
+                       "data_quality": anomaly.data_quality(b, hotspots), **_common(b),
                        **anomaly.record(values.get(m, {}), b, years=True)})
     counts = {k: 0 for k in (*anomaly.LABELS, anomaly.INSUFFICIENT)}
     for r in months:
@@ -425,6 +455,7 @@ def _year_view(area: Area, year: int, reference: str, daynight: str) -> dict:
         "period": {"period": "year", "year": year, "start": months[0]["period_start"],
                    "end": months[-1]["period_end"], "provisional": any(r["provisional"] for r in months)},
         "unit": fit.UNIT, "product": anomaly.PRODUCT, "reference": reference, "daynight": daynight,
+        "hotspots": hotspots,
         "thresholds": {name: lower for name, lower in anomaly.THRESHOLDS},
         "months": months,
         "summary": {"months_scored": len(months), "counts": counts,
@@ -433,13 +464,13 @@ def _year_view(area: Area, year: int, reference: str, daynight: str) -> dict:
 
 
 def _anomaly_grids(cur: duckdb.DuckDBPyConnection, b: anomaly.Baseline, where: str, common: dict,
-                   daynight: str) -> list[dict]:
+                   daynight: str, hotspots: str) -> list[dict]:
     """Records of the 0.25° grid cells touching the area with activity in the target window,
     highest label first."""
     anomaly.area_grids(cur, where, "agrid")
-    details = anomaly.target_details(cur, b, "agrid", "agrid_cells", daynight)
+    details = anomaly.target_details(cur, b, "agrid", "agrid_cells", daynight, hotspots)
     out = []
-    for (gx, gy), values in anomaly.grid_totals(cur, b, "agrid", daynight).items():
+    for (gx, gy), values in anomaly.grid_totals(cur, b, "agrid", daynight, hotspots).items():
         if values.get(b.target.year, (0.0, 0.0))[0] <= 0:
             continue
         d = details[(gx, gy)]
@@ -468,8 +499,8 @@ EVENT_COLUMNS = ("event", "start", "end", "duration_days", "peak_day", "cells", 
 
 @router.get("/events")
 def events(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depends(period),
-           limit: int = Query(5, ge=1, le=50)) -> dict:
-    """The largest fire events active in a period, by harmonised cell-days.
+           limit: int = Query(5, ge=1, le=50), hotspots: Hotspots = "vegetation") -> dict:
+    """The largest fire events active in a period, by harmonised hotspots.
 
     An event groups active cell-days whose cells touch and whose days are at most one day apart.
     Its descriptors cover the whole event, also the part outside the requested period. A named area
@@ -477,7 +508,7 @@ def events(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Dep
     cur = cursor()
     if not store.has(cur, "events"):
         raise HTTPException(503, "Fire events are missing. Run `python -m app cache` first.")
-    where = [f"start <= DATE '{span[1]}'", f"\"end\" >= DATE '{span[0]}'"]
+    where = [f"hotspots = {quote(hotspots)}", f"start <= DATE '{span[1]}'", f"\"end\" >= DATE '{span[0]}'"]
     if area.ring is not None:
         xs, ys = [p[0] for p in area.ring], [p[1] for p in area.ring]
         where.append(f"lon BETWEEN {min(xs)} AND {max(xs)} AND lat BETWEEN {min(ys)} AND {max(ys)}")
@@ -498,7 +529,7 @@ def events(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Dep
         e["bbox"] = [float(e.pop(k)) for k in ("west", "south", "east", "north")]
         e["pixels"] = int(e["pixels"])
         out.append(e)
-    return {"unit": fit.UNIT, "events": out}
+    return {"unit": fit.UNIT, "hotspots": hotspots, "events": out}
 
 
 CSV_COLUMNS = ("acq_utc", "local_date", "lon", "lat", "sensor", "platform", "daynight", "frp", "confidence",
@@ -507,19 +538,21 @@ CSV_COLUMNS = ("acq_utc", "local_date", "lon", "lat", "sensor", "platform", "day
 
 @router.get("/detections.csv")
 def detections_csv(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depends(period),
-                   daynight: DayNight = "all") -> StreamingResponse:
+                   daynight: DayNight = "all", hotspots: Hotspots = "vegetation") -> StreamingResponse:
     """Raw detections of every satellite in an area and period, with provenance, as CSV.
 
     `source` is where the row came from (archive, standard product or near-real-time), and
-    `counted` says whether the pixel qualifies for the harmonised record (a presumed vegetation
-    fire, or an untyped near-real-time pixel off the static-source mask). Any period is accepted;
-    only the first `MAX_CSV_ROWS` rows are sent, and header `X-Total-Rows` gives the number that
-    matched."""
+    `counted` says whether the hotspot passes the selected hotspot type setting: with `vegetation`,
+    a presumed vegetation fire (type 0, or an untyped near-real-time hotspot off the static-source
+    mask); with `all`, every hotspot. Whether it enters the harmonised record also depends on its
+    satellite being the record satellite of the day. Any period is accepted; only the first
+    `MAX_CSV_ROWS` rows are sent, and header `X-Total-Rows` gives the number that matched."""
     cur = cursor()
     if not store.has(cur, "detections", "static_mask"):
         raise HTTPException(503, "Normalised detections are missing. Run `python -m app normalise` first.")
     cx, cy = cell_expr()
     half = {"all": "TRUE", "day": "c.daynight = 'D'", "night": "c.daynight = 'N'"}[daynight]
+    counted = f"coalesce({qualifying_sql('c')}, FALSE)" if hotspots == "vegetation" else "TRUE"
     source = f"""
         FROM (SELECT d.*, {cx} AS cx, {cy} AS cy FROM detections d
               WHERE d.local_date BETWEEN DATE '{span[0]}' AND DATE '{span[1]}') c
@@ -531,7 +564,7 @@ def detections_csv(area: Area = Depends(area_param), span: tuple[dt.date, dt.dat
     res = cur.execute(f"""
         SELECT strftime(c.acq_utc, '%Y-%m-%dT%H:%MZ'), c.local_date, c.lon, c.lat, c.sensor, c.platform,
                c.daynight, round(CAST(c.frp AS DOUBLE), 2), c.confidence, c.type, c.version, c.source,
-               CAST(coalesce({qualifying_sql('c')}, FALSE) AS VARCHAR), c.cx, c.cy, k.province_id, k.regency_id,
+               CAST({counted} AS VARCHAR), c.cx, c.cy, k.province_id, k.regency_id,
                count(*) OVER () AS total
         {source}
         ORDER BY c.acq_utc, c.platform, c.lon, c.lat

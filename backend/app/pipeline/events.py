@@ -9,7 +9,9 @@ Descriptors per event:
 - **time:** first and last day, duration, peak day (the earliest of equally active days);
 - **space:** number of distinct cells, centroid weighted by harmonised value, bounding box, and
   the city/regency and province holding most of it (ties go to the first id alphabetically);
-- **intensity:** harmonised cell-days, qualifying pixels, maximum pixel fire radiative power.
+- **intensity:** harmonised hotspots, raw hotspots, maximum hotspot fire radiative power.
+
+Events are built once per hotspot type setting (column `hotspots`), each from its own record.
 """
 
 from __future__ import annotations
@@ -65,15 +67,26 @@ def label(rows: list[tuple[dt.date, int, int]]) -> list[int]:
     return [ids.setdefault(find(i), len(ids)) for i in range(len(rows))]
 
 
-def build(con: duckdb.DuckDBPyConnection, dest: Path) -> int:
-    """Labels the record's active cell-days and writes one row per event; returns the event count."""
-    w = weights.weight_sql("all")
-    n = weights.pixels_sql("all")
+def build(con: duckdb.DuckDBPyConnection, dest: Path) -> dict[str, int]:
+    """Labels the record's active cell-days of every hotspot type setting and writes one row per
+    event; returns the event count per setting."""
+    counts = {h: _label_setting(con, h, dest) for h in weights.HOTSPOTS}
+    union = " UNION ALL ".join(f"SELECT '{h}' AS hotspots, * FROM events_{h}" for h in weights.HOTSPOTS)
+    con.execute(f"COPY ({union} ORDER BY hotspots, harmonised DESC) TO {quote(str(dest))} "
+                "(FORMAT parquet, COMPRESSION zstd)")
+    return counts
+
+
+def _label_setting(con: duckdb.DuckDBPyConnection, hotspots: str, dest: Path) -> int:
+    """Builds temp table `events_{hotspots}` for one type setting; returns its event count."""
+    w = weights.weight_sql("all", hotspots)
+    n = weights.hotspots_sql("all", hotspots)
+    frp_max = f"c.frp_max{weights.HOTSPOTS[hotspots]}"
     con.execute(f"""
         CREATE OR REPLACE TEMP TABLE active AS
         SELECT row_number() OVER (ORDER BY c.local_date, c.cx, c.cy) - 1 AS i,
-               c.local_date, c.cx, c.cy, {w} AS w, {n} AS px, c.frp_max, c.province_id, c.regency_id
-        FROM ({weights.record_sql()}) c
+               c.local_date, c.cx, c.cy, {w} AS w, {n} AS px, {frp_max} AS frp_max, c.province_id, c.regency_id
+        FROM ({weights.record_sql(hotspots=hotspots)}) c
         WHERE {n} > 0
     """)
     rows = con.execute("SELECT local_date, cx, cy FROM active ORDER BY i").fetchall()
@@ -88,7 +101,7 @@ def build(con: duckdb.DuckDBPyConnection, dest: Path) -> int:
         JOIN read_csv({quote(str(tmp))}, header=true, columns={{'i': 'BIGINT', 'event': 'BIGINT'}}) l USING (i)
     """)
     con.execute(f"""
-        COPY (
+        CREATE OR REPLACE TEMP TABLE events_{hotspots} AS
             WITH e AS (
                 SELECT event,
                        min(local_date) AS start, max(local_date) AS "end",
@@ -113,14 +126,12 @@ def build(con: duckdb.DuckDBPyConnection, dest: Path) -> int:
             SELECT e.*, datediff('day', e.start, e."end") + 1 AS duration_days, peak.peak_day,
                    regency.regency_id, province.province_id
             FROM e JOIN peak USING (event) JOIN regency USING (event) JOIN province USING (event)
-            ORDER BY harmonised DESC
-        ) TO {quote(str(dest))} (FORMAT parquet, COMPRESSION zstd)
     """)
     tmp.unlink()
-    return con.execute(f"SELECT count(*) FROM read_parquet({quote(str(dest))})").fetchone()[0]
+    return con.execute(f"SELECT count(*) FROM events_{hotspots}").fetchone()[0]
 
 
 def run() -> None:
     """Rebuilds `events.parquet` from the harmonised record."""
     con = store.connect(weights.load_params())
-    log.info("fire events: %d", build(con, events_path()))
+    log.info("fire events: %s", build(con, events_path()))

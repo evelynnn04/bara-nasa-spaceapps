@@ -20,8 +20,10 @@ def table_path(name: str, root: Path | None = None) -> Path:
 
 
 def unit_params() -> dict:
-    """Parameters with every factor 1, so `weight_sql` gives raw sqrt(n) for VIIRS."""
-    return {"k_table": [{"region": g, "month": m, "k": 1.0} for g in GROUPS for m in range(1, 13)]}
+    """Parameters with every factor 1, so `weight_sql` and `frp_sql` give raw VIIRS values."""
+    return {"k_table": [{"hotspots": h, "region": g, "month": m, "k_day": 1.0, "k_night": 1.0,
+                         "kf_day": 1.0, "kf_night": 1.0}
+                        for h in weights.HOTSPOTS for g in GROUPS for m in range(1, 13)]}
 
 
 def connect(params: dict | None = None, root: Path | None = None) -> duckdb.DuckDBPyConnection:
@@ -51,3 +53,10 @@ def has(con: duckdb.DuckDBPyConnection, *names: str) -> bool:
     """Whether every named view or table exists on the connection."""
     found = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
     return set(names) <= found
+
+
+def has_columns(con: duckdb.DuckDBPyConnection, table: str, *columns: str) -> bool:
+    """Whether the named view or table has every given column."""
+    found = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_name = ?",
+                                       [table]).fetchall()}
+    return set(columns) <= found

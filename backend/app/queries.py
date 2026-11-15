@@ -1,16 +1,15 @@
 """Daily and monthly statistics for an area, used by the region cache and the API.
 
 Every number starts from one daily aggregation (`daily_sql`) of the observation relation through
-the shared weight expression:
+the shared weight expression, for one day/night filter and hotspot type setting:
 
-- `aqua_cd`: Aqua cell-days (MODIS weight);
-- `aqua_px`: Aqua pixels;
-- `viirs_w`: harmonised VIIRS-reference cell-days;
-- `viirs_px`: VIIRS-reference pixels.
+- `aqua`: Aqua hotspots (an Aqua hotspot counts 1, so this is also its harmonised value);
+- `viirs_w`: harmonised VIIRS-reference hotspots;
+- `viirs_px`: raw VIIRS-reference hotspots.
 
-The harmonised record of a day is `aqua_cd` before the splice and `viirs_w` from it on, or no
-value when the day's record satellite did not observe Indonesia. The agreement check sums the
-same columns over paired days only.
+The harmonised record of a day is `aqua` before the splice and `viirs_w` from it on, or no value
+when the day's record satellite did not observe Indonesia. The agreement check sums the same
+columns over paired days only.
 
 There are two ways to get the daily rows for an area:
 
@@ -34,24 +33,23 @@ from .db import quote
 from .geo import Ring
 from .harmonise import metrics, weights
 
-COLUMNS = ("aqua_cd", "aqua_px", "viirs_w", "viirs_px")
+COLUMNS = ("aqua", "viirs_w", "viirs_px")
 
 
-def daily_sql(daynight: str, where: str = "TRUE", group: str = "") -> str:
-    """Daily sums of the four columns over observation rows matching `where` (aliases `c`, `d`,
-    `k` of `observations_sql`), optionally also grouped by `group`, an expression over the
-    observation relation `c`, exposed as `region_id`."""
-    w = weights.weight_sql(daynight)
-    n = weights.pixels_sql(daynight)
+def daily_sql(daynight: str, where: str = "TRUE", group: str = "", hotspots: str = "vegetation") -> str:
+    """Daily sums of `COLUMNS` over observation rows matching `where` (aliases `c`, `d`, `k` of
+    `observations_sql`), optionally also grouped by `group`, an expression over the observation
+    relation `c`, exposed as `region_id`."""
+    w = weights.weight_sql(daynight, hotspots)
+    n = weights.hotspots_sql(daynight, hotspots)
     gsel = f"{group} AS region_id, " if group else ""
     gby = f"{group}, " if group else ""
     return f"""
         SELECT {gsel}c.local_date,
-               sum(CASE WHEN c.side = 'a' THEN {w} ELSE 0 END) AS aqua_cd,
-               sum(CASE WHEN c.side = 'a' THEN {n} ELSE 0 END) AS aqua_px,
+               sum(CASE WHEN c.side = 'a' THEN {n} ELSE 0 END) AS aqua,
                sum(CASE WHEN c.side = 'b' THEN {w} ELSE 0 END) AS viirs_w,
                sum(CASE WHEN c.side = 'b' THEN {n} ELSE 0 END) AS viirs_px
-        FROM ({weights.observations_sql(where)}) c
+        FROM ({weights.observations_sql(where, hotspots)}) c
         GROUP BY {gby}c.local_date
     """
 
@@ -116,19 +114,23 @@ def polygon_cells(con: duckdb.DuckDBPyConnection, ring: Ring, name: str) -> int:
     return con.execute(f"SELECT count(*) FROM {name}").fetchone()[0]
 
 
-def daily_general(con: duckdb.DuckDBPyConnection, daynight: str, where: str) -> dict[dt.date, tuple]:
+def daily_general(con: duckdb.DuckDBPyConnection, daynight: str, where: str,
+                  hotspots: str = "vegetation") -> dict[dt.date, tuple]:
     """General path: daily sums for any area, straight from the cell-days."""
-    rows = con.execute(f"SELECT local_date, {', '.join(COLUMNS)} FROM ({daily_sql(daynight, where)})").fetchall()
+    sql = daily_sql(daynight, where, hotspots=hotspots)
+    rows = con.execute(f"SELECT local_date, {', '.join(COLUMNS)} FROM ({sql})").fetchall()
     return {r[0]: tuple(r[1:]) for r in rows}
 
 
-def daily_cached(con: duckdb.DuckDBPyConnection, daynight: str, ids: list[str]) -> dict[dt.date, tuple]:
+def daily_cached(con: duckdb.DuckDBPyConnection, daynight: str, ids: list[str],
+                 hotspots: str = "vegetation") -> dict[dt.date, tuple]:
     """Fast path: daily sums for named areas from the region cache."""
     ids = ids or ["idn"]
     listing = ", ".join(quote(i) for i in ids)
     rows = con.execute(f"""
         SELECT local_date, {', '.join(f'sum({c})' for c in COLUMNS)} FROM region_daily
-        WHERE daynight = {quote(daynight)} AND region_id IN ({listing}) GROUP BY local_date
+        WHERE hotspots = {quote(hotspots)} AND daynight = {quote(daynight)} AND region_id IN ({listing})
+        GROUP BY local_date
     """).fetchall()
     return {r[0]: tuple(r[1:]) for r in rows}
 
@@ -153,7 +155,8 @@ def contained_regencies(con: duckdb.DuckDBPyConnection, cells_table: str) -> tup
     return [r[0] for r in rows], sum(r[1] for r in rows)
 
 
-def daily_polygon(con: duckdb.DuckDBPyConnection, daynight: str, cells_table: str, n_cells: int) -> dict[dt.date, tuple]:
+def daily_polygon(con: duckdb.DuckDBPyConnection, daynight: str, cells_table: str, n_cells: int,
+                  hotspots: str = "vegetation") -> dict[dt.date, tuple]:
     """Daily sums for a drawn area given as a table of `n_cells` cells.
 
     For a large area, regencies lying wholly inside it are summed from the region cache and only
@@ -161,13 +164,14 @@ def daily_polygon(con: duckdb.DuckDBPyConnection, daynight: str, cells_table: st
     sets of cells, so the result equals `daily_general` over the whole area."""
     inside = f"(c.cx, c.cy) IN (SELECT cx, cy FROM {cells_table})"
     if n_cells < REUSE_MIN_CELLS:
-        return daily_general(con, daynight, inside)
+        return daily_general(con, daynight, inside, hotspots)
     full, covered = contained_regencies(con, cells_table)
     if not full or covered < REUSE_MIN_SHARE * n_cells:
-        return daily_general(con, daynight, inside)
+        return daily_general(con, daynight, inside, hotspots)
     listing = ", ".join(quote(i) for i in full)
-    out = daily_cached(con, daynight, full)
-    rest = daily_general(con, daynight, f"{inside} AND (k.regency_id IS NULL OR k.regency_id NOT IN ({listing}))")
+    out = daily_cached(con, daynight, full, hotspots)
+    rest = daily_general(con, daynight, f"{inside} AND (k.regency_id IS NULL OR k.regency_id NOT IN ({listing}))",
+                         hotspots)
     for d, v in rest.items():
         out[d] = tuple(a + b for a, b in zip(out[d], v)) if d in out else v
     return out
@@ -189,26 +193,27 @@ def record_series(daily: dict[dt.date, tuple], flags: list[tuple]) -> list[float
             out.append(None)
             continue
         v = daily.get(d)
-        out.append(0.0 if v is None else v[0] if d < config.SPLICE else v[2])
+        out.append(0.0 if v is None else v[0] if d < config.SPLICE else v[1])
     return out
 
 
 def monthly_paired(daily: dict[dt.date, tuple], flags: list[tuple], start: dt.date, end: dt.date) -> dict:
-    """Monthly sums over paired days: {(year, month): [aqua_cd, aqua_px, viirs_w, viirs_px]}."""
-    out: dict[tuple[int, int], list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
+    """Monthly sums over paired days: {(year, month): [aqua, viirs_w, viirs_px]}."""
+    out: dict[tuple[int, int], list[float]] = defaultdict(lambda: [0.0] * len(COLUMNS))
     for d, _, paired in flags:
         if not paired or d < start or d > end:
             continue
         acc = out[(d.year, d.month)]
         v = daily.get(d)
         if v:
-            for i in range(4):
+            for i in range(len(COLUMNS)):
                 acc[i] += v[i]
     return dict(out)
 
 
 def agreement(monthly: dict, harmonised: bool = True) -> dict:
-    """Metrics and verdict for one area: MODIS cell-days against harmonised VIIRS, or raw pixels."""
-    pairs = [(y, m, v[0], v[2]) if harmonised else (y, m, v[1], v[3]) for (y, m), v in sorted(monthly.items())]
+    """Metrics and verdict for one area: Aqua hotspots against harmonised VIIRS, or against raw VIIRS
+    hotspots."""
+    pairs = [(y, m, v[0], v[1] if harmonised else v[2]) for (y, m), v in sorted(monthly.items())]
     m = metrics.agreement(pairs)
     return {**metrics.rounded(m), "verdict": metrics.verdict(m)}

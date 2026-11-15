@@ -17,7 +17,8 @@ from .conftest import BALI, RIAU, day_row, write_dataset
 
 
 def synthetic(tmp_path):
-    """Three months of Aqua and S-NPP cell-days in Riau and Bali, with one VIIRS outage day."""
+    """Three months of Aqua and S-NPP cell-days in Riau and Bali, with one VIIRS outage day. Every
+    fourth day S-NPP also sees two non-vegetation hotspots in Bali by day."""
     start = dt.date(2015, 8, 1)
     days, celldays = [], []
     for i in range(92):
@@ -26,35 +27,51 @@ def synthetic(tmp_path):
         days.append(day_row(d, snpp=not outage))
         for cell, base in ((RIAU, 3), (BALI, 1)):
             if i % 3 == 0:
-                celldays.append(("modis", "Aqua", d, cell[0], cell[1], 1, i % 2, 20.0, 20.0))
+                celldays.append(("modis", "Aqua", d, cell[0], cell[1], 1 + i % 2, i % 2, 20.0, 20.0))
             if not outage:
-                celldays.append(("viirs", "SNPP", d, cell[0], cell[1], base + i % 5, i % 3, 9.0, 4.0))
+                other = 2 if cell is BALI and i % 4 == 0 else 0
+                celldays.append(("viirs", "SNPP", d, cell[0], cell[1], base + i % 5, i % 3, 9.0, 4.0, other, 0))
     root = write_dataset(tmp_path, celldays, days, [RIAU, BALI])
     return root
 
 
+WINDOW = (dt.date(2015, 8, 1), dt.date(2015, 10, 31))
+MONTHS = [(2015, 8), (2015, 9), (2015, 10)]
+
+
 def fitted(root):
-    """Fits factors on the synthetic paired days and returns (model, params, table)."""
+    """Fits unshrunk factors on the synthetic paired days for both type settings; returns
+    ({setting: (models, table)}, params)."""
     con = store.connect(None, root)
-    table = fit.stratum_table(con, dt.date(2015, 8, 1), dt.date(2015, 10, 31))
-    model = fit.ipf(table, n0=0.0)
-    params = {"k_table": [{"region": g, "month": m, "k": fit.k_of(model, g, m)} for g in GROUPS for m in range(1, 13)]}
-    return model, params, table
+    out, k_table = {}, []
+    for h in weights.HOTSPOTS:
+        table = fit.stratum_table(con, h, *WINDOW)
+        models = {half: fit.ipf(table, half, n0=0.0) for half in fit.HALVES}
+        frp = {half: fit.ipf(table, half, n0=0.0, a="FA", b="FB") for half in fit.HALVES}
+        out[h] = (models, table)
+        k_table += [{"hotspots": h, "region": g, "month": m, "k_day": fit.k_of(models["day"], g, m),
+                     "k_night": fit.k_of(models["night"], g, m), "kf_day": fit.k_of(frp["day"], g, m),
+                     "kf_night": fit.k_of(frp["night"], g, m)} for g in GROUPS for m in range(1, 13)]
+    return out, {"k_table": k_table}
 
 
-def test_query_layer_reproduces_fit_series(tmp_path):
+@pytest.mark.parametrize("hotspots", ["vegetation", "all"])
+@pytest.mark.parametrize("daynight", ["all", "day", "night"])
+def test_query_layer_reproduces_fit_series(tmp_path, hotspots, daynight):
     root = synthetic(tmp_path)
-    model, params, table = fitted(root)
+    fits, params = fitted(root)
     con = store.connect(params, root)
     aggregate.build(con, store.table_path("region_daily", root))
     con = store.connect(params, root)
     flags = queries.day_flags(con)
-    expected = fit.series(table, model, [(2015, 8), (2015, 9), (2015, 10)])
-    for daily in (queries.daily_cached(con, "all", ["idn"]), queries.daily_general(con, "all", "TRUE")):
-        monthly = queries.monthly_paired(daily, flags, dt.date(2015, 8, 1), dt.date(2015, 10, 31))
+    models, table = fits[hotspots]
+    expected = fit.series(table, models, MONTHS, daynight=daynight)
+    for daily in (queries.daily_cached(con, daynight, ["idn"], hotspots),
+                  queries.daily_general(con, daynight, "TRUE", hotspots)):
+        monthly = queries.monthly_paired(daily, flags, *WINDOW)
         for y, m, a, b in expected:
             assert monthly[(y, m)][0] == pytest.approx(a, abs=1e-6)
-            assert monthly[(y, m)][2] == pytest.approx(b, abs=1e-6)
+            assert monthly[(y, m)][1] == pytest.approx(b, abs=1e-6)
 
 
 real = pytest.mark.skipif(not all(store.table_path(n).is_file() for n in ("celldays", "days", "cells", "region_daily"))
@@ -62,25 +79,28 @@ real = pytest.mark.skipif(not all(store.table_path(n).is_file() for n in ("celld
 
 
 @real
-def test_real_query_layer_reproduces_params_series():
+@pytest.mark.parametrize("hotspots", ["vegetation", "all"])
+def test_real_query_layer_reproduces_params_series(hotspots):
     params = weights.load_params()
     con = store.connect(params)
     flags = queries.day_flags(con)
-    monthly = queries.monthly_paired(queries.daily_cached(con, "all", ["idn"]), flags, config.FIT_START, config.FIT_END)
-    assert len(params["series_national"]) == len(monthly)
-    for y, m, a, b in params["series_national"]:
+    daily = queries.daily_cached(con, "all", ["idn"], hotspots)
+    monthly = queries.monthly_paired(daily, flags, config.FIT_START, config.FIT_END)
+    expected = params["settings"][hotspots]["series_national"]
+    assert len(expected) == len(monthly)
+    for y, m, a, b in expected:
         assert monthly[(y, m)][0] == pytest.approx(a, abs=1e-6)
-        assert monthly[(y, m)][2] == pytest.approx(b, abs=1e-6)
+        assert monthly[(y, m)][1] == pytest.approx(b, abs=1e-6)
 
 
 @pytest.fixture
 def client(tmp_path):
     root = synthetic(tmp_path)
-    _, params, _ = fitted(root)
+    _, params = fitted(root)
     con = store.connect(params, root)
     aggregate.build(con, store.table_path("region_daily", root))
     events.build(con, store.table_path("events", root))
-    con = store.connect({**params, "verdict": "insufficient data", "evaluation": {}}, root)
+    con = store.connect(params, root)
     con.execute("""CREATE TABLE detections AS SELECT * FROM (VALUES
         ('viirs', 'SNPP', TIMESTAMP '2015-08-31 18:00:00', DATE '2015-09-01', 'N', 101.03, 0.53, 4.0::FLOAT,
          'nominal', 0::TINYINT, '2', 'archive'),
@@ -88,7 +108,7 @@ def client(tmp_path):
          'low', 2::TINYINT, '2', 'archive'))
         AS t(sensor, platform, acq_utc, local_date, daynight, lon, lat, frp, confidence, type, version, source)""")
     con.execute("CREATE TABLE static_mask (mx INTEGER, my INTEGER)")
-    api.configure(con, {**params, "verdict": "insufficient data", "evaluation": {}})
+    api.configure(con, {**params, "verdict": "insufficient data", "settings": {}})
     yield TestClient(app)
     api.configure(None, None)
 
@@ -138,6 +158,50 @@ def test_cells_agreement_events_and_csv(client):
     lines = csv.text.strip().splitlines()
     assert lines[0].startswith("acq_utc,") and len(lines) == 2 and csv.headers["x-total-rows"] == "1"
     assert lines[1].split(",")[12] == "true"
+    bali = client.get("/api/detections.csv?from=2015-09-01&to=2015-09-01&area=idn-bali").text.strip().splitlines()
+    assert bali[1].split(",")[12] == "false"
+    bali = client.get("/api/detections.csv?from=2015-09-01&to=2015-09-01&area=idn-bali&hotspots=all")
+    assert bali.text.strip().splitlines()[1].split(",")[12] == "true"
+
+
+def test_hotspot_type_setting_changes_every_view_consistently(client):
+    veg, every = ({k: client.get(f"/api/{k}?area=idn-bali&from=2015-08-01&to=2015-10-31{q}").json()
+                   for k in ("series", "cells", "agreement", "events")} for q in ("", "&hotspots=all"))
+    # Each setting has its own factors, so harmonised values stay MODIS-equivalent under both: the
+    # extra VIIRS hotspots raise the raw count and the factor, not the harmonised level.
+    sv, sa = sum(v or 0 for v in veg["series"]["values"]), sum(v or 0 for v in every["series"]["values"])
+    assert sa != pytest.approx(sv, abs=1e-3)
+    assert veg["cells"]["total"] == pytest.approx(sv, abs=1e-2)
+    assert every["cells"]["total"] == pytest.approx(sa, abs=1e-2)
+    raw = [sum(m["viirs_px"] for m in x["agreement"]["months"]) for x in (veg, every)]
+    assert raw[1] > raw[0]
+    assert every["agreement"]["hotspots"] == "all" and every["events"]["hotspots"] == "all"
+    assert [e["harmonised"] for e in every["events"]["events"]] != [e["harmonised"] for e in veg["events"]["events"]]
+
+
+@pytest.mark.parametrize("hotspots", ["vegetation", "all"])
+def test_drawn_area_sums_its_cells(client, hotspots):
+    poly = "100.9,0.4;101.2,0.4;101.2,0.7;100.9,0.7"
+    q = f"poly={poly}&from=2015-08-01&to=2015-10-31&hotspots={hotspots}"
+    cells = client.get(f"/api/cells?{q}").json()
+    series = client.get(f"/api/series?poly={poly}&hotspots={hotspots}").json()["values"]
+    assert cells["count"] == 1
+    assert cells["total"] == pytest.approx(sum(v or 0 for v in series), abs=1e-2)
+    named = client.get(f"/api/series?area=idn-riau&hotspots={hotspots}").json()["values"]
+    assert series == named
+
+
+def test_tables_built_before_the_hotspot_unit_ask_for_a_rebuild(tmp_path):
+    root = synthetic(tmp_path)
+    _, params = fitted(root)
+    con = store.connect(params, root)
+    con.execute("CREATE TABLE region_daily (daynight VARCHAR, aqua_cd DOUBLE)")
+    api.configure(con, params)
+    try:
+        res = TestClient(app).get("/api/series")
+        assert res.status_code == 503 and "predate the hotspot unit" in res.json()["detail"]
+    finally:
+        api.configure(None, None)
 
 
 def test_critical_periods_cover_every_month_and_week(client):

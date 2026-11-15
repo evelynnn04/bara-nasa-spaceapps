@@ -43,19 +43,20 @@ def two_region_dataset(tmp_path):
     for i, d in enumerate(days):
         celldays += [("modis", "Aqua", d, RIAU[0], RIAU[1], 1, i % 2, 1.0, 1.0),
                      ("viirs", "SNPP", d, RIAU[0], RIAU[1], 3 + i, 1, 1.0, 1.0),
-                     ("viirs", "SNPP", d, BALI[0], BALI[1], 2, 2, 1.0, 1.0)]
+                     ("viirs", "SNPP", d, BALI[0], BALI[1], 2, 2, 1.0, 1.0, i % 2, 1)]
     root = write_dataset(tmp_path, celldays, [day_row(d) for d in days], [RIAU, BALI])
     con = store.connect(reference_params(), root)
     aggregate.build(con, store.table_path("region_daily", root))
     return store.connect(reference_params(), root)
 
 
+@pytest.mark.parametrize("hotspots", ["vegetation", "all"])
 @pytest.mark.parametrize("daynight", ["all", "day", "night"])
 @pytest.mark.parametrize("ids", [["idn-riau"], ["idn-riau-a", "idn-bali"], ["idn"]])
-def test_region_cache_equals_general_path(tmp_path, daynight, ids):
+def test_region_cache_equals_general_path(tmp_path, daynight, ids, hotspots):
     con = two_region_dataset(tmp_path)
-    fast = queries.daily_cached(con, daynight, ids)
-    general = queries.daily_general(con, daynight, queries.area_filter(ids))
+    fast = queries.daily_cached(con, daynight, ids, hotspots)
+    general = queries.daily_general(con, daynight, queries.area_filter(ids), hotspots)
     assert fast.keys() == general.keys()
     for d in fast:
         assert fast[d] == pytest.approx(general[d], abs=1e-9)
@@ -112,9 +113,9 @@ def test_event_ties_resolve_to_earliest_day_and_first_area(tmp_path):
     con = store.connect(reference_params(), root)
     dest = store.table_path("events", root)
     for _ in range(3):
-        assert events.build(con, dest) == 1
-        row = con.execute(f"SELECT peak_day, regency_id FROM read_parquet('{dest}')").fetchone()
-        assert row == (d1, "idn-riau-a")
+        assert events.build(con, dest) == {"vegetation": 1, "all": 1}
+        rows = con.execute(f"SELECT hotspots, peak_day, regency_id FROM read_parquet('{dest}') ORDER BY 1").fetchall()
+        assert rows == [("all", d1, "idn-riau-a"), ("vegetation", d1, "idn-riau-a")]
 
 
 def test_normalise_ids_drops_areas_under_a_selected_parent():
