@@ -8,6 +8,13 @@ By participating in [Discussions](https://github.com/nasa/spaceapps/discussions)
 ## IF YOU SEE SOMETHING, SAY SOMETHING
 If you experience or witness discrimination, harassment, or any form of bullying during the Space Apps Challenge, or have any other concerns, please contact your Local Lead and/or the Space Apps Global Organizing (GO) Team at [conduct@spaceappschallenge.org](mailto:conduct@spaceappschallenge.org)
 
+## USE OF SUPER INTELLIGENCE (SI)
+Super Intelligence (SI) tool use is permitted for the NASA Space Apps Challenge to accelerate innovation; these tools include chatbots, large language models, foundation models, and image generation. However, generated content may not use, contain, or modify any NASA branding or design elements (such as the NASA logos, flags, or mission identifiers). We also require that you clearly indicate where and how SI tools were utilized in your project, including:
+
+- Images and videos: Must include a visible watermark indicating they are SI-generated.
+- Audio: Must acknowledge SI generation in descriptive text and metadata.
+- Code and data: Must acknowledge SI generation in descriptive text and metadata.
+
 ## Running with Docker
 Requires Docker with Compose v2.
 
@@ -244,8 +251,10 @@ gcloud secrets add-iam-policy-binding firms-map-key \
   --member serviceAccount:fire-data-updater@PROJECT.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor
 ```
 
-Deploy the job. The bucket is mounted for the image's user (id 10001), and the lock file stays on
-the job's own disk, because a Cloud Storage mount cannot lock files:
+Deploy the job. The bucket is mounted for the image's user (id 10001), with folder renames allowed
+(`rename-dir-limit`, off by default on a Cloud Storage mount, which the normalise step needs). The
+lock file stays on the job's own disk, because a Cloud Storage mount cannot lock files. DuckDB
+gets 2.5 GB of the job's 4 GiB, since the fire outlook does not fit in the default 1 GB:
 
 ```bash
 gcloud run jobs deploy fire-data-updater --source . --region REGION \
@@ -253,8 +262,8 @@ gcloud run jobs deploy fire-data-updater --source . --region REGION \
   --command python --args=-m,app,update \
   --cpu 2 --memory 4Gi --tasks 1 --max-retries 0 --task-timeout 50m \
   --set-secrets FIRMS_MAP_KEY=firms-map-key:latest \
-  --set-env-vars DATA_DIR=/mnt/bucket/data,UPDATE_LOCK_DIR=/tmp \
-  --add-volume "name=bucket,type=cloud-storage,bucket=BUCKET,readonly=false,mount-options=uid=10001;gid=10001" \
+  --set-env-vars DATA_DIR=/mnt/bucket/data,UPDATE_LOCK_DIR=/tmp,DUCKDB_MEMORY_LIMIT=2.5GB \
+  --add-volume "name=bucket,type=cloud-storage,bucket=BUCKET,readonly=false,mount-options=uid=10001;gid=10001;rename-dir-limit=200" \
   --add-volume-mount volume=bucket,mount-path=/mnt/bucket
 ```
 
