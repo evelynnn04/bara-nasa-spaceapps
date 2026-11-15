@@ -92,6 +92,12 @@ The download keeps the raw folder tidy as well:
 
 ## What is refreshed
 
+The fire cause attribution is rebuilt by `cache` only where the context layers (`data/context`,
+from `python -m app context`) are present, so keep them next to the data, also in the bucket for
+the Cloud Run job. Without them an update leaves the attribution out instead of carrying the old
+one over: the events are rebuilt and may be renumbered, and an old attribution could then name the
+cause of a different event.
+
 - **Tables:** normalised detections, the static-source mask, cell-days, day status, cell lookup,
   the region cache, the fire events and the fire outlook (issued from the new last data day and
   month), and so every figure computed from them: series, map cells, sensor agreement, anomaly

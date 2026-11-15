@@ -155,15 +155,23 @@ def check(new: dict | None, old: dict | None, release: Path) -> None:
                              f"earlier than {old['record_end']} in the data being served")
 
 
+#: Derived files computed from tables every rebuild replaces. An old copy would describe rows that
+#: may have been renumbered (fire events are numbered by first appearance), so one the rebuild did
+#: not produce is left out rather than carried over: the cause attribution, rebuilt by `cache` only
+#: where the context layers (`data/context`) are present.
+REBUILT_ONLY = ("event_attribution.parquet",)
+
+
 def keep_extra_files(current: Path, release: Path) -> None:
     """Copies derived files of the release being served that the rebuild does not produce (layers
-    built by other commands), so publishing does not drop them."""
+    built by other commands), so publishing does not drop them. Files in `REBUILT_ONLY` are never
+    copied."""
     src = current / "derived"
     if not src.is_dir():
         return
     for path in src.iterdir():
         dest = release / "derived" / path.name
-        if path.is_file() and not dest.exists() and not path.name.startswith("."):
+        if path.is_file() and not dest.exists() and not path.name.startswith(".") and path.name not in REBUILT_ONLY:
             shutil.copy2(path, dest)
 
 

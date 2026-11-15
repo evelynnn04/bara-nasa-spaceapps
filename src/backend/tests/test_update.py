@@ -188,6 +188,7 @@ def served(tmp_path, monkeypatch):
     monkeypatch.setattr(download, "run", lambda: {"downloaded": 3, "failed": 0})
     write_tables(tmp_path, days=10, detections=1000)
     (tmp_path / "derived" / "context_layer.parquet").write_bytes(b"kept")
+    (tmp_path / "derived" / "event_attribution.parquet").write_bytes(b"old events")
     raw = tmp_path / "raw" / "api" / "MODIS_NRT"
     raw.mkdir(parents=True)
     (raw / "2026-11-10_5.csv").write_text("a")
@@ -214,6 +215,8 @@ def test_update_publishes_a_good_rebuild_as_a_new_release(served, monkeypatch):
     assert update.load_version() == version and config.release_root() == release
     assert (config.derived_dir() / "celldays.parquet").read_bytes() == b"celldays 11"
     assert (config.derived_dir() / "context_layer.parquet").read_bytes() == b"kept"
+    # The attribution describes the old events, which the rebuild may have renumbered.
+    assert not (config.derived_dir() / "event_attribution.parquet").exists()
     # The hand-built tables stay until the next release, so a running service can switch first.
     assert (served / "derived").is_dir()
     (served / "raw" / "api" / "MODIS_NRT" / "2026-11-10_5.csv").write_text("new")
