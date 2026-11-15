@@ -89,8 +89,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   }
 
   const calendar = new CalendarView($("#calendar"));
-  const analytics = new AnalyticsView({ summary: $("#an-summary"), peak: $("#an-peak"), patterns: $("#an-patterns") });
-  const anomaly = new AnomalyView($("#anomaly"), $("#an-unusual"));
+  const analytics = new AnalyticsView({ summary: $("#an-summary"), patterns: $("#an-patterns") });
+  const anomaly = new AnomalyView($("#anomaly"));
   const agreement = new AgreementView($("#agreement"));
   const map = new MapView($("#map"), {
     onPolygon: (polygon) => update({ polygon }),
@@ -195,13 +195,13 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     if ($("#dl-note").dataset.loadError) setNote("");
     updateCount();
 
-    const seriesCards = ["calendar", "an-summary", "an-peak", "an-patterns", "an-unusual", "anomaly"];
+    const seriesCards = ["calendar", "an-summary", "an-patterns", "anomaly"];
     setLoad(seriesCards, "busy");
     api.series(filters, daynight).then((s) => {
       if (!current()) return;
       sel = select(s, filters.start, filters.end);
       calendar.render(sel, ramp);
-      analytics.render(sel, Boolean(datesChanged), ramp);
+      analytics.render(sel, ramp);
       anomaly.render(sel, Boolean(datesChanged));
       setLoad(seriesCards, "ready");
       updateCount();
@@ -282,7 +282,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     renderMapLegend();
     if (!sel) return;
     calendar.render(sel, ramp);
-    analytics.render(sel, false, ramp);
+    analytics.render(sel, ramp);
   });
 
   function renderMapLegend(): void {

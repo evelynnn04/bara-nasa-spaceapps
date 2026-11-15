@@ -6,9 +6,7 @@ import {
   climatology,
   comparePeriod,
   median,
-  peakDayOfMonth,
   peakMonthOfYear,
-  unusualMonths,
   type Series,
 } from "./analytics";
 import { monthStart, toDay } from "./dates";
@@ -57,12 +55,9 @@ describe("comparePeriod", () => {
 });
 
 describe("peaks", () => {
-  it("finds the peak month and the peak day", () => {
+  it("finds the peak month", () => {
     const s = series((_, m) => (m === 8 ? 5 : 1));
     expect(peakMonthOfYear(s, 2014).peak).toBe(8);
-    const days = peakDayOfMonth(s, 2014, 8);
-    expect(days.values).toHaveLength(30);
-    expect(days.peak).toBe(0);
   });
 
   it("reports no peak when there are no fires", () => {
@@ -96,15 +91,5 @@ describe("anomalies", () => {
     expect(a.verdict).toBe("unusual");
     expect(a.unusual.filter(Boolean)).toHaveLength(3);
     expect(anomalyForYear(s, 2012).history).toEqual(["2015"]);
-  });
-});
-
-describe("unusualMonths", () => {
-  it("lists only the inflated months, strongest first", () => {
-    const s = series(fireSeason);
-    const list = unusualMonths(s);
-    expect(list.map((u) => `${u.year}-${u.month}`)).toEqual(["2015-7", "2015-9", "2015-8"]);
-    expect(list[0].ratio).toBeCloseTo(5);
-    expect(list[2].value).toBeLessThan(list[1].value);
   });
 });

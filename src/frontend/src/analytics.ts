@@ -142,14 +142,6 @@ export function peakMonthOfYear(s: Series, year: number): Breakdown {
   return withPeak(MONTHS, MONTHS.map((_, m) => monthCount(s, year, m)));
 }
 
-/** Daily counts of one month, used to find the peak day. */
-export function peakDayOfMonth(s: Series, year: number, month: number): Breakdown {
-  const start = monthStart(year, month);
-  const n = daysInMonth(year, month);
-  const values = Array.from({ length: n }, (_, i) => sum(s, start + i, start + i));
-  return withPeak(values.map((_, i) => String(i + 1)), values);
-}
-
 export interface Trend {
   years: number[];
   totals: number[];
@@ -301,29 +293,4 @@ export function anomalyForYear(s: Series, year: number): AnomalyResult {
     verdict: verdictFor(totals[idx], refs[idx].median, refs[idx].threshold),
     history: years.filter((_, i) => i !== idx && totals[i] > refs[i].threshold && totals[i] > 0).map(String),
   };
-}
-
-export interface UnusualMonth {
-  year: number;
-  month: number;
-  value: number;
-  /** Median of the same calendar month in the other years. */
-  usual: number;
-  /** How many times the usual level, or Infinity when the usual level is zero. */
-  ratio: number;
-}
-
-/** Every month in the record that was unusually high for its calendar month, strongest first. */
-export function unusualMonths(s: Series): UnusualMonth[] {
-  const out: UnusualMonth[] = [];
-  for (let m = 0; m < 12; m++) {
-    const a = anomalyForMonth(s, recordYears(s)[0], m);
-    a.labels.forEach((y, i) => {
-      if (!a.unusual[i]) return;
-      const others = a.values.filter((_, j) => j !== i);
-      const usual = median(others);
-      out.push({ year: +y, month: m, value: a.values[i], usual, ratio: usual ? a.values[i] / usual : Infinity });
-    });
-  }
-  return out.sort((x, y) => y.ratio - x.ratio || y.value - x.value);
 }
