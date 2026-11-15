@@ -6,9 +6,10 @@ import { Api, type CellsResponse, type FireEvent, type Meta } from "./api";
 import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
-import { formatRange, parts, toDay } from "./dates";
+import { formatDay, formatRange, parts, toDay } from "./dates";
 import { EventsView } from "./events-view";
 import { downloadCsv, downloadPng, slug, toCsv } from "./export";
+import { watchData } from "./freshness";
 import { UNIT, UNIT_SHORT, fmtCompact, fmtInt, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
 import { MapView } from "./map-view";
@@ -457,4 +458,6 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   renderMapLegend();
   update({}, { fit: false });
   map.map.once("load", fitSelection);
+  watchData(() => api.meta(), meta, (now) =>
+    setNote(`Newer fire data has arrived, up to ${formatDay(toDay(now.record.end))}. Reload the page to see it.`));
 }
