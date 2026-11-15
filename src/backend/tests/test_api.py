@@ -156,7 +156,7 @@ def test_cells_agreement_events_and_csv(client):
     assert {e["province_id"] for e in found} == {"idn-bali"}
     csv = client.get("/api/detections.csv?from=2015-09-01&to=2015-09-01&area=idn-riau")
     lines = csv.text.strip().splitlines()
-    assert lines[0].startswith("acq_utc,") and len(lines) == 2 and csv.headers["x-total-rows"] == "1"
+    assert lines[0].startswith("acq_utc,") and len(lines) == 2
     assert lines[1].split(",")[12] == "true"
     bali = client.get("/api/detections.csv?from=2015-09-01&to=2015-09-01&area=idn-bali").text.strip().splitlines()
     assert bali[1].split(",")[12] == "false"
@@ -224,13 +224,13 @@ def test_area_ids_are_checked_against_known_areas(client):
 
 def test_csv_reports_zero_rows_when_nothing_matches(client):
     res = client.get("/api/detections.csv?from=2015-09-02&to=2015-09-02&area=idn-riau")
-    assert res.status_code == 200 and res.headers["x-total-rows"] == "0"
+    assert res.status_code == 200
     assert res.text.strip().splitlines() == [",".join(api.CSV_COLUMNS)]
 
 
 def test_csv_accepts_periods_longer_than_a_year(client):
     res = client.get("/api/detections.csv?from=2014-01-01&to=2016-06-01&area=idn-riau")
-    assert res.status_code == 200 and int(res.headers["x-total-rows"]) > 0
+    assert res.status_code == 200 and len(res.text.strip().splitlines()) > 1
 
 
 @pytest.mark.parametrize("url", ["/api/series?area=nope", "/api/series?poly=1,2;3,4",

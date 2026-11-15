@@ -49,7 +49,6 @@ COARSE = 5
 #: Safety bound on the map layer: above this many active cells it is summed onto 0.25° blocks.
 #: The whole record touches under 50,000 cells, so in practice cells always arrive at 0.05°.
 MAX_MAP_CELLS = 100_000
-MAX_CSV_ROWS = 200_000
 AREA_ID = re.compile(r"^idn(-[a-z0-9]+)*$")
 
 _lock = threading.Lock()
@@ -545,8 +544,8 @@ def detections_csv(area: Area = Depends(area_param), span: tuple[dt.date, dt.dat
     `counted` says whether the hotspot passes the selected hotspot type setting: with `vegetation`,
     a presumed vegetation fire (type 0, or an untyped near-real-time hotspot off the static-source
     mask); with `all`, every hotspot. Whether it enters the harmonised record also depends on its
-    satellite being the record satellite of the day. Any period is accepted; only the first
-    `MAX_CSV_ROWS` rows are sent, and header `X-Total-Rows` gives the number that matched."""
+    satellite being the record satellite of the day. Any period is accepted, and every matching
+    row is sent, streamed in chunks as it is read."""
     cur = cursor()
     if not store.has(cur, "detections", "static_mask"):
         raise HTTPException(503, "Normalised detections are missing. Run `python -m app normalise` first.")
@@ -564,31 +563,25 @@ def detections_csv(area: Area = Depends(area_param), span: tuple[dt.date, dt.dat
     res = cur.execute(f"""
         SELECT strftime(c.acq_utc, '%Y-%m-%dT%H:%MZ'), c.local_date, c.lon, c.lat, c.sensor, c.platform,
                c.daynight, round(CAST(c.frp AS DOUBLE), 2), c.confidence, c.type, c.version, c.source,
-               CAST({counted} AS VARCHAR), c.cx, c.cy, k.province_id, k.regency_id,
-               count(*) OVER () AS total
+               CAST({counted} AS VARCHAR), c.cx, c.cy, k.province_id, k.regency_id
         {source}
         ORDER BY c.acq_utc, c.platform, c.lon, c.lat
-        LIMIT {MAX_CSV_ROWS}
     """)
-    first = res.fetchmany(5000)
-    total = first[0][-1] if first else 0
 
     def lines() -> Iterator[str]:
         buf = io.StringIO()
         out = csv.writer(buf)
         out.writerow(CSV_COLUMNS)
-        chunk = first
+        chunk = res.fetchmany(5000)
         while True:
             yield buf.getvalue()
             buf.seek(0)
             buf.truncate()
             if not chunk:
                 return
-            out.writerows(row[:-1] for row in chunk)
+            out.writerows(chunk)
             chunk = res.fetchmany(5000)
 
     name = f"detections_{span[0]}_{span[1]}.csv"
     return StreamingResponse(lines(), media_type="text/csv; charset=utf-8",
-                             headers={"Content-Disposition": f'attachment; filename="{name}"',
-                                      "X-Total-Rows": str(total), "X-Row-Limit": str(MAX_CSV_ROWS),
-                                      "Access-Control-Expose-Headers": "X-Total-Rows, X-Row-Limit"})
+                             headers={"Content-Disposition": f'attachment; filename="{name}"'})

@@ -198,15 +198,12 @@ export class Api {
     return getJson("events", { ...areaParams(f), from: f.start, to: f.end, hotspots, limit: String(limit) }, signal);
   }
 
-  /** Downloads raw detections as CSV; returns the file, its name and how many rows matched in total. */
-  async detections(f: Filters, c: Counting): Promise<{ blob: Blob; name: string; total: number; limit: number }> {
-    const res = await fetch(apiUrl("detections.csv", { ...areaParams(f), from: f.start, to: f.end, ...c }));
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${res.status}`);
-    }
-    const name = res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "detections.csv";
-    return { blob: await res.blob(), name, total: Number(res.headers.get("X-Total-Rows") ?? 0), limit: Number(res.headers.get("X-Row-Limit") ?? 0) };
+  /**
+   * Address of the raw detections CSV. The browser downloads it straight from the API, streaming to
+   * disk, because a long period runs to hundreds of megabytes.
+   */
+  detectionsUrl(f: Filters, c: Counting): string {
+    return apiUrl("detections.csv", { ...areaParams(f), from: f.start, to: f.end, ...c });
   }
 
   private cached<T>(cache: Map<string, Promise<T>>, params: Record<string, string>, load: () => Promise<T>): Promise<T> {

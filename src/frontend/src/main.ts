@@ -6,10 +6,10 @@ import { Api, type CellsResponse, type FireEvent, type Meta } from "./api";
 import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
-import { formatRange, parts, toDay } from "./dates";
+import { parts, toDay } from "./dates";
 import { EventsView } from "./events-view";
 import { downloadCsv, downloadPng, slug, toCsv } from "./export";
-import { UNIT, UNIT_SHORT, fmtCompact, fmtInt, fmtVal } from "./format";
+import { UNIT, UNIT_SHORT, fmtCompact, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
 import { MapView } from "./map-view";
 import { RAMPS, type RampName } from "./ramps";
@@ -156,11 +156,36 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   }
 
   /** Writes the footer note; a load error is cleared again by the next filter change. */
-  function setNote(text: string, loadError = false): void {
+  let noteTimer = 0;
+  /**
+   * Shows a status line under the download button. Confirmations fade out after a reading time
+   * (5 s plus 60 ms per character, at most 12 s) that pauses while the pointer is over the note;
+   * errors stay until the next note. `loadError` marks a failed data load, cleared on the next update.
+   */
+  function setNote(text: string, opts: { error?: boolean; loadError?: boolean } = {}): void {
     const note = $("#dl-note");
+    window.clearTimeout(noteTimer);
+    note.classList.remove("is-fading");
     note.textContent = text;
-    if (loadError) note.dataset.loadError = "true";
+    if (opts.loadError) note.dataset.loadError = "true";
     else delete note.dataset.loadError;
+    if (!text || opts.error || opts.loadError) return;
+    const hide = () => {
+      note.classList.add("is-fading");
+      noteTimer = window.setTimeout(() => {
+        note.textContent = "";
+        note.classList.remove("is-fading");
+      }, 400);
+    };
+    const wait = Math.min(12000, 5000 + text.length * 60);
+    noteTimer = window.setTimeout(hide, wait);
+    note.onmouseenter = () => {
+      window.clearTimeout(noteTimer);
+      note.classList.remove("is-fading");
+    };
+    note.onmouseleave = () => {
+      if (note.textContent) noteTimer = window.setTimeout(hide, 2000);
+    };
   }
 
   function syncControls(): void {
@@ -170,18 +195,18 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     $("#dn-caution").hidden = daynight !== "night";
     picker.setDisabled(filters.mode !== "area", "Drawn on map");
     showDates(filters.start, filters.end);
+    syncDrawUi();
   }
 
-  /** Writes dates into the date fields and the left column caption. */
+  /** Writes dates into the date fields. */
   function showDates(start: string, end: string): void {
     fromIn.set(start);
     toIn.set(end);
-    $("#cap-dates").textContent = formatRange(toDay(start), toDay(end));
   }
 
   function showError(what: string, err: Error): void {
     if (err.name === "AbortError") return;
-    setNote(`Could not load ${what}: ${err.message}`, true);
+    setNote(`Could not load ${what}: ${err.message}`, { loadError: true });
   }
 
   function update(patch: Partial<Filters>, opts: { fit?: boolean } = {}): void {
@@ -243,7 +268,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       renderMapLegend();
       showError("the map cells", err);
     });
-    api.events(filters, hotspots, ctl.signal).then((r) => {
+    api.events(filters, hotspots, ctl.signal, 3).then((r) => {
       if (!current()) return;
       events.render(r.events);
       setLoad(["events"], "ready");
@@ -389,56 +414,41 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     const btn = (e.target as Element).closest<HTMLButtonElement>("[data-export]");
     if (!btn) return;
     if (!sel || !record) {
-      setNote("The daily record for these filters is not loaded yet, so there is nothing to save.");
+      setNote("The daily record for these filters is not loaded yet, so there is nothing to save.", { error: true });
       return;
     }
-    const kind = btn.dataset.export as "calendar" | "analytics" | "anomaly";
+    // The exportable cards (calendar, comparison) cover every year of the record.
+    const kind = btn.dataset.export as "calendar" | "anomaly";
     const format = btn.dataset.format as "csv" | "png";
-    const allYears = kind !== "analytics";
-    const period = allYears ? "all-years" : `${filters.start}_${filters.end}`;
-    const name = `${kind}_${slug(areaLabel())}_${period}${daynight === "all" ? "" : `_${daynight}`}${hotspots === "all" ? "_all-types" : ""}.${format}`;
-    const subtitle = `${areaLabel()} · ${allYears ? "All years" : formatRange(sel.from, sel.to)} · ${DAYNIGHT_LABEL[daynight]} · ${HOTSPOTS_LABEL[hotspots]} · ${UNIT}`;
+    const name = `${kind}_${slug(areaLabel())}_all-years${daynight === "all" ? "" : `_${daynight}`}${hotspots === "all" ? "_all-types" : ""}.${format}`;
+    const subtitle = `${areaLabel()} · All years · ${DAYNIGHT_LABEL[daynight]} · ${HOTSPOTS_LABEL[hotspots]} · ${UNIT}`;
     pulse(btn);
     try {
       if (format === "csv") {
-        const meta = exportMeta(allYears);
-        const view = kind === "calendar" ? calendar : kind === "analytics" ? analytics : anomaly;
+        const meta = exportMeta(true);
+        const view = kind === "calendar" ? calendar : anomaly;
         if (kind === "calendar") meta.push(["granularity", calendar.granularity]);
         const { header, rows } = view.csv();
         downloadCsv(name, toCsv(meta, header, rows));
       } else if (kind !== "calendar") {
-        const v = (kind === "analytics" ? analytics : anomaly).svg(subtitle);
+        const v = anomaly.svg(subtitle);
         await downloadPng(name, v.svg, v.width, v.height);
       }
       setNote(`Saved ${name}`);
     } catch (err) {
-      setNote(`Could not save ${name}: ${(err as Error).message}`);
+      setNote(`Could not save ${name}: ${(err as Error).message}`, { error: true });
     }
   });
 
-  $("#dl-detections").addEventListener("click", async (e) => {
-    const btn = e.currentTarget as HTMLButtonElement;
-    pulse(btn);
-    btn.disabled = true;
-    setNote("Preparing the raw detections…");
-    try {
-      const r = await api.detections(filters, counting());
-      const url = URL.createObjectURL(r.blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = r.name;
-      document.body.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setNote(r.total > r.limit
-        ? `Saved ${r.name}: the first ${fmtInt(r.limit)} of ${fmtInt(r.total)} detections. Pick a shorter period for all of them.`
-        : `Saved ${r.name} (${fmtInt(r.total)} detections)`);
-    } catch (err) {
-      setNote(`Could not save the raw detections: ${(err as Error).message}`);
-    } finally {
-      btn.disabled = false;
-    }
+  $("#dl-detections").addEventListener("click", (e) => {
+    pulse(e.currentTarget as HTMLButtonElement);
+    const a = document.createElement("a");
+    a.href = api.detectionsUrl(filters, counting());
+    a.download = "";
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setNote("Downloading the raw detections. A long period takes a moment to start.");
   });
 
   /** Frames the selected areas (or every area) between the floating cards. */
@@ -458,7 +468,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     map.setEventBox(null);
     fitSelection();
   });
-  initCards(fitSelection);
+  // A card opening or closing changes how much of the map is free; the next fit uses the new framing.
+  initCards(() => map.setInsets(measureInsets()));
   window.addEventListener("resize", () => map.setInsets(measureInsets()));
 
   renderMapLegend();

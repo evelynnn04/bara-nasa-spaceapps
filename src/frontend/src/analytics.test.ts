@@ -4,10 +4,10 @@ import {
   anomalyForYear,
   annualTrend,
   climatology,
-  comparePeriod,
   median,
   peakMonthOfYear,
   type Series,
+  yearOnYear,
 } from "./analytics";
 import { monthStart, toDay } from "./dates";
 
@@ -35,22 +35,22 @@ describe("median", () => {
   });
 });
 
-describe("comparePeriod", () => {
-  it("compares a range with the previous period and other years", () => {
+describe("yearOnYear", () => {
+  it("compares a range with the same dates a year earlier", () => {
     const s = series(fireSeason);
-    const c = comparePeriod(s, toDay("2015-09-01"), toDay("2015-09-30"));
+    const c = yearOnYear(s, toDay("2015-09-01"), toDay("2015-09-30"));
     expect(c.total).toBe(300);
-    expect(c.previous).toBe(300);
-    expect(c.historicalWindows).toBe(3);
-    expect(c.historicalMean).toBe(60);
-    expect(c.vsMean).toBeCloseTo(400);
+    expect(c.previous).toBe(60);
+    expect(c.previousFrom).toBe(toDay("2014-09-01"));
+    expect(c.change).toBeCloseTo(400);
+    expect(c.shorterThanYear).toBe(true);
   });
 
-  it("returns null deviations when there is nothing before the range", () => {
+  it("has nothing to compare with in the first year, and a full year is not shorter than a year", () => {
     const s = series(fireSeason);
-    const c = comparePeriod(s, toDay("2012-01-01"), toDay("2012-01-31"));
-    expect(c.previous).toBeNull();
-    expect(c.vsPrevious).toBeNull();
+    expect(yearOnYear(s, toDay("2012-09-01"), toDay("2012-09-30")).change).toBeNull();
+    expect(yearOnYear(s, toDay("2014-01-01"), toDay("2014-12-31")).shorterThanYear).toBe(false);
+    expect(yearOnYear(s, toDay("2014-01-01"), toDay("2014-12-30")).shorterThanYear).toBe(true);
   });
 });
 

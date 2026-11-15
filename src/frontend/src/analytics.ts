@@ -71,54 +71,32 @@ function shiftYears(day: number, years: number): number {
   return Math.round(Date.UTC(p.year + years, p.month, p.date) / 86_400_000);
 }
 
-export interface PeriodComparison {
+/** A date range's total against the same dates one year earlier. */
+export interface YearOnYear {
   total: number;
+  /** Total over the same dates a year earlier, or null when they fall before the record. */
   previous: number | null;
   previousFrom: number;
   previousTo: number;
-  historicalMean: number | null;
-  historicalMedian: number | null;
-  /** How many same-length windows from other years the historical values use. */
-  historicalWindows: number;
-  vsPrevious: number | null;
-  vsMean: number | null;
-  vsMedian: number | null;
+  /** Percentage change from the year before, or null when there is nothing to compare with. */
+  change: number | null;
+  /** True when the range is shorter than a year, the only case where the comparison is shown. */
+  shorterThanYear: boolean;
 }
 
-/**
- * Compares a date range with the period just before it and with the same calendar window
- * in other years of the record.
- */
-export function comparePeriod(s: Series, from: number, to: number): PeriodComparison {
+/** Compares a date range with the same dates one year earlier (29 February maps to 1 March). */
+export function yearOnYear(s: Series, from: number, to: number): YearOnYear {
   const total = sum(s, from, to);
-  const len = to - from + 1;
-  const previousFrom = from - len;
-  const previousTo = from - 1;
+  const previousFrom = shiftYears(from, -1);
+  const previousTo = shiftYears(to, -1);
   const previous = previousFrom >= s.firstDay ? sum(s, previousFrom, previousTo) : null;
-
-  const span = Math.max(1, Math.ceil(len / 366));
-  const windows: number[] = [];
-  for (const dir of [-1, 1]) {
-    for (let k = 1; ; k++) {
-      const a = shiftYears(from, dir * k * span);
-      const b = a + len - 1;
-      if (a < s.firstDay || b > s.lastDay) break;
-      windows.push(sum(s, a, b));
-    }
-  }
-  const historicalMean = windows.length ? mean(windows) : null;
-  const historicalMedian = windows.length ? median(windows) : null;
   return {
     total,
     previous,
     previousFrom,
     previousTo,
-    historicalMean,
-    historicalMedian,
-    historicalWindows: windows.length,
-    vsPrevious: deviation(total, previous),
-    vsMean: deviation(total, historicalMean),
-    vsMedian: deviation(total, historicalMedian),
+    change: deviation(total, previous),
+    shorterThanYear: to < shiftYears(from, 1) - 1,
   };
 }
 
