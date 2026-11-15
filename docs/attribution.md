@@ -88,41 +88,34 @@ the cited literature where it gives one; where it does not, the threshold is a s
 | `rain_deficit` (key) | wildfire | 1 | three-month rainfall `<= 60 %` of its 2001-2020 normal | Drought, not the season alone, drives large fire years (Field et al. 2009; 2016). 60 % is a convention |
 | `climate_driver` (key) | wildfire | 1 | ONI `>= +0.5` or DMI `>= +0.4` in the peak month | El Niño (NOAA CPC threshold) and positive Indian Ocean Dipole (Saji et al. 1999; Bureau of Meteorology threshold) bring drought to Indonesia and the large fire years (Field et al. 2016) |
 | `peatland` | wildfire | 1 | `peat >= 30 %` | Peat fires smoulder underground and are very hard to put out (Page et al. 2002; Field et al. 2016) |
-| `natural_vegetation` | wildfire | 1 | `forest + shrub_savanna + grassland + wetland >= 50 %` | Wildfire burns in natural vegetation (MCD12Q1) |
-| `large_long` | wildfire | 1 | at least 20 cells or 7 days | Uncontrolled fires spread and last (Field et al. 2016). The limits are a convention |
+| `natural_vegetation` | wildfire | 1 | `forest + shrub_savanna + grassland + wetland >= 50 %` and excess forest loss `< 1 %` | Wildfire burns in natural vegetation (MCD12Q1). Cleared forest was natural vegetation too, so the indicator only holds without clearing evidence (Hansen et al. 2013) |
+| `large_long` | wildfire | 1 | at least 20 cells or 7 days, and excess forest loss `< 1 %` | Uncontrolled fires spread and last (Field et al. 2016). Large clearing fires do too, so the indicator only holds without clearing evidence. The limits are a convention |
 
 ### 4. Decision
 
 1. Add the points of every indicator that holds, per cause. The most points per cause are land
-   clearing 3, agricultural burning 4 and wildfire 6 (a weaker step never holds together with its
+   clearing 3, agricultural burning 4 and wildfire 6, or 4 with clearing evidence (a weaker step never holds together with its
    stronger indicator).
 2. A cause can be named only when at least one of its **key** indicators holds. Wildfire also needs
-   burnable land: `peatland` or `natural_vegetation` must hold.
+   burnable land: at least 30 % peat, or at least 50 % natural vegetation the year before, cleared or
+   not. With clearing evidence (excess forest loss of at least 1 %), `natural_vegetation` and
+   `large_long` do not hold, so a large fire on cleared forest is not counted as wildfire evidence by
+   the clearing itself; wildfire then needs drought, climate or peat signals to compete.
 3. Among the causes that can be named, the one with the most points wins if it has at least 2 points
    and more points than every other cause (named or not).
 4. Otherwise the event is `unknown`, with `confidence: null`. This includes ties, for example a
-   large El Niño fire on peat forest that was also lost that year: clearing and an escaped wildfire
-   fit equally well, and the evidence cannot tell them apart.
+   fire on peat forest cleared that year (land clearing 3) during El Niño with a rainfall deficit
+   (wildfire 3: peat, rain deficit, El Niño): clearing and an escaped wildfire fit equally well, and
+   the evidence cannot tell them apart. When `dry_months` also holds, as in the 2015 Sumatra and
+   Kalimantan droughts, wildfire leads by a point and is named with medium confidence.
 
-### 5. Result on the 2026-11-14 data
+### 5. Result on the real data
 
-Of the 724,101 events of the vegetation record:
-
-| Cause | Events | Share |
-|---|---|---|
-| Land clearing | 110,370 | 15 % |
-| Agricultural burning | 92,327 | 13 % |
-| Wildfire | 168,966 | 23 % |
-| Unknown | 352,438 | 49 % |
-
-The split follows the known geography of burning: agricultural burning is the most common named
-cause in Java, Bali and Nusa Tenggara, land clearing in Sumatra, and wildfire in Kalimantan. The
-largest events of 2015 and 2019, peat-forest fires during El Niño and positive Indian Ocean Dipole
-droughts, are attributed to wildfire with high confidence. Unknown remains the largest group. Most
-unknown events have no key evidence for any cause: typically a fire in normal weather on natural
-vegetation or mixed land, with no forest loss beyond the usual. About 12 % of them are ties between
-land clearing and wildfire, and 7 % have fewer than 2 points. Event size does not set the groups
-apart: in every group the median event is one cell burning for one day.
+The counts per cause have to be regenerated with `python -m app attribute`: the counts first
+published here came from an earlier version of the rules, in which `natural_vegetation` and
+`large_long` also held on cleared forest. That version turned many large clearing fires into
+wildfire or into ties with wildfire, so it understated land clearing and overstated wildfire and
+unknown. Expect land clearing to grow at the expense of both once the attribution is rebuilt.
 
 ### 6. Confidence
 
@@ -154,10 +147,10 @@ object, `null` when the attribution has not been built; the response gains
       "event": 338908, "start": "2015-08-10", "end": "2015-11-17", "peak_day": "2015-10-03",
       "province_id": "idn-south-sumatra", "...": "the other event fields as before",
       "attribution": {
-        "category": "unknown",          // land_clearing | agricultural_burning | wildfire | unknown
-        "label": "Unknown",             // display name of the category
-        "confidence": null,             // high | medium | low, null when unknown
-        "scores": {"land_clearing": 3, "agricultural_burning": 0, "wildfire": 3},
+        "category": "wildfire",         // land_clearing | agricultural_burning | wildfire | unknown
+        "label": "Wildfire",            // display name of the category
+        "confidence": "medium",         // high | medium | low, null when unknown
+        "scores": {"land_clearing": 3, "agricultural_burning": 0, "wildfire": 4},
         "indicators": [
           {"id": "forest_loss_strong", "category": "land_clearing", "points": 2, "met": true,
            "text": "Tree cover was lost on at least 5% of the burned area within a year of the fire",
