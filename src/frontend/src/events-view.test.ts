@@ -34,6 +34,11 @@ describe("why panel", () => {
     expect(html.match(/Gumbricht et al\. 2017/g)).toHaveLength(1);
   });
 
+  it("explains an unclear cause inside the panel", () => {
+    expect(html).not.toContain("ev-unclear");
+    expect(whyPanel({ ...attribution, category: "unknown", label: "Unknown", confidence: null }, sources)).toContain("none is named");
+  });
+
   it("marks missing evidence as unavailable", () => {
     expect(html.match(/<dd class="ev-na">unavailable<\/dd>/g)).toHaveLength(5);
     expect(html).toContain("<dd>40%<sup");

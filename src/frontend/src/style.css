@@ -3189,11 +3189,6 @@ button.cal-month:focus-visible {
   background: var(--cause, transparent);
 }
 
-.ev-cause-text {
-  display: grid;
-  min-width: 0;
-}
-
 .ev-cause-label {
   color: var(--ink);
   font-weight: 600;
@@ -3218,7 +3213,7 @@ button.cal-month:focus-visible {
 .ev-why {
   display: grid;
   gap: 6px;
-  margin: 2px 0 6px 33px;
+  margin: 2px 0 6px;
   padding: 10px 12px;
   border: 1px solid var(--glass-line);
   border-radius: 12px;
@@ -3359,11 +3354,43 @@ button.cal-month:focus-visible {
   line-height: 1.4;
 }
 
-.gc .ev-cause-menu .sm-list {
-  right: 0;
-  left: auto;
+.ev-body {
+  display: grid;
+  gap: 10px;
+}
+
+.ev-filter[hidden] {
+  display: none;
+}
+
+.gc .ev-filter .sm-list {
   width: 200px;
-  transform-origin: top right;
+}
+
+.ev-unclear {
+  color: var(--ink-2);
+}
+
+.ev-src summary {
+  margin-top: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ev-src summary::-webkit-details-marker {
+  display: none;
+}
+
+.ev-src summary::after {
+  content: " +";
+}
+
+.ev-src[open] summary::after {
+  content: " –";
+}
+
+.ev-src .ev-sources {
+  margin-top: 6px;
 }
 
 #dl-detections {

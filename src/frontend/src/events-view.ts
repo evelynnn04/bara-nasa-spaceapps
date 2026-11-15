@@ -79,9 +79,8 @@ function causeRow(e: FireEvent, sources: AttributionInfo["sources"]): string {
   const a = e.attribution;
   if (!a) return `<div class="ev-cause is-none"><span class="ev-dot" aria-hidden="true"></span><span>${badgeText(a)}</span></div>`;
   const id = `ev-why-${e.event}`;
-  const hint = a.category === "unknown" ? `<span class="mini-note">The evidence does not favour one cause.</span>` : "";
   return `<div class="ev-cause" data-cause="${a.category}"><span class="ev-dot" aria-hidden="true"></span>
-      <span class="ev-cause-text"><span class="ev-cause-label">${escapeXml(badgeText(a))}</span>${hint}</span>
+      <span class="ev-cause-label">${escapeXml(badgeText(a))}</span>
       <button type="button" class="pill pill-xs ev-why-btn" data-why aria-expanded="false" aria-controls="${id}">Why<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
     <div class="ev-why" id="${id}" hidden>${whyPanel(a, sources)}</div>`;
 }
@@ -106,7 +105,7 @@ export function whyPanel(a: Attribution, sources: AttributionInfo["sources"]): s
             <span class="ev-pts">+${ind.points}</span></li>`;
         })
         .join("");
-      return `<li class="ev-group" data-cause="${g.category}"><p class="ev-group-head"><span class="ev-dot" aria-hidden="true"></span>${causeLabel(g.category)}${score != null ? `<span class="ev-score">${score} pts</span>` : ""}</p><ul class="ev-inds">${items}</ul></li>`;
+      return `<li class="ev-group" data-cause="${g.category}"><p class="ev-group-head"><span class="ev-dot" aria-hidden="true"></span>${causeLabel(g.category)}${score != null ? `<span class="ev-score">${score} pt${score === 1 ? "" : "s"}</span>` : ""}</p><ul class="ev-inds">${items}</ul></li>`;
     })
     .join("");
   const ev = a.evidence;
@@ -125,7 +124,9 @@ export function whyPanel(a: Attribution, sources: AttributionInfo["sources"]): s
       return `<li>${s?.url ? `<a href="${escapeXml(s.url)}" target="_blank" rel="noopener">${text}</a>` : text}</li>`;
     })
     .join("");
-  return `<p class="ev-why-k">Indicators</p><ul class="ev-groups">${groups}</ul>
+  const unclear =
+    a.category === "unknown" ? `<p class="ev-unclear">No cause has enough support, or two causes tie, so none is named.</p>` : "";
+  return `${unclear}<p class="ev-why-k">Indicators</p><ul class="ev-groups">${groups}</ul>
     <p class="ev-why-k">Evidence</p><dl class="ev-evidence">${rows}</dl>
-    <p class="ev-why-k">Sources</p><ol class="ev-sources">${list}</ol>`;
+    <details class="ev-src"><summary class="ev-why-k">Sources (${cited.length})</summary><ol class="ev-sources">${list}</ol></details>`;
 }
