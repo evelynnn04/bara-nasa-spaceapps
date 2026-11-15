@@ -3414,11 +3414,10 @@ button.cal-month:focus-visible {
   bottom: 8px;
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
+  height: 20px;
+  padding: 0 8px;
   border: 1px solid var(--cause, var(--line-2));
-  border-radius: 50%;
+  border-radius: 999px;
   background: color-mix(in srgb, var(--cause, transparent) 18%, transparent);
   color: var(--cause, var(--ink-2));
   font: inherit;

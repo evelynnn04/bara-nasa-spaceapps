@@ -72,6 +72,5 @@ export class EventsView {
 function causeIcon(e: FireEvent): string {
   const a = e.attribution;
   if (!a) return "";
-  return `<button type="button" class="ev-why" data-why data-cause="${escapeXml(a.category)}" title="${escapeXml(whySummary(a))}"><span
-      aria-hidden="true">?</span><span class="visually-hidden">Why this cause</span></button>`;
+  return `<button type="button" class="ev-why" data-why data-cause="${escapeXml(a.category)}" title="${escapeXml(whySummary(a))}">Why</button>`;
 }
