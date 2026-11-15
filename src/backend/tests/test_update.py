@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import subprocess
+import sys
+import threading
 
 import duckdb
 import pytest
@@ -12,7 +15,7 @@ from fastapi.testclient import TestClient
 from app import api, config, store
 from app.harmonise import weights
 from app.main import app
-from app.pipeline import aggregate, celldays, download, update
+from app.pipeline import aggregate, celldays, download, normalise, update
 
 from .conftest import RIAU, day_row, write_dataset
 
@@ -161,7 +164,7 @@ def test_shorter_windows_are_removed_once_a_longer_one_replaces_them(tmp_path, m
     assert settled == {"MODIS_NRT/2026-11-05_5.csv": True}
 
 
-# --- the staged update -----------------------------------------------------------------------------
+# --- the staged update ----------------------------------------------------------------------------
 
 
 def write_tables(root, days: int, detections: int, extra: bytes | None = None) -> None:
@@ -178,38 +181,97 @@ def write_tables(root, days: int, detections: int, extra: bytes | None = None) -
 
 @pytest.fixture
 def served(tmp_path, monkeypatch):
-    """A data folder with tables being served (10 days, 1000 detections) and no downloads."""
+    """A data folder with hand-built tables being served (10 days, 1000 detections), one raw file
+    and no downloads."""
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setattr(download, "run", lambda: {"downloaded": 3, "failed": 0})
     write_tables(tmp_path, days=10, detections=1000)
-    (tmp_path / "derived" / "outlook.parquet").write_bytes(b"kept")
+    (tmp_path / "derived" / "context_layer.parquet").write_bytes(b"kept")
+    raw = tmp_path / "raw" / "api" / "MODIS_NRT"
+    raw.mkdir(parents=True)
+    (raw / "2026-11-10_5.csv").write_text("a")
     return tmp_path
 
 
-def test_update_swaps_in_a_good_rebuild_and_marks_the_version(served, monkeypatch):
-    monkeypatch.setattr(update, "rebuild", lambda stage: write_tables(stage, days=11, detections=1040))
+def grow(days: int, detections: int):
+    """A fake rebuild writing tables of the given size and recording what it was asked to reuse."""
+    calls = []
+
+    def rebuild(release, reuse=(), reuse_from=None):
+        calls.append(reuse)
+        write_tables(release, days=days, detections=detections)
+
+    return rebuild, calls
+
+
+def test_update_publishes_a_good_rebuild_as_a_new_release(served, monkeypatch):
+    rebuild, _ = grow(11, 1040)
+    monkeypatch.setattr(update, "rebuild", rebuild)
     version = update.run_once()
+    release = config.releases_dir() / version["release"]
     assert version["record_end"] == "2026-11-11" and version["detections"] == 1040
-    assert update.load_version() == version
-    assert (served / "derived" / "celldays.parquet").read_bytes() == b"celldays 11"
-    assert (served / "derived" / "outlook.parquet").read_bytes() == b"kept"
-    assert not update.staging_dir().exists() and not (served / ".update.lock").exists()
-    assert not (served / "parquet" / "detections.old").exists()
+    assert update.load_version() == version and config.release_root() == release
+    assert (config.derived_dir() / "celldays.parquet").read_bytes() == b"celldays 11"
+    assert (config.derived_dir() / "context_layer.parquet").read_bytes() == b"kept"
+    # The hand-built tables the first release replaces are removed; the raw files stay.
+    assert not (served / "derived").exists() and not (served / "parquet").exists()
+    assert (served / "raw" / "api" / "MODIS_NRT" / "2026-11-10_5.csv").is_file()
+
+
+def test_a_round_without_new_data_rebuilds_and_announces_nothing(served, monkeypatch):
+    rebuild, calls = grow(11, 1040)
+    monkeypatch.setattr(update, "rebuild", rebuild)
+    first = update.run_once()
+    marker = config.pointer_path().stat().st_mtime_ns
+    assert update.run_once() is None
+    assert len(calls) == 1 and config.pointer_path().stat().st_mtime_ns == marker
+    # A changed raw file, or a newly completed day, makes the next round rebuild.
+    (served / "raw" / "api" / "MODIS_NRT" / "2026-11-10_5.csv").write_text("ab")
+    second = update.run_once()
+    assert second["release"] != first["release"] and len(calls) == 2
+    status = {"fetched": {k: stamp(dt.date(2026, 11, 20), 14) for k in config.STREAMS}}
+    download.status_path().parent.mkdir(parents=True, exist_ok=True)
+    download.status_path().write_text(json.dumps(status))
+    assert update.run_once() is not None and len(calls) == 3
+
+
+def test_products_with_unchanged_raw_files_are_reused(served, monkeypatch):
+    rebuild, calls = grow(11, 1040)
+    monkeypatch.setattr(update, "rebuild", rebuild)
+    update.run_once()
+    assert calls[-1] == ()
+    (served / "raw" / "api" / "MODIS_NRT" / "2026-11-10_5.csv").write_text("changed")
+    update.run_once()
+    assert "modis" not in calls[-1] and set(calls[-1]) == set(config.STREAMS) - {"modis"}
+
+
+def test_normalise_copies_reused_products_instead_of_reading_their_raw_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(normalise, "_load_clip", lambda con: None)
+    monkeypatch.setattr(normalise, "build_static_mask", lambda con, glob=None: 0)
+    old = tmp_path / "old"
+    old.mkdir()
+    duckdb.connect().execute(f"COPY (SELECT 1 AS x UNION ALL SELECT 2) TO '{old}/viirs-snpp_2026.parquet' (FORMAT parquet)")
+    seen = []
+    monkeypatch.setattr(normalise, "normalise_stream", lambda con, stream, out: seen.append(stream.key) or 0)
+    with config.staged(tmp_path / "release"):
+        normalise.run(reuse=("viirs-snpp",), reuse_from=old)
+        assert sorted(p.name for p in normalise.detections_dir().iterdir()) == ["viirs-snpp_2026.parquet"]
+    assert "viirs-snpp" not in seen and set(seen) == set(config.STREAMS) - {"viirs-snpp"}
 
 
 @pytest.mark.parametrize("days,detections,reason", [(11, 900, "detections"), (7, 1040, "ends on")])
 def test_update_keeps_the_served_data_when_the_rebuild_fails_its_checks(served, monkeypatch, days, detections, reason):
-    monkeypatch.setattr(update, "rebuild", lambda stage: write_tables(stage, days=days, detections=detections))
+    monkeypatch.setattr(update, "rebuild", grow(days, detections)[0])
     with pytest.raises(update.UpdateRejected, match=reason):
         update.run_once()
     assert (served / "derived" / "celldays.parquet").read_bytes() == b"celldays 10"
-    assert update.load_version() is None and not update.staging_dir().exists()
+    assert update.load_version() is None and not any(config.releases_dir().glob("*"))
 
 
 def test_update_keeps_the_served_data_when_a_stage_or_the_download_fails(served, monkeypatch):
-    def broken(stage):
-        write_tables(stage, days=11, detections=1040)
-        (stage / "derived" / "events.parquet").unlink()
+    def broken(release, reuse=(), reuse_from=None):
+        write_tables(release, days=11, detections=1040)
         raise ValueError("rows failing validation")
 
     monkeypatch.setattr(update, "rebuild", broken)
@@ -219,24 +281,59 @@ def test_update_keeps_the_served_data_when_a_stage_or_the_download_fails(served,
     with pytest.raises(RuntimeError, match="FIRMS is down"):
         update.run_once()
     assert (served / "derived" / "events.parquet").read_bytes() == b"events 10"
-    assert update.load_version() is None
-    assert not update.staging_dir().exists() and not (served / ".update.lock").exists()
+    assert update.load_version() is None and not any(config.releases_dir().glob("*"))
 
 
-def test_a_running_update_blocks_a_second_one(served):
+def test_only_the_current_and_previous_release_are_kept(served, monkeypatch):
+    names = []
+    for i in range(4):
+        rebuild, _ = grow(11 + i, 1040 + i)
+        monkeypatch.setattr(update, "rebuild", rebuild)
+        (served / "raw" / "api" / "MODIS_NRT" / "2026-11-10_5.csv").write_text("x" * (i + 2))
+        names.append(update.run_once()["release"])
+    assert len(set(names)) == 4
+    assert sorted(p.name for p in config.releases_dir().iterdir()) == sorted(names[-2:])
+    assert config.release_root().name == names[-1]
+
+
+def test_a_running_update_blocks_a_second_one_until_it_ends(served):
     with update.Lock():
         with pytest.raises(RuntimeError, match="another update"):
             update.run_once()
+    with update.Lock():
+        pass
 
 
-def test_rebuild_runs_the_usual_stages_into_the_staging_folder(tmp_path, monkeypatch):
+def test_the_lock_is_released_when_its_process_dies_however_old_it_is(served):
+    # A process that takes the lock and is then killed: the next update starts without waiting for
+    # any timeout, and a lock held by a live process is never taken over, however old.
+    code = ("import os, sys, time; sys.path.insert(0, '.'); os.environ['DATA_DIR'] = sys.argv[1]; "
+            "from app.pipeline import update; lock = update.Lock().__enter__(); print('locked', flush=True); time.sleep(60)")
+    holder = subprocess.Popen([sys.executable, "-c", code, str(served)], stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "locked"
+        old = dt.datetime(2026, 1, 1).timestamp()
+        import os
+        os.utime(served / ".update.lock", (old, old))
+        with pytest.raises(RuntimeError, match="another update"):
+            update.Lock().__enter__()
+    finally:
+        holder.kill()
+        holder.wait()
+    with update.Lock():
+        pass
+
+
+def test_rebuild_runs_the_usual_stages_into_the_release_folder(tmp_path, monkeypatch):
     from app import cli
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     seen = []
-    monkeypatch.setattr(cli, "main", lambda argv: seen.append((argv[0], config.derived_dir(), config.parquet_dir())))
-    update.rebuild(tmp_path / ".staging")
-    assert [s[0] for s in seen] == ["normalise", "build", "cache"]
-    assert {s[1] for s in seen} == {tmp_path / ".staging" / "derived"} and {s[2] for s in seen} == {tmp_path / ".staging" / "parquet"}
+    monkeypatch.setattr(normalise, "run", lambda reuse=(), reuse_from=None: seen.append(("normalise", config.derived_dir(), reuse)))
+    monkeypatch.setattr(cli, "main", lambda argv: seen.append((argv[0], config.derived_dir(), None)))
+    release = tmp_path / "releases" / "r1"
+    update.rebuild(release, ("modis",), tmp_path / "old")
+    assert [s[0] for s in seen] == ["normalise", "build", "cache"] and seen[0][2] == ("modis",)
+    assert {s[1] for s in seen} == {release / "derived"}
     assert config.derived_dir() == tmp_path / "derived"
 
 
@@ -257,24 +354,77 @@ def synthetic_tables(root, last: dt.date) -> None:
         "day": str(last), "month": "2026-10", "year": 2026}}))
 
 
-def test_the_api_reloads_when_an_update_replaces_the_tables(tmp_path, monkeypatch):
+def release(last: dt.date, name: str) -> None:
+    """Writes release `name` with data to `last` and points `current.json` at it."""
+    synthetic_tables(config.releases_dir() / name / "derived", last)
+    update.publish(config.releases_dir() / name, {"release": name, "updated": f"{last}T13:05:00+00:00",
+                                                    "fetched": {"modis": "x"}})
+
+
+@pytest.fixture
+def live(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setattr(api, "RELOAD_CHECK_SECONDS", 0)
-    synthetic_tables(config.derived_dir(), dt.date(2026, 11, 14))
+    release(dt.date(2026, 11, 14), "r1")
     api.configure(None, None)
-    try:
-        client = TestClient(app)
-        before = client.get("/api/meta").json()
-        assert before["record"]["end"] == "2026-11-14" and before["data"] is None
-        n_before = sum(v is not None and v > 0 for v in client.get("/api/series").json()["values"])
-        assert client.get("/api/outlook").json()["issued"] == "2026-11-14"
+    yield TestClient(app)
+    api.configure(None, None)
 
-        synthetic_tables(config.derived_dir(), dt.date(2026, 11, 15))
-        update.version_path().write_text(json.dumps({"updated": "2026-11-16T13:05:00+00:00", "fetched": {"modis": "x"}}))
-        after = client.get("/api/meta").json()
-        assert after["record"]["end"] == "2026-11-15"
-        assert after["data"] == {"updated": "2026-11-16T13:05:00+00:00", "fetched": {"modis": "x"}}
-        assert sum(v is not None and v > 0 for v in client.get("/api/series").json()["values"]) == n_before + 1
-        assert client.get("/api/outlook").json()["issued"] == "2026-11-15"
+
+def positive_days(client) -> int:
+    return sum(v is not None and v > 0 for v in client.get("/api/series").json()["values"])
+
+
+def test_the_api_serves_a_new_release_as_soon_as_it_is_published(live):
+    before = live.get("/api/meta").json()
+    assert before["record"]["end"] == "2026-11-14" and before["data"]["updated"] == "2026-11-14T13:05:00+00:00"
+    assert live.get("/api/outlook").json()["issued"] == "2026-11-14"
+    n_before = positive_days(live)
+    release(dt.date(2026, 11, 15), "r2")
+    after = live.get("/api/meta").json()
+    assert after["record"]["end"] == "2026-11-15" and after["data"] == {"updated": "2026-11-15T13:05:00+00:00",
+                                                                          "fetched": {"modis": "x"}}
+    assert positive_days(live) == n_before + 1
+    assert live.get("/api/outlook").json()["issued"] == "2026-11-15"
+
+
+def test_a_request_keeps_its_own_release_while_a_new_one_is_opened(live):
+    old = api._current()
+    old_outlook = api._outlook_meta_for(old)["issued"]["day"]
+    release(dt.date(2026, 11, 15), "r2")
+    new = api._current()
+    assert new is not old
+    # The old opening still answers, from its own release, and its late answers are stored under
+    # its own key, never served for the new one.
+    old_flags = api._flags_for(old)
+    assert old_flags[-1][0] == dt.date(2026, 11, 14) and old_outlook == "2026-11-14"
+    assert api._flags_for(new)[-1][0] == dt.date(2026, 11, 15)
+    token = api._pinned.set(new)
+    try:
+        assert api._flags()[-1][0] == dt.date(2026, 11, 15)
+        assert api._outlook_meta()["issued"]["day"] == "2026-11-15"
     finally:
-        api.configure(None, None)
+        api._pinned.reset(token)
+
+
+def test_requests_during_a_reload_never_fail(live):
+    errors, stop = [], threading.Event()
+
+    def hammer():
+        while not stop.is_set():
+            for url in ("/api/series", "/api/meta", "/api/agreement", "/api/outlook"):
+                r = live.get(url)
+                if r.status_code != 200:
+                    errors.append((url, r.status_code, r.text[:200]))
+
+    workers = [threading.Thread(target=hammer) for _ in range(6)]
+    for w in workers:
+        w.start()
+    try:
+        for i in range(6):
+            release(dt.date(2026, 11, 15 + i % 2), f"r{i + 2}")
+    finally:
+        stop.set()
+        for w in workers:
+            w.join()
+    assert errors == []

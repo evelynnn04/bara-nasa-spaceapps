@@ -325,7 +325,9 @@ def download_api(archive_last_year: int) -> dict[str, int]:
             except ValueError as exc:
                 log.error("%s %s: %s", w.source, w.start, REDACT(str(exc)))
                 return w, None
-            _write_atomic(w.path, data)
+            # An unchanged file is left as it is, so its modification time says it holds nothing new.
+            if not (w.path.is_file() and w.path.read_bytes() == data):
+                _write_atomic(w.path, data)
             return w, rows
         return w, None
 
