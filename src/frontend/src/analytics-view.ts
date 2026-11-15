@@ -1,89 +1,33 @@
-import { annualTrend, climatology, comparePeriod, peakDayOfMonth, peakMonthOfYear, recordYears, type Breakdown } from "./analytics";
+import { annualTrend, climatology, comparePeriod } from "./analytics";
 import { CHART, barChart, drawAtWidth, profileChart, redrawOnResize } from "./charts";
-import { MONTHS, MONTHS_LONG, formatRange, parts } from "./dates";
+import { MONTHS, MONTHS_LONG, formatRange } from "./dates";
 import { frame, place, svgHeight, type Cell } from "./export";
 import { UNIT_SHORT, escapeXml, fmtCompact, fmtPct, fmtVal } from "./format";
 import { countUp } from "./fx";
 import { RAMPS, type RampName } from "./ramps";
 import type { Selection } from "./store";
 
-type PeakMode = "month" | "day";
-
 export interface AnalyticsRoots {
   summary: HTMLElement;
-  peak: HTMLElement;
   patterns: HTMLElement;
 }
 
-/** Total and deviation, peak, and historical-pattern readings for the selected area and dates, each in its own card. */
+/** Total and deviation, and historical-pattern readings for the selected area and dates, each in its own card. */
 export class AnalyticsView {
   private sel: Selection | null = null;
   private ramp: RampName = "ember";
-  private peakMode: PeakMode = "month";
-  private peakYear = 0;
-  private peakMonth = 0;
-  private readonly peakText: HTMLElement;
-  private readonly peakChart: HTMLElement;
-  private readonly peakYearSel: HTMLSelectElement;
-  private readonly peakMonthIn: HTMLInputElement;
-  /** Widths the peak and pattern charts were last drawn at. */
-  private peakW = 0;
+  /** Width the pattern charts were last drawn at. */
   private patternsW = 0;
 
   constructor(private readonly roots: AnalyticsRoots) {
-    roots.peak.innerHTML = `
-      <div class="seg seg-wide" role="group" aria-label="Peak granularity">
-        <button type="button" class="seg-btn" data-peak="month" aria-pressed="true">Month in a year</button>
-        <button type="button" class="seg-btn" data-peak="day" aria-pressed="false">Day in a month</button>
-        <span class="seg-thumb" aria-hidden="true"></span>
-      </div>
-      <div class="peak-pick">
-        <label class="field"><span>Year</span><select class="input peak-year"></select></label>
-        <label class="field" hidden><span>Month</span><input class="input peak-month" type="month" /></label>
-      </div>
-      <p class="reading peak-text" aria-live="polite"></p>
-      <div class="chart peak-chart"></div>`;
-    this.peakText = roots.peak.querySelector(".peak-text")!;
-    this.peakChart = roots.peak.querySelector(".peak-chart")!;
-    this.peakYearSel = roots.peak.querySelector(".peak-year")!;
-    this.peakMonthIn = roots.peak.querySelector(".peak-month")!;
-
-    roots.peak.querySelector(".seg")!.addEventListener("click", (e) => {
-      const btn = (e.target as Element).closest<HTMLButtonElement>("[data-peak]");
-      if (!btn) return;
-      this.peakMode = btn.dataset.peak as PeakMode;
-      this.renderPeak();
-    });
-    this.peakYearSel.addEventListener("change", () => {
-      this.peakYear = +this.peakYearSel.value;
-      this.renderPeak();
-    });
-    this.peakMonthIn.addEventListener("change", () => {
-      const v = this.peakMonthIn.value;
-      if (!v) return;
-      this.peakYear = +v.slice(0, 4);
-      this.peakMonth = +v.slice(5, 7) - 1;
-      this.renderPeak();
-    });
-    redrawOnResize(this.peakChart, () => this.peakW, () => this.sel && this.renderPeak());
     redrawOnResize(roots.patterns, () => this.patternsW, () => this.sel && this.renderPatterns());
   }
 
-  /** Renders every reading. `resetPeak` moves the peak pickers to the end of the selected dates. */
-  render(sel: Selection, resetPeak: boolean, ramp: RampName): void {
+  /** Renders every reading. */
+  render(sel: Selection, ramp: RampName): void {
     this.sel = sel;
     this.ramp = ramp;
-    const years = recordYears(sel);
-    if (resetPeak || !this.peakYear) {
-      const end = parts(sel.to);
-      this.peakYear = end.year;
-      this.peakMonth = Math.max(0, peakMonthOfYear(sel, end.year).peak);
-    }
-    this.peakYearSel.innerHTML = years.map((y) => `<option value="${y}">${y}</option>`).join("");
-    this.peakMonthIn.min = `${years[0]}-01`;
-    this.peakMonthIn.max = `${years[years.length - 1]}-12`;
     this.renderSummary();
-    this.renderPeak();
     this.renderPatterns();
   }
 
@@ -102,40 +46,6 @@ export class AnalyticsView {
         ${row("vs historical median", fmtPct(c.vsMedian), c.historicalMedian === null ? "No other years to compare" : `Median ${fmtVal(c.historicalMedian)}`)}
       </ul>`;
     countUp(this.roots.summary.querySelector<HTMLElement>("[data-count]")!, c.total, fmtVal);
-  }
-
-  private peakData(): { title: string; data: Breakdown; sentence: string } {
-    const sel = this.sel!;
-    if (this.peakMode === "month") {
-      const data = peakMonthOfYear(sel, this.peakYear);
-      const sentence = data.peak < 0 ? `No fires recorded in ${this.peakYear}.` : `Peak month of ${this.peakYear}: <strong>${MONTHS_LONG[data.peak]}</strong>, ${fmtVal(data.values[data.peak])} ${UNIT_SHORT}.`;
-      return { title: `Fire cell-days per month in ${this.peakYear}`, data, sentence };
-    }
-    const data = peakDayOfMonth(sel, this.peakYear, this.peakMonth);
-    const name = `${MONTHS_LONG[this.peakMonth]} ${this.peakYear}`;
-    const sentence = data.peak < 0 ? `No fires recorded in ${name}.` : `Peak day of ${name}: <strong>${data.peak + 1} ${MONTHS[this.peakMonth]}</strong>, ${fmtVal(data.values[data.peak])} ${UNIT_SHORT}.`;
-    return { title: `Fire cell-days per day in ${name}`, data, sentence };
-  }
-
-  private renderPeak(): void {
-    this.roots.peak.querySelectorAll<HTMLButtonElement>("[data-peak]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.peak === this.peakMode)));
-    this.peakYearSel.closest("label")!.hidden = this.peakMode !== "month";
-    this.peakMonthIn.closest("label")!.hidden = this.peakMode !== "day";
-    this.peakYearSel.value = String(this.peakYear);
-    this.peakMonthIn.value = `${this.peakYear}-${String(this.peakMonth + 1).padStart(2, "0")}`;
-    const { title, data, sentence } = this.peakData();
-    this.peakText.innerHTML = sentence;
-    this.peakW = drawAtWidth(this.peakChart, 290, (width) => {
-      this.peakChart.innerHTML = barChart({
-        title,
-        labels: data.labels,
-        values: data.values,
-        highlight: data.peak >= 0 ? [data.peak] : [],
-        labelEvery: this.peakMode === "day" ? 5 : 2,
-        width,
-        height: 120,
-      });
-    });
   }
 
   private patternParts(): { trendText: string; trendSvg: string; climText: string; climSvg: string } {
@@ -182,7 +92,6 @@ export class AnalyticsView {
   csv(): { header: string[]; rows: Cell[][] } {
     const sel = this.sel!;
     const c = comparePeriod(sel, sel.from, sel.to);
-    const { data } = this.peakData();
     const t = annualTrend(sel);
     const cl = climatology(sel);
     const r = (n: number | null) => (n === null ? "" : Math.round(n * 10) / 10);
@@ -194,7 +103,6 @@ export class AnalyticsView {
       ["total", "vs_mean_pct", r(c.vsMean)],
       ["total", "historical_median", r(c.historicalMedian)],
       ["total", "vs_median_pct", r(c.vsMedian)],
-      ...data.values.map<Cell[]>((v, i) => [`peak_${this.peakMode === "month" ? `months_${this.peakYear}` : `days_${this.peakYear}-${String(this.peakMonth + 1).padStart(2, "0")}`}`, data.labels[i], r(v)]),
       ...t.years.map<Cell[]>((y, i) => ["annual_total", y, r(t.totals[i])]),
       ["annual_trend", "pct_per_year", r(t.percentPerYear)],
       ...cl.average.map<Cell[]>((v, m) => ["monthly_average", MONTHS[m], r(v)]),
@@ -214,13 +122,12 @@ export class AnalyticsView {
     ]
       .map(([k, v], i) => `<g transform="translate(${24 + i * 170} 0)"><text y="12" fill="${CHART.accent}" font-size="10" letter-spacing="1">${k}</text><text y="44" fill="${CHART.ink}" font-size="26" font-weight="700">${escapeXml(v)}</text></g>`)
       .join("");
-    const peak = this.peakData();
     const p = this.patternParts();
     const strip = (html: string) => escapeXml(html.replace(/<[^>]+>/g, ""));
     const cw = width - 48;
     let y = 72;
     const blocks: string[] = [tiles];
-    for (const [text, chart] of [[peak.sentence, barChart({ title: peak.title, labels: peak.data.labels, values: peak.data.values, highlight: peak.data.peak >= 0 ? [peak.data.peak] : [], labelEvery: this.peakMode === "day" ? 5 : 1, height: 150 })], [p.trendText, p.trendSvg], [p.climText, p.climSvg]]) {
+    for (const [text, chart] of [[p.trendText, p.trendSvg], [p.climText, p.climSvg]]) {
       blocks.push(`<text x="24" y="${y}" fill="${CHART.ink2}" font-size="12">${strip(text)}</text>`);
       blocks.push(place(chart, 24, y + 10, cw));
       y += 22 + svgHeight(chart, cw);

@@ -1,6 +1,6 @@
-import { UNUSUAL_SD, anomalyForMonth, anomalyForYear, peakMonthOfYear, recordYears, unusualMonths, type AnomalyResult, type Verdict } from "./analytics";
+import { UNUSUAL_SD, anomalyForMonth, anomalyForYear, peakMonthOfYear, recordYears, type AnomalyResult, type Verdict } from "./analytics";
 import { CHART, drawAtWidth, lineChart, redrawOnResize } from "./charts";
-import { MONTHS_LONG, parts } from "./dates";
+import { parts } from "./dates";
 import { frame, place, svgHeight, type Cell } from "./export";
 import { UNIT_SHORT, escapeXml, fmtVal } from "./format";
 import type { Selection } from "./store";
@@ -13,11 +13,8 @@ const VERDICT: Record<Verdict, { label: string; tone: "critical" | "warning" | "
   usual: { label: "Within the usual range", tone: "good" },
 };
 
-const WARN = `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg>`;
-
 /**
  * Compares a chosen month or year with its historical average and median and flags unusual activity.
- * A second card lists every unusually high month in the record; picking one opens it in the comparison.
  */
 export class AnomalyView {
   private sel: Selection | null = null;
@@ -32,10 +29,7 @@ export class AnomalyView {
   /** Width the comparison chart was last drawn at. */
   private chartW = 0;
 
-  constructor(
-    private readonly root: HTMLElement,
-    private readonly listRoot: HTMLElement,
-  ) {
+  constructor(private readonly root: HTMLElement) {
     root.innerHTML = `
       <div class="an-bar">
         <div class="seg" role="group" aria-label="Compare a month or a year">
@@ -49,13 +43,6 @@ export class AnomalyView {
       </div>
       <div class="chart an-chart"></div>
       <div class="an-notes"></div>`;
-    listRoot.addEventListener("click", (e) => {
-      const btn = (e.target as Element).closest<HTMLButtonElement>("[data-ym]");
-      if (!btn) return;
-      const [y, m] = btn.dataset.ym!.split("-").map(Number);
-      this.showMonth(y, m);
-      this.root.closest<HTMLElement>(".gc")?.scrollIntoView({ block: "nearest" });
-    });
     this.yearSel = root.querySelector(".an-year")!;
     this.monthIn = root.querySelector(".an-month")!;
     this.verdict = root.querySelector(".verdict")!;
@@ -93,34 +80,6 @@ export class AnomalyView {
     this.yearSel.innerHTML = years.map((y) => `<option value="${y}">${y}</option>`).join("");
     this.monthIn.min = `${years[0]}-01`;
     this.monthIn.max = `${years[years.length - 1]}-12`;
-    this.draw();
-    this.renderList();
-  }
-
-  private renderList(): void {
-    const list = unusualMonths(this.sel!);
-    const top = list.slice(0, 3);
-    const title = this.listRoot.closest(".gc")?.querySelector(".gc-title");
-    if (title) title.textContent = list.length ? `Unusual months · ${list.length}` : "Unusual months";
-    this.listRoot.innerHTML = top.length
-      ? `<ul class="alert-list">${top
-          .map(
-            (u) => `<li><button type="button" class="alert" data-ym="${u.year}-${u.month}" title="Compare ${MONTHS_LONG[u.month]} ${u.year} in the anomaly card" aria-label="Compare ${MONTHS_LONG[u.month]} ${u.year}">
-              <span class="alert-ico">${WARN}</span>
-              <span><strong>${MONTHS_LONG[u.month]} ${u.year}</strong> &middot; ${Number.isFinite(u.ratio) ? `${u.ratio.toFixed(1)}&times; usual` : "far above usual"}
-              <span class="mini-note">${fmtVal(u.value)} ${UNIT_SHORT}, usually ${fmtVal(u.usual)}</span></span>
-            </button></li>`,
-          )
-          .join("")}</ul>
-`
-      : `<p class="sub-line">No month in this area stands out from its usual level.</p>`;
-  }
-
-  /** Switches to the month comparison for one month picked from the unusual-months list. */
-  private showMonth(year: number, month: number): void {
-    this.kind = "month";
-    this.year = year;
-    this.month = month;
     this.draw();
   }
 
