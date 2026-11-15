@@ -19,6 +19,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("cache", help="region cache and fire events (needs params.json from fit)")
     ev = sub.add_parser("anomaly-eval", help="leave-one-year-out alert rates of the anomaly labels")
     ev.add_argument("--unit", choices=("province", "regency", "grid"), default="province")
+    ev.add_argument("--hotspots", choices=("vegetation", "all"), default="vegetation")
     every = sub.add_parser("all", help="download, normalise, build, fit, cache")
     every.add_argument("--no-api", action="store_true")
     sub.add_parser("validate-critical", help="check the critical-period definition on the full record")
@@ -49,7 +50,7 @@ def main(argv: list[str] | None = None) -> None:
         from . import anomaly, queries, store
         from .harmonise import weights
         con = store.connect(weights.load_params())
-        print(json.dumps(anomaly.evaluate(con, queries.day_flags(con), args.unit), indent=2))
+        print(json.dumps(anomaly.evaluate(con, queries.day_flags(con), args.unit, args.hotspots), indent=2))
     if args.cmd == "validate-critical":
         from . import critical_validation
         critical_validation.run()

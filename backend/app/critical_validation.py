@@ -96,8 +96,8 @@ def load(con) -> list[Area]:
     if config.boundaries_path().is_file():
         for f in json.loads(config.boundaries_path().read_text(encoding="utf-8"))["features"]:
             names[f["properties"]["id"]] = f["properties"]["name"]
-    rows = con.execute("SELECT region_id, any_value(level) FROM region_daily WHERE daynight = 'all' "
-                       "GROUP BY 1 ORDER BY 1").fetchall()
+    rows = con.execute("SELECT region_id, any_value(level) FROM region_daily "
+                       "WHERE daynight = 'all' AND hotspots = 'vegetation' GROUP BY 1 ORDER BY 1").fetchall()
     out = []
     for n, (rid, level) in enumerate(rows, 1):
         values = queries.record_series(queries.daily_cached(con, "all", [rid]), flags)
