@@ -2712,6 +2712,25 @@ button.cal-month:focus-visible {
   padding-block: 6px;
 }
 
+/* In a card's control bar the popup hangs under its own field but lines up with the bar's left edge,
+   so it stays inside the card wherever the field wraps to */
+.an-bar {
+  position: relative;
+}
+
+.gc .an-bar .sm,
+.gc .an-bar .dp {
+  position: static;
+}
+
+.gc .an-bar .sm-list,
+.gc .an-bar .dp-pop {
+  top: auto;
+  left: 0;
+  max-width: 100%;
+  margin-top: 8px;
+}
+
 /* An open list or calendar may reach past its card, above the cards after it */
 .gc:has(.sm.is-open, .dp.is-open) {
   z-index: 2;
