@@ -64,6 +64,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   const saveUrl = () => writeUrlState({ filters, ramp, daynight }, defaults);
   /** The selected area's daily record for the current filters; null while it loads or after it failed. */
   let sel: Selection | null = null;
+  /** The same record over all its dates, for the cards that do not follow the date picker. */
+  let record: Selection | null = null;
   /** Map totals for the current filters; null while they load or after they failed. */
   let mapTotals: { total: number; cells: number } | null = null;
   let freshTimer = 0;
@@ -100,7 +102,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   }
 
   const calendar = new CalendarView($("#calendar"));
-  const analytics = new AnalyticsView({ summary: $("#an-summary"), patterns: $("#an-patterns") });
+  const analytics = new AnalyticsView($("#an-summary"));
   const anomaly = new AnomalyView($("#anomaly"));
   const agreement = new AgreementView($("#agreement"));
   const map = new MapView($("#map"), {
@@ -169,6 +171,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     picker.setDisabled(filters.mode !== "area", "Drawn on map");
     fromIn.set(filters.start);
     toIn.set(filters.end);
+    $("#cap-dates").textContent = formatRange(toDay(filters.start), toDay(filters.end));
   }
 
   function showError(what: string, err: Error): void {
@@ -189,8 +192,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     syncDrawUi();
   }
 
-  function update(patch: Partial<Filters>, opts: { fit?: boolean; datesChanged?: boolean } = {}): void {
-    const datesChanged = opts.datesChanged || (patch.start && patch.start !== filters.start) || (patch.end && patch.end !== filters.end);
+  function update(patch: Partial<Filters>, opts: { fit?: boolean } = {}): void {
+    const areaChanged = ["mode", "regionIds", "polygon"].some((k) => k in patch);
     filters = { ...filters, ...patch };
     saveUrl();
     setFresh();
@@ -202,20 +205,22 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     const g = ++generation;
     const current = () => g === generation;
     sel = null;
+    record = null;
     mapTotals = null;
     resetTimeline();
     if ($("#dl-note").dataset.loadError) setNote("");
     updateCount();
 
-    const seriesCards = ["calendar", "an-summary", "an-patterns", "anomaly"];
+    const seriesCards = ["calendar", "an-summary", "anomaly"];
     setLoad(seriesCards, "busy");
     api.series(filters, daynight).then((s) => {
       if (!current()) return;
       sel = select(s, filters.start, filters.end);
+      record = select(s, recordStart, recordEnd);
       timeline.setActivity(s.daily, s.firstDay);
-      calendar.render(sel, ramp);
-      analytics.render(sel, ramp);
-      anomaly.render(sel, Boolean(datesChanged));
+      calendar.render(record, ramp);
+      analytics.render(sel);
+      anomaly.render(record, ramp, areaChanged);
       setLoad(seriesCards, "ready");
       updateCount();
     }, (err) => {
@@ -345,7 +350,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       const dn = b.dataset.dn as DayNight;
       if (dn === daynight) return;
       daynight = dn;
-      update({}, { datesChanged: true });
+      update({});
     }),
   );
   $("#draw-start").addEventListener("click", () => map.startDrawing());
@@ -361,9 +366,9 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     saveUrl();
     map.setRamp(ramp);
     renderMapLegend();
-    if (!sel) return;
-    calendar.render(sel, ramp);
-    analytics.render(sel, ramp);
+    if (!record) return;
+    calendar.render(record, ramp);
+    anomaly.render(record, ramp, false);
   });
 
   function renderMapLegend(): void {
@@ -375,33 +380,36 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       <span class="legend-scale"><span class="legend-end">&lt;${fmtCompact(first)}</span><span class="legend-ramp">${used.map((c, i) => `<span class="sw" style="background:${c}" title="${i ? `${fmtVal(b[i])}+` : `under ${fmtVal(first)}`}"></span>`).join("")}</span><span class="legend-end">${fmtCompact(b[b.length - 1])}+</span></span>`;
   }
 
-  function exportMeta(): [string, string][] {
+  /** `allYears` is for the cards that cover the whole record instead of the picked dates. */
+  function exportMeta(allYears: boolean): [string, string][] {
     return [
       ["area", areaLabel()],
-      ["from", filters.start],
-      ["to", filters.end],
+      ["from", allYears ? recordStart : filters.start],
+      ["to", allYears ? recordEnd : filters.end],
       ["detections", DAYNIGHT_LABEL[daynight]],
       ["unit", UNIT],
       ["dataset", DATASET],
-      ["unobserved_days_in_range", sel ? String(unobserved(sel, sel.from, sel.to)) : ""],
+      ["unobserved_days_in_range", sel ? String(allYears ? unobserved(record!, record!.from, record!.to) : unobserved(sel, sel.from, sel.to)) : ""],
     ];
   }
 
   document.addEventListener("click", async (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>("[data-export]");
     if (!btn) return;
-    if (!sel) {
+    if (!sel || !record) {
       setNote("The daily record for these filters is not loaded yet, so there is nothing to save.");
       return;
     }
     const kind = btn.dataset.export as "calendar" | "analytics" | "anomaly";
     const format = btn.dataset.format as "csv" | "png";
-    const name = `${kind}_${slug(areaLabel())}_${filters.start}_${filters.end}${daynight === "all" ? "" : `_${daynight}`}.${format}`;
-    const subtitle = `${areaLabel()} · ${formatRange(sel.from, sel.to)} · ${DAYNIGHT_LABEL[daynight]} · ${UNIT}`;
+    const allYears = kind !== "analytics";
+    const period = allYears ? "all-years" : `${filters.start}_${filters.end}`;
+    const name = `${kind}_${slug(areaLabel())}_${period}${daynight === "all" ? "" : `_${daynight}`}.${format}`;
+    const subtitle = `${areaLabel()} · ${allYears ? "All years" : formatRange(sel.from, sel.to)} · ${DAYNIGHT_LABEL[daynight]} · ${UNIT}`;
     pulse(btn);
     try {
       if (format === "csv") {
-        const meta = exportMeta();
+        const meta = exportMeta(allYears);
         const view = kind === "calendar" ? calendar : kind === "analytics" ? analytics : anomaly;
         if (kind === "calendar") meta.push(["granularity", calendar.granularity]);
         const { header, rows } = view.csv();

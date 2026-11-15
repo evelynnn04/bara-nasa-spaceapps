@@ -102,7 +102,7 @@ export class CalendarView {
     const bounds = stepBounds(max, steps.length);
     this.legend.innerHTML = `
       <span class="legend-scale"><span class="legend-end">0</span><span class="legend-ramp"><span class="sw sw-zero" title="0"></span>${steps.map((c, i) => `<span class="sw" style="background:${c}" title="${fmtVal(bounds[i])}+"></span>`).join("")}</span><span class="legend-end">${fmtCompact(max)}</span></span>
-      <span class="legend-item"><span class="sw sw-none"></span>Not observed or outside dates</span>`;
+      <span class="legend-item"><span class="sw sw-none"></span>Not observed</span>`;
   }
 
   /** The month `delta` months away from the shown one, or null when it lies outside the record or the selected dates. */

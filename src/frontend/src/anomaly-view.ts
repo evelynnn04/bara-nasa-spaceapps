@@ -1,8 +1,9 @@
-import { UNUSUAL_SD, anomalyForMonth, anomalyForYear, peakMonthOfYear, recordYears, type AnomalyResult, type Verdict } from "./analytics";
-import { CHART, drawAtWidth, lineChart, redrawOnResize } from "./charts";
-import { parts } from "./dates";
+import { UNUSUAL_SD, annualTrend, anomalyForMonth, anomalyForYear, climatology, peakMonthOfYear, recordYears, type AnomalyResult, type Verdict } from "./analytics";
+import { CHART, barChart, drawAtWidth, lineChart, profileChart, redrawOnResize } from "./charts";
+import { MONTHS, MONTHS_LONG, parts } from "./dates";
 import { frame, place, svgHeight, type Cell } from "./export";
-import { UNIT_SHORT, escapeXml, fmtVal } from "./format";
+import { UNIT_SHORT, escapeXml, fmtCompact, fmtPct, fmtVal } from "./format";
+import { RAMPS, type RampName } from "./ramps";
 import type { Selection } from "./store";
 
 type Kind = "month" | "year";
@@ -14,10 +15,12 @@ const VERDICT: Record<Verdict, { label: string; tone: "critical" | "warning" | "
 };
 
 /**
- * Compares a chosen month or year with its historical average and median and flags unusual activity.
+ * Historical comparison over the whole record: the yearly trend and fire-prone months, then a chosen
+ * month or year against its historical average and median, with unusual activity flagged.
  */
 export class AnomalyView {
   private sel: Selection | null = null;
+  private ramp: RampName = "ember";
   private kind: Kind = "month";
   private year = 0;
   private month = 0;
@@ -26,11 +29,16 @@ export class AnomalyView {
   private readonly verdict: HTMLElement;
   private readonly chart: HTMLElement;
   private readonly notes: HTMLElement;
+  private readonly patterns: HTMLElement;
   /** Width the comparison chart was last drawn at. */
   private chartW = 0;
+  /** Width the pattern chart was last drawn at. */
+  private patternsW = 0;
 
   constructor(private readonly root: HTMLElement) {
     root.innerHTML = `
+      <div class="an-patterns"></div>
+      <p class="d-label an-compare-label">Compare a month or year</p>
       <div class="an-bar">
         <div class="seg" role="group" aria-label="Compare a month or a year">
           <button type="button" class="seg-btn" data-kind="month" aria-pressed="true">Month</button>
@@ -48,6 +56,7 @@ export class AnomalyView {
     this.verdict = root.querySelector(".verdict")!;
     this.chart = root.querySelector(".an-chart")!;
     this.notes = root.querySelector(".an-notes")!;
+    this.patterns = root.querySelector(".an-patterns")!;
 
     root.querySelector(".seg")!.addEventListener("click", (e) => {
       const btn = (e.target as Element).closest<HTMLButtonElement>("[data-kind]");
@@ -67,11 +76,14 @@ export class AnomalyView {
       this.draw();
     });
     redrawOnResize(this.chart, () => this.chartW, () => this.sel && this.draw());
+    redrawOnResize(this.patterns, () => this.patternsW, () => this.sel && this.renderPatterns());
   }
 
-  /** `resetPeriod` picks the busiest month of the last selected year as the period to compare. */
-  render(sel: Selection, resetPeriod: boolean): void {
+  /** `resetPeriod` picks the busiest month of the record's last year as the period to compare. */
+  render(sel: Selection, ramp: RampName, resetPeriod: boolean): void {
     this.sel = sel;
+    this.ramp = ramp;
+    this.renderPatterns();
     const years = recordYears(sel);
     if (resetPeriod || !this.year) {
       this.year = parts(sel.to).year;
@@ -81,6 +93,49 @@ export class AnomalyView {
     this.monthIn.min = `${years[0]}-01`;
     this.monthIn.max = `${years[years.length - 1]}-12`;
     this.draw();
+  }
+
+  /** Pattern readings and charts sized for the PNG export. */
+  private patternParts(): { trendText: string; trendSvg: string; climText: string; climSvg: string } {
+    const sel = this.sel!;
+    const t = annualTrend(sel);
+    const c = climatology(sel);
+    const dir = Math.abs(t.percentPerYear) < 1 ? "roughly flat" : t.percentPerYear > 0 ? "rising" : "falling";
+    const peakYear = t.years[t.totals.indexOf(Math.max(...t.totals))];
+    const trendText = `Annual fire activity is ${dir} (${fmtPct(t.percentPerYear)} per year, ${t.years[0]}–${t.years[t.years.length - 1]}). Biggest year: <strong>${peakYear}</strong>.`;
+    const climText = c.season
+      ? `Fire-prone months: <strong>${c.top.map((m) => MONTHS_LONG[m]).join(", ")}</strong>. Fires usually concentrate between ${MONTHS_LONG[c.season[0]]} and ${MONTHS_LONG[c.season[1]]}.`
+      : "No fires recorded in this area.";
+    return {
+      trendText,
+      trendSvg: barChart({ title: "Fire cell-days per year with trend", labels: t.years.map((y) => `'${String(y).slice(2)}`), values: t.totals, overlay: t.fitted, highlight: [t.years.indexOf(peakYear)], height: 150 }),
+      climText,
+      climSvg: barChart({ title: `Average ${UNIT_SHORT} per calendar month`, labels: MONTHS.map((m) => m[0]), values: c.average, highlight: c.top, height: 130 }),
+    };
+  }
+
+  /** Yearly totals with the biggest year, and the five most fire-prone calendar months. */
+  private renderPatterns(): void {
+    const sel = this.sel!;
+    const p = this.patternParts();
+    const t = annualTrend(sel);
+    const c = climatology(sel);
+    const ranked = c.average.map((v, m) => ({ v, m })).sort((a, b) => b.v - a.v).slice(0, 5);
+    const steps = RAMPS[this.ramp].steps;
+    const max = ranked[0]?.v || 1;
+    this.patternsW = drawAtWidth(this.patterns, 290, (width) => {
+      this.patterns.innerHTML = `
+      <p class="reading">${p.trendText}</p>
+      <div class="chart">${profileChart({ title: "Fire cell-days per year", labels: t.years.map(String), values: t.totals, labelEvery: 4, height: 130, width, peakCaption: (i) => String(t.years[i]) })}</div>
+      <p class="d-label">Fire-prone months</p>
+      <ol class="rank">${ranked
+        .map(
+          (r, i) => `<li><span class="rank-n${i === 0 ? " is-top" : ""}">${i + 1}</span><span class="rank-name">${MONTHS_LONG[r.m]}</span>
+            <span class="rank-v">${fmtCompact(r.v)}</span><span class="dot" style="background:${steps[Math.max(0, Math.round((r.v / max) * (steps.length - 1)))]}"></span></li>`,
+        )
+        .join("")}</ol>
+      <p class="mini-note">${c.season ? `Average ${UNIT_SHORT} per month. Fires usually concentrate between ${MONTHS_LONG[c.season[0]]} and ${MONTHS_LONG[c.season[1]]}.` : "No fires recorded in this area."}</p>`;
+    });
   }
 
   private result(): AnomalyResult {
@@ -138,9 +193,16 @@ export class AnomalyView {
   csv(): { header: string[]; rows: Cell[][] } {
     const a = this.result();
     const r = (n: number) => Math.round(n * 10) / 10;
+    const t = annualTrend(this.sel!);
+    const c = climatology(this.sel!);
     return {
-      header: [a.kind === "month" ? "year" : "month", "fire_cell_days", "historical_average", "historical_median", "unusual_threshold", "unusual"],
-      rows: a.labels.map((l, i) => [l, r(a.values[i]), r(a.mean[i]), r(a.median[i]), r(a.threshold[i]), a.unusual[i] ? "yes" : "no"]),
+      header: ["section", "key", "fire_cell_days", "historical_average", "historical_median", "unusual_threshold", "unusual"],
+      rows: [
+        ...t.years.map<Cell[]>((y, i) => ["annual_total", y, r(t.totals[i])]),
+        ["annual_trend_pct_per_year", "", r(t.percentPerYear)],
+        ...c.average.map<Cell[]>((v, m) => ["monthly_average", MONTHS[m], r(v)]),
+        ...a.labels.map<Cell[]>((l, i) => ["comparison", l, r(a.values[i]), r(a.mean[i]), r(a.median[i]), r(a.threshold[i]), a.unusual[i] ? "yes" : "no"]),
+      ],
     };
   }
 
@@ -148,12 +210,20 @@ export class AnomalyView {
     const a = this.result();
     const width = 720;
     const cw = width - 48;
+    const p = this.patternParts();
+    const strip = (html: string) => escapeXml(html.replace(/<[^>]+>/g, ""));
+    const blocks: string[] = [];
+    let y = 14;
+    for (const [text, svg] of [[p.trendText, p.trendSvg], [p.climText, p.climSvg]]) {
+      blocks.push(`<text x="24" y="${y}" fill="${CHART.ink2}" font-size="12">${strip(text)}</text>`, place(svg, 24, y + 10, cw));
+      y += 32 + svgHeight(svg, cw);
+    }
     const chart = this.chartSvg(a, 760, 170);
     const tone = CHART[VERDICT[a.verdict].tone];
-    const body = `<text x="24" y="14" fill="${tone}" font-size="13">${escapeXml(`${a.selected.label}: ${VERDICT[a.verdict].label}`)}</text>
-      <text x="24" y="34" fill="${CHART.ink2}" font-size="12">${escapeXml(`${fmtVal(a.selected.value)} ${UNIT_SHORT}. Average ${fmtVal(a.selected.mean)}, median ${fmtVal(a.selected.median)}.`)}</text>
-      ${place(chart, 24, 46, cw)}`;
-    const f = frame("Historical anomaly comparison", subtitle, body, width, 56 + svgHeight(chart, cw));
+    blocks.push(`<text x="24" y="${y}" fill="${tone}" font-size="13">${escapeXml(`${a.selected.label}: ${VERDICT[a.verdict].label}`)}</text>
+      <text x="24" y="${y + 20}" fill="${CHART.ink2}" font-size="12">${escapeXml(`${fmtVal(a.selected.value)} ${UNIT_SHORT}. Average ${fmtVal(a.selected.mean)}, median ${fmtVal(a.selected.median)}.`)}</text>
+      ${place(chart, 24, y + 32, cw)}`);
+    const f = frame("Historical comparison", subtitle, blocks.join(""), width, y + 42 + svgHeight(chart, cw));
     return { svg: f.svg, width, height: f.height };
   }
 }

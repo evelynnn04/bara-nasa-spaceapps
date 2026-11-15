@@ -60,6 +60,7 @@
 
         <div class="g-main" id="g-main">
           <div class="g-col g-left">
+            <p class="col-cap" id="cap-dates" aria-live="polite"></p>
             <article class="gc" data-card="analytics" id="analytics-card" aria-labelledby="c-analytics">
               <div class="gc-head">
                 <h2 class="gc-title" id="c-analytics">Historical analytics</h2>
@@ -70,17 +71,14 @@
               </div>
               <div class="gc-body" id="an-summary" aria-busy="true"></div>
             </article>
-            <article class="gc" data-card="patterns" aria-labelledby="c-patterns">
-              <div class="gc-head"><h2 class="gc-title" id="c-patterns">Historical patterns</h2><span class="hint">All years</span></div>
-              <div class="gc-body" id="an-patterns" aria-busy="true"></div>
-            </article>
-            <article class="gc" data-card="agreement" aria-labelledby="c-agreement">
-              <div class="gc-head"><h2 class="gc-title" id="c-agreement">Do MODIS and VIIRS agree here?</h2><span class="hint">Selected area</span></div>
-              <div class="gc-body" id="agreement" aria-busy="true"></div>
+            <article class="gc" data-card="events" aria-labelledby="c-events">
+              <div class="gc-head"><h2 class="gc-title" id="c-events">Largest fire events</h2></div>
+              <div class="gc-body" id="events" aria-busy="true"></div>
             </article>
           </div>
 
           <div class="g-col g-right">
+            <p class="col-cap">All years</p>
             <article class="gc" data-card="calendar" id="calendar-card" aria-labelledby="c-calendar">
               <div class="gc-head">
                 <h2 class="gc-title" id="c-calendar">Burning activity calendar</h2>
@@ -94,7 +92,7 @@
             </article>
             <article class="gc" data-card="anomaly" data-expandable id="anomaly-card" aria-labelledby="c-anomaly">
               <div class="gc-head">
-                <h2 class="gc-title" id="c-anomaly">Historical anomaly comparison</h2>
+                <h2 class="gc-title" id="c-anomaly">Historical comparison</h2>
                 <div class="card-actions">
                   <button type="button" class="pill pill-xs" data-export="anomaly" data-format="csv">CSV</button>
                   <button type="button" class="pill pill-xs" data-export="anomaly" data-format="png">PNG</button>
@@ -102,9 +100,9 @@
               </div>
               <div class="gc-body" id="anomaly" aria-busy="true"></div>
             </article>
-            <article class="gc" data-card="events" aria-labelledby="c-events">
-              <div class="gc-head"><h2 class="gc-title" id="c-events">Largest fire events</h2><span class="hint">Selected dates</span></div>
-              <div class="gc-body" id="events" aria-busy="true"></div>
+            <article class="gc" data-card="agreement" aria-labelledby="c-agreement">
+              <div class="gc-head"><h2 class="gc-title" id="c-agreement">Do MODIS and VIIRS agree here?</h2></div>
+              <div class="gc-body" id="agreement" aria-busy="true"></div>
             </article>
           </div>
 

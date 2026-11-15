@@ -930,6 +930,16 @@ button.dp-title:hover,
   padding-top: 10px;
 }
 
+/* Says which dates a column's cards use; the left one follows the date picker */
+.col-cap {
+  flex: none;
+  padding: 0 4px;
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.75);
+}
+
 
 .g-left > :nth-child(1) { --i: 1; }
 .g-left > :nth-child(2) { --i: 2; }
@@ -1645,13 +1655,8 @@ body.has-timeline .g-map .maplibregl-ctrl-bottom-left {
 
 /* Card contents */
 
-.gc-head .hint {
-  margin-left: auto;
-}
-
 .gc-head .card-actions + .expand-btn,
-.gc-head .card-actions + .fold-btn,
-.gc-head .hint + .fold-btn {
+.gc-head .card-actions + .fold-btn {
   margin-left: 0;
 }
 
@@ -1788,13 +1793,19 @@ body:has(.card-dialog[open]) {
   grid-column: 1 / -1;
 }
 
-#an-patterns {
+.an-patterns {
   display: grid;
   gap: 10px;
 }
 
-#an-patterns .d-label {
+.an-patterns .d-label {
   margin-top: 4px;
+}
+
+.an-compare-label {
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
 }
 
 
@@ -2111,19 +2122,13 @@ body:has(.card-dialog[open]) {
     pointer-events: auto;
   }
 
-  .g-col {
-    display: contents;
+  .g-left,
+  .g-right {
+    grid-column: auto;
+    grid-row: auto;
+    margin-bottom: 0;
+    overflow: visible;
   }
-
-
-  [data-card="calendar"] {
-    order: 1;
-    grid-column: 1 / -1;
-  }
-
-  [data-card="analytics"] { order: 2; }
-  [data-card="anomaly"] { order: 3; }
-  [data-card="patterns"] { order: 4; }
 
   .g-map .maplibregl-ctrl-bottom-left,
   .g-map .maplibregl-ctrl-bottom-right {
