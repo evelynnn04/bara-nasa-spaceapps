@@ -1,7 +1,8 @@
 """Cell-day table and day-status table.
 
 `celldays.parquet`: one row per (sensor, platform, local day, 0.05° cell) holding the number of
-qualifying pixels by day and by night, and their fire radiative power. A pixel qualifies when it is
+qualifying pixels by day and by night, and their fire radiative power (in all, by day and by night,
+and the highest pixel). A pixel qualifies when it is
 a presumed vegetation fire (`type = 0`), or has no type yet (near-real-time) and does not fall on
 the static-source mask. All confidence classes count; exact duplicates were removed earlier.
 
@@ -71,7 +72,9 @@ def build_celldays(con: duckdb.DuckDBPyConnection, detections: str, mask: str, d
                    CAST(count(*) FILTER (WHERE d.daynight = 'D') AS INTEGER) AS n_day,
                    CAST(count(*) FILTER (WHERE d.daynight = 'N') AS INTEGER) AS n_night,
                    sum(CASE WHEN d.frp > 0 THEN CAST(d.frp AS DOUBLE) ELSE 0 END) AS frp_sum,
-                   max(CASE WHEN d.frp > 0 THEN CAST(d.frp AS DOUBLE) ELSE 0 END) AS frp_max
+                   max(CASE WHEN d.frp > 0 THEN CAST(d.frp AS DOUBLE) ELSE 0 END) AS frp_max,
+                   sum(CASE WHEN d.frp > 0 AND d.daynight = 'D' THEN CAST(d.frp AS DOUBLE) ELSE 0 END) AS frp_day,
+                   sum(CASE WHEN d.frp > 0 AND d.daynight = 'N' THEN CAST(d.frp AS DOUBLE) ELSE 0 END) AS frp_night
             FROM read_parquet({quote(detections)}) d
             LEFT JOIN read_parquet({quote(mask)}) m
               ON m.mx = CAST(floor(d.lon / {MASK_RES}) AS INTEGER) AND m.my = CAST(floor(d.lat / {MASK_RES}) AS INTEGER)

@@ -45,10 +45,19 @@ CELL_COLS = {"cx": "INTEGER", "cy": "INTEGER", "island_group": "VARCHAR", "provi
 
 
 def write_dataset(root: Path, celldays: list[tuple], days: list[tuple], cells: list[tuple]) -> Path:
-    """Writes `celldays`, `days` and `cells` Parquet files under `root`."""
+    """Writes `celldays`, `days` and `cells` Parquet files under `root`.
+
+    Cell-day rows give the total FRP only; it is split into `frp_day` and `frp_night` in proportion
+    to the day and night pixels."""
     root.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect()
-    write_table(con, store.table_path("celldays", root), CELLDAY_COLS, celldays)
+    path = store.table_path("celldays", root)
+    write_table(con, path, CELLDAY_COLS, celldays)
+    con.execute(f"""
+        COPY (SELECT *, CASE WHEN n_day + n_night > 0 THEN frp_sum * n_day / (n_day + n_night) ELSE 0 END AS frp_day,
+                     CASE WHEN n_day + n_night > 0 THEN frp_sum * n_night / (n_day + n_night) ELSE 0 END AS frp_night
+              FROM t) TO {quote(str(path))} (FORMAT parquet)
+    """)
     write_table(con, store.table_path("days", root), DAY_COLS, days)
     write_table(con, store.table_path("cells", root), CELL_COLS, cells)
     return root

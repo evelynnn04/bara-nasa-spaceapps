@@ -17,6 +17,8 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("build", help="cell-day table, day status and cell lookup")
     sub.add_parser("fit", help="fit the VIIRS factors, evaluate them and write params.json")
     sub.add_parser("cache", help="region cache and fire events (needs params.json from fit)")
+    ev = sub.add_parser("anomaly-eval", help="leave-one-year-out alert rates of the anomaly labels")
+    ev.add_argument("--unit", choices=("province", "regency", "grid"), default="province")
     every = sub.add_parser("all", help="download, normalise, build, fit, cache")
     every.add_argument("--no-api", action="store_true")
     sub.add_parser("validate-critical", help="check the critical-period definition on the full record")
@@ -42,6 +44,12 @@ def main(argv: list[str] | None = None) -> None:
         from .pipeline import aggregate, events
         aggregate.run()
         events.run()
+    if args.cmd == "anomaly-eval":
+        import json
+        from . import anomaly, queries, store
+        from .harmonise import weights
+        con = store.connect(weights.load_params())
+        print(json.dumps(anomaly.evaluate(con, queries.day_flags(con), args.unit), indent=2))
     if args.cmd == "validate-critical":
         from . import critical_validation
         critical_validation.run()

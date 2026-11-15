@@ -31,7 +31,7 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from . import config, critical, geo, queries, store
+from . import anomaly, config, critical, geo, queries, store
 from .db import quote
 from .harmonise import fit, weights
 from .pipeline.celldays import cell_expr, qualifying_sql
@@ -314,6 +314,153 @@ def agreement(area: Area = Depends(area_param), daynight: DayNight = "all") -> d
         "harmonised": queries.agreement(window, harmonised=True),
         "raw": queries.agreement(window, harmonised=False),
     }
+
+
+def _baseline_info(b: anomaly.Baseline) -> dict:
+    """Reference years and score resolution of one month's baseline."""
+    n = len(b.reference)
+    return {"granularity": anomaly.GRANULARITY, "years": b.years, "sample_size": n,
+            "excluded_years": b.excluded, "min_coverage": anomaly.MIN_COVERAGE,
+            "max_score": round(anomaly.max_score(n), 4) if n else None,
+            "reachable_labels": anomaly.reachable_labels(n) if n >= anomaly.MIN_REFERENCE else [],
+            "calibration_status": anomaly.CALIBRATION}
+
+
+def _common(b: anomaly.Baseline) -> dict:
+    """Fields every anomaly record of one month carries."""
+    return {"period_start": b.target.start, "period_end": b.target.end, "product": anomaly.PRODUCT,
+            "historical_sample_size": len(b.reference), "baseline_granularity": anomaly.GRANULARITY,
+            "score_calibration_status": anomaly.CALIBRATION}
+
+
+@router.get("/anomalies")
+def anomalies(area: Area = Depends(area_param),
+              period: Literal["month", "year"] = Query(
+                  "month", description="Score one month, or every month of a year (the Year view)."),
+              year: int | None = Query(None, ge=1, le=9999, description="Year; default the last data month's."),
+              month: int | None = Query(None, ge=1, le=12, description="Month 1-12; default the last data month."),
+              reference: Literal["other", "prior"] = Query(
+                  "other", description="Reference years: every other year, or only earlier years."),
+              grids: bool = Query(False, description="Also score every active 0.25° grid cell of the area."),
+              daynight: DayNight = "all") -> dict:
+    """How unusual a month's fire activity is in an area, against the same month in other years.
+
+    Both indicators come from the harmonised record (2002 on) in MODIS-equivalent units: `activity`
+    in fire cell-days and `frp_mw`, summed fire radiative power. Each is scored independently with
+    the empirical upper-tail rank `A = 1 - (1 + #{X_j >= x}) / (n + 1)` against the reference years.
+    Labels: normal below 0.80, elevated from 0.80, anomalous from 0.90, extreme from 0.97. The
+    thresholds are provisional and uncalibrated; with n reference years the highest score is
+    n / (n + 1), listed in `baseline.max_score`.
+
+    `area` is the record of the whole selection, summed over its own 0.05° cells, with `years` for
+    charts. With `grids=true`, `grids` lists the 0.25° grid cells touching the area with activity in
+    the month; their values cover the whole grid cell, and `in_area_share` is the share of its
+    activity inside the area. An unfinished month is compared over the same days of the other years
+    and is marked provisional. With `daynight=day` or `night`, both indicators count only that half
+    of the day, for the target and the reference years alike.
+
+    With `period=year` (no `month`, no `grids`), `months` lists every month of the year inside the
+    record, each scored against the same month in the reference years exactly as `period=month`
+    would, and `summary` counts the months per label. No label is given to the year as a whole. See
+    `docs/anomaly.md`."""
+    flags = _flags()
+    last = flags[-1][0]
+    year = year or last.year
+    if period == "year":
+        if month is not None or grids:
+            raise HTTPException(400, "period=year takes neither `month` nor `grids`")
+        return _year_view(area, year, reference, daynight)
+    month = month or last.month
+    try:
+        b = anomaly.baseline(flags, year, month, reference)
+    except ValueError as err:
+        raise HTTPException(400, str(err)) from err
+    cur = cursor()
+    where = area.where(cur)
+    common = _common(b)
+    try:
+        anomaly.check_daynight(cur, daynight)
+        whole = anomaly.record(anomaly.totals(cur, b.windows, where, daynight=daynight).get(None, {}), b, years=True)
+        cells = _anomaly_grids(cur, b, where, common, daynight) if grids else None
+    except (anomaly.MissingFactors, anomaly.MissingColumns) as err:
+        raise HTTPException(503, str(err)) from err
+    out = {
+        "period": {"year": year, "month": month, "start": b.target.start, "end": b.target.end,
+                   "provisional": b.provisional},
+        "unit": fit.UNIT, "product": anomaly.PRODUCT, "reference": reference, "daynight": daynight,
+        "baseline": _baseline_info(b),
+        "thresholds": {name: lower for name, lower in anomaly.THRESHOLDS},
+        "data_quality": anomaly.data_quality(b),
+        "area": {**common, **whole},
+    }
+    if cells is not None:
+        labels = {k: 0 for k in (*anomaly.LABELS, anomaly.INSUFFICIENT)}
+        for r in cells:
+            labels[r["label"]] += 1
+        out.update(grid_deg=anomaly.GRID_DEG, counts=labels, grids=cells)
+    return out
+
+
+def _year_view(area: Area, year: int, reference: str, daynight: str) -> dict:
+    """Every month of a year inside the record, each scored against the same month in other years."""
+    flags = _flags()
+    try:
+        baselines = anomaly.year_baselines(flags, year, reference)
+    except ValueError as err:
+        raise HTTPException(400, str(err)) from err
+    cur = cursor()
+    try:
+        anomaly.check_daynight(cur, daynight)
+        values = anomaly.month_totals(cur, baselines, area.where(cur), daynight)
+    except (anomaly.MissingFactors, anomaly.MissingColumns) as err:
+        raise HTTPException(503, str(err)) from err
+    months = []
+    for m, b in baselines:
+        months.append({"month": m, "provisional": b.provisional, "baseline": _baseline_info(b),
+                       "data_quality": anomaly.data_quality(b), **_common(b),
+                       **anomaly.record(values.get(m, {}), b, years=True)})
+    counts = {k: 0 for k in (*anomaly.LABELS, anomaly.INSUFFICIENT)}
+    for r in months:
+        counts[r["label"]] += 1
+    return {
+        "period": {"period": "year", "year": year, "start": months[0]["period_start"],
+                   "end": months[-1]["period_end"], "provisional": any(r["provisional"] for r in months)},
+        "unit": fit.UNIT, "product": anomaly.PRODUCT, "reference": reference, "daynight": daynight,
+        "thresholds": {name: lower for name, lower in anomaly.THRESHOLDS},
+        "months": months,
+        "summary": {"months_scored": len(months), "counts": counts,
+                    "alert_months": [r["month"] for r in months if anomaly.RANK.get(r["label"], 0) > 0]},
+    }
+
+
+def _anomaly_grids(cur: duckdb.DuckDBPyConnection, b: anomaly.Baseline, where: str, common: dict,
+                   daynight: str) -> list[dict]:
+    """Records of the 0.25° grid cells touching the area with activity in the target window,
+    highest label first."""
+    anomaly.area_grids(cur, where, "agrid")
+    details = anomaly.target_details(cur, b, "agrid", "agrid_cells", daynight)
+    out = []
+    for (gx, gy), values in anomaly.grid_totals(cur, b, "agrid", daynight).items():
+        if values.get(b.target.year, (0.0, 0.0))[0] <= 0:
+            continue
+        d = details[(gx, gy)]
+        rec = anomaly.record(values, b)
+        west, south, east, north = anomaly.grid_bounds(gx, gy)
+        out.append({
+            "grid_id": anomaly.grid_id(gx, gy), "lon": west + anomaly.GRID_DEG / 2, "lat": south + anomaly.GRID_DEG / 2,
+            "bbox": [west, south, east, north], **common, **rec,
+            "in_area_share": round(min(1.0, d["in_area"] / values[b.target.year][0]), 3),
+            "environmental_context": {
+                "island_group": d["island_group"], "province_id": d["province_id"], "regency_id": d["regency_id"],
+                "active_cells_005": d["cells"],
+                "night_share": None if d["night_share"] is None else round(float(d["night_share"]), 3),
+                "frp_max_mw": round(d["frp_max"], 1),
+                "forest_cover": None, "wind": None, "unavailable": ["forest_cover", "wind"],
+            },
+        })
+    out.sort(key=lambda r: (-anomaly.RANK.get(r["label"], -1),
+                            -max(r["activity_score"] or 0, r["frp_score"] or 0), -r["activity"]))
+    return out
 
 
 EVENT_COLUMNS = ("event", "start", "end", "duration_days", "peak_day", "cells", "cell_days", "harmonised",
