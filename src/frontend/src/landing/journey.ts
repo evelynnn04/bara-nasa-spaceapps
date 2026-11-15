@@ -1,4 +1,4 @@
-// Bara's flight, in four acts, all played by scrolling (0 → 1):
+// Bara's flight, in five acts, all played by scrolling (0 → 1):
 //   1. 0.00–0.27  first person, a few metres above a jungle river, between real rainforest trees;
 //   2. 0.27–0.45  fire breaks out on the bank ahead and spreads; you rise above the burning canopy;
 //   3. 0.45–0.76  you climb into the sky: fronts and smoke plumes across the whole landscape;
@@ -7,15 +7,14 @@
 // Scroll sets a target; the camera eases towards it, so the flight glides.
 
 import {
-  ACESFilmicToneMapping, BackSide, Color, DirectionalLight, FogExp2, HemisphereLight, InstancedBufferAttribute,
-  InstancedBufferGeometry, MathUtils, Mesh, NormalBlending, PCFSoftShadowMap, PerspectiveCamera, PlaneGeometry, Scene,
+  ACESFilmicToneMapping, BackSide, Color, DirectionalLight, FogExp2, HemisphereLight,
+  MathUtils, Mesh, NormalBlending, PCFSoftShadowMap, PerspectiveCamera, Scene,
   ShaderMaterial, SphereGeometry, Vector3, WebGLRenderer,
 } from "three";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
-import type { PolygonGeometry } from "../types";
 import { riverX, rng, WATER_Y } from "./world/common";
 import { buildEarth } from "./world/earth";
-import { buildFire } from "./world/fire";
+import { buildFire, quadGeometry } from "./world/fire";
 import { buildForest } from "./world/forest";
 import { puffTexture } from "./world/textures";
 
@@ -31,7 +30,7 @@ export interface Journey {
   setTarget(p: number): void;
   onFrame(cb: (s: FrameState) => void): void;
   setPointer(x: number, y: number): void;
-  setProvinces(polys: PolygonGeometry[]): void;
+  setProvinces(polys: GeoJSON.MultiPolygon[]): void;
   setCells(cells: [number, number, number][], gridDeg: number): void;
   /** The free band (px from the top) between the header and the finale text, for the orbit framing. */
   setFrame(top: number, bottom: number): void;
@@ -136,15 +135,7 @@ export function startJourney(canvas: HTMLCanvasElement): Journey | null {
     dScale[i] = (200 + R() * 260) * (0.7 + h * 0.8);
     dSeed[i] = R();
   }
-  const quad = new PlaneGeometry(1, 1);
-  const deckGeo = new InstancedBufferGeometry();
-  deckGeo.index = quad.index;
-  deckGeo.setAttribute("position", quad.attributes.position);
-  deckGeo.setAttribute("uv", quad.attributes.uv);
-  deckGeo.setAttribute("aOff", new InstancedBufferAttribute(dOff, 3));
-  deckGeo.setAttribute("aScale", new InstancedBufferAttribute(dScale, 1));
-  deckGeo.setAttribute("aSeed", new InstancedBufferAttribute(dSeed, 1));
-  deckGeo.instanceCount = deckN;
+  const deckGeo = quadGeometry({ aOff: [dOff, 3], aScale: [dScale, 1], aSeed: [dSeed, 1] }, deckN);
   const deckU = { uTime: { value: 0 }, uAmt: { value: 0 }, uMap: { value: puffTexture() }, uLo: { value: DECK.y0 }, uHi: { value: DECK.y1 } };
   const deck = new Mesh(deckGeo, new ShaderMaterial({
     transparent: true, depthWrite: false, blending: NormalBlending, uniforms: deckU,

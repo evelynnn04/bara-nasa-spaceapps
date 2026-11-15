@@ -22,7 +22,8 @@ const FOG = /* glsl */ `
   float fogF(float d) { return 1.0 - exp(-fogDensity * fogDensity * d * d); }
 `;
 
-function quadGeometry(attrs: Record<string, [Float32Array, number]>, count: number): InstancedBufferGeometry {
+/** A unit quad instanced `count` times, with one instanced attribute per entry of `attrs`. */
+export function quadGeometry(attrs: Record<string, [Float32Array, number]>, count: number): InstancedBufferGeometry {
   const quad = new PlaneGeometry(1, 1);
   const g = new InstancedBufferGeometry();
   g.index = quad.index;

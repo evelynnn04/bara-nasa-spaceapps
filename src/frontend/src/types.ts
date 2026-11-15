@@ -1,11 +1,5 @@
 export type Level = "country" | "province" | "regency";
 export type LngLat = [number, number];
-
-/** A polygon or multipolygon outline, as in GeoJSON. */
-export interface PolygonGeometry {
-  type: "Polygon" | "MultiPolygon";
-  coordinates: number[][][] | number[][][][];
-}
 /** [west, south, east, north] in degrees. */
 export type BBox = [number, number, number, number];
 

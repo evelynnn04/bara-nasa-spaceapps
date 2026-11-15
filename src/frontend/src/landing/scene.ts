@@ -4,6 +4,8 @@
 // One canvas, no libraries. Paused while the tab is hidden; a single still frame under
 // prefers-reduced-motion.
 
+import { rng } from "./world/common";
+
 interface Ember { x: number; y: number; vx: number; vy: number; r: number; life: number; max: number; hue: number; phase: number }
 interface Ash { x: number; y: number; vy: number; r: number; spin: number; phase: number }
 interface Smoke { x: number; y: number; r: number; vx: number; a: number }
@@ -11,25 +13,13 @@ interface Coal { x: number; y: number; r: number; phase: number }
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
-/** A deterministic PRNG so the treeline does not change shape on every resize. */
-function seeded(seed: number): () => number {
-  let s = seed >>> 0;
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0;
-    let t = s;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /** One layer of burnt forest: ground ridge plus trunks, some snapped, with stub branches. */
 function drawTreeline(w: number, h: number, opt: { seed: number; base: number; height: number; density: number; fill: string; rim: string }): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
   const g = c.getContext("2d")!;
-  const r = seeded(opt.seed);
+  const r = rng(opt.seed);
   const groundY = (x: number) => opt.base + Math.sin(x / (w * 0.13) + opt.seed) * h * 0.012 + Math.sin(x / (w * 0.041)) * h * 0.006;
 
   g.fillStyle = opt.fill;

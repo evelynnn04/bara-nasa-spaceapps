@@ -8,7 +8,8 @@ import "./base.css";
 import "./landing.css";
 
 import { Api, type CellsResponse } from "../api";
-import type { PolygonGeometry } from "../types";
+import { fmtInt } from "../format";
+import { loadBoundaries } from "../regions";
 import { startJourney, webglOk, type Journey } from "./journey";
 import { startScene } from "./scene";
 
@@ -44,10 +45,8 @@ async function fireCells(): Promise<{ cells: [number, number, number][]; gridDeg
 }
 
 /** Province outlines from the dashboard's boundary file, for the coastline seen from orbit. */
-async function provinces(): Promise<PolygonGeometry[]> {
-  const res = await fetch("/boundaries.geojson");
-  if (!res.ok) throw new Error(`boundaries: HTTP ${res.status}`);
-  const fc = (await res.json()) as { features: { properties: { level: string }; geometry: PolygonGeometry }[] };
+async function provinces(): Promise<GeoJSON.MultiPolygon[]> {
+  const fc = await loadBoundaries();
   return fc.features.filter((f) => f.properties.level === "province").map((f) => f.geometry);
 }
 
@@ -140,7 +139,7 @@ function wireFlight(journey: Journey): void {
   fireCells().then(({ cells, gridDeg }) => {
     if (!cells.length) return;
     journey.setCells(cells, gridDeg);
-    $("live-cells").textContent = cells.length.toLocaleString("en-US");
+    $("live-cells").textContent = fmtInt(cells.length);
   }).catch(() => { $("live-cells").textContent = "thousands of"; });
 
   // Keyboard users: focusing a stop's link brings the flight to that stop.
@@ -188,7 +187,7 @@ function fallBack(): void {
   window.addEventListener("scroll", onScroll, { passive: true });
   onScroll();
   fireCells()
-    .then(({ cells }) => { if (cells.length) $("live-cells").textContent = cells.length.toLocaleString("en-US"); })
+    .then(({ cells }) => { if (cells.length) $("live-cells").textContent = fmtInt(cells.length); })
     .catch(() => {});
 }
 
