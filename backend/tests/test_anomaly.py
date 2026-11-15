@@ -198,6 +198,34 @@ def test_all_types_setting_counts_other_hotspots(tmp_path):
     assert veg == (3.0, pytest.approx(3.0)) and every == (6.0, pytest.approx(4.5))
 
 
+def test_cells_with_only_other_hotspot_types_are_not_active_under_vegetation(tmp_path):
+    # Bali burns; a neighbouring cell of the same grid cell holds only a static source.
+    d = dt.date(2015, 9, 4)
+    flare = (BALI[0] + 1, BALI[1], "Java-Bali-NT", "idn-bali", "idn-bali-a")
+    celldays = [("viirs", "SNPP", d, BALI[0], BALI[1], 2, 1, 6.0, 3.0),
+                ("viirs", "SNPP", d, flare[0], flare[1], 0, 0, 0.0, 0.0, 5, 2)]
+    root = write_dataset(tmp_path, celldays, september_days(range(2009, 2019)), [BALI, flare])
+    con = store.connect(PARAMS, root)
+    flags = queries.day_flags(con)
+    b = anomaly.baseline(flags, 2015, 9)
+    anomaly.area_grids(con, "TRUE", "g")
+    grid = anomaly.grid_of(BALI[0], BALI[1])
+    assert anomaly.target_details(con, b, "g", "g_cells")[grid]["cells"] == 1
+    assert anomaly.target_details(con, b, "g", "g_cells", hotspots="all")[grid]["cells"] == 2
+
+
+def test_units_with_only_other_hotspot_types_are_left_out_of_the_evaluation(tmp_path):
+    d = dt.date(2015, 9, 4)
+    flare = (2400, -100, "Java-Bali-NT", "idn-bali", "idn-bali-b")
+    celldays = [("viirs", "SNPP", d, BALI[0], BALI[1], 2, 1, 6.0, 3.0),
+                ("viirs", "SNPP", d, flare[0], flare[1], 0, 0, 0.0, 0.0, 5, 2)]
+    root = write_dataset(tmp_path, celldays, september_days(range(2009, 2019)), [BALI, flare])
+    con = store.connect(PARAMS, root)
+    flags = queries.day_flags(con)
+    veg, every = (anomaly.evaluate(con, flags, "regency", h) for h in ("vegetation", "all"))
+    assert every["unit_months"] == 2 * veg["unit_months"]
+
+
 def test_cell_days_built_before_the_hotspot_unit_ask_for_a_rebuild(dataset):
     path = store.table_path("celldays", dataset)
     con = store.connect(PARAMS, dataset)

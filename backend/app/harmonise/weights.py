@@ -104,9 +104,11 @@ def observations_sql(where: str = "TRUE", hotspots: str = "vegetation") -> str:
     """Aqua cell-days and the day's VIIRS-reference cell-days, with cell lookup and the factors of
     the type setting.
 
-    Column `side` is 'a' (Aqua) or 'b' (VIIRS reference), and the day's flags come along
-    (`aqua`, `viirs_ref`, `record_platform`). Needs relations `celldays`, `days`, `cells` and
-    `factor`."""
+    Only cell-days holding at least one hotspot of the type setting are included: the cell-day
+    table also keeps cell-days whose hotspots are all of other types, which must not count as
+    active cells under `vegetation`. Column `side` is 'a' (Aqua) or 'b' (VIIRS reference), and the
+    day's flags come along (`aqua`, `viirs_ref`, `record_platform`). Needs relations `celldays`,
+    `days`, `cells` and `factor`."""
     if hotspots not in HOTSPOTS:
         raise ValueError(f"unknown hotspot type setting {hotspots!r}")
     return f"""
@@ -118,7 +120,7 @@ def observations_sql(where: str = "TRUE", hotspots: str = "vegetation") -> str:
         JOIN cells k ON k.cx = c.cx AND k.cy = c.cy
         JOIN factor f ON f.hotspots = {quote(hotspots)} AND f.region = k.island_group
                      AND f.month = month(c.local_date)
-        WHERE {where}
+        WHERE {hotspots_sql("all", hotspots)} > 0 AND ({where})
     """
 
 

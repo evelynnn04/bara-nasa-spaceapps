@@ -3,7 +3,7 @@
  "unit": "hotspots (Aqua MODIS-equivalent)",
  "n0": 2000.0,
  "tolerance": 1e-06,
- "max_iterations": 500,
+ "max_iterations": 10000,
  "grid_deg": 0.05,
  "splice": "2012-02-01",
  "aqua_start": "2002-07-04",

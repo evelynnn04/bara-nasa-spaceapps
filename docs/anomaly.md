@@ -217,12 +217,12 @@ Result on the record up to 14 November 2026:
 
 | Unit | Unit-months | Indicator | `elevated` or higher | `anomalous` |
 |---|---|---|---|---|
-| Province | 9,860 | Activity | 16.8 % | 8.1 % |
+| Province | 9,836 | Activity | 16.9 % | 8.1 % |
 | | | FRP | 17.2 % | 8.3 % |
-| City/regency | 137,599 | Activity | 14.9 % | 7.3 % |
+| City/regency | 136,806 | Activity | 15.0 % | 7.3 % |
 | | | FRP | 15.9 % | 8.0 % |
-| 0.25° grid | 726,968 | Activity | 13.0 % | 6.7 % |
-| | | FRP | 14.0 % | 7.5 % |
+| 0.25° grid | 714,088 | Activity | 13.2 % | 6.9 % |
+| | | FRP | 14.2 % | 7.6 % |
 
 Province rates match the expected rates. Smaller units come out lower because many of their months
 tie at zero. Among grid-months with any activity, 38 % of cells are `elevated` or higher, which is
