@@ -246,7 +246,8 @@ gcloud secrets add-iam-policy-binding firms-map-key \
 
 Deploy the job. The bucket is mounted for the image's user (id 10001), with folder renames allowed
 (`rename-dir-limit`, off by default on a Cloud Storage mount, which the normalise step needs). The
-lock file stays on the job's own disk, because a Cloud Storage mount cannot lock files:
+lock file stays on the job's own disk, because a Cloud Storage mount cannot lock files. DuckDB
+gets 2.5 GB of the job's 4 GiB, since the fire outlook does not fit in the default 1 GB:
 
 ```bash
 gcloud run jobs deploy fire-data-updater --source . --region REGION \
@@ -254,7 +255,7 @@ gcloud run jobs deploy fire-data-updater --source . --region REGION \
   --command python --args=-m,app,update \
   --cpu 2 --memory 4Gi --tasks 1 --max-retries 0 --task-timeout 50m \
   --set-secrets FIRMS_MAP_KEY=firms-map-key:latest \
-  --set-env-vars DATA_DIR=/mnt/bucket/data,UPDATE_LOCK_DIR=/tmp \
+  --set-env-vars DATA_DIR=/mnt/bucket/data,UPDATE_LOCK_DIR=/tmp,DUCKDB_MEMORY_LIMIT=2.5GB \
   --add-volume "name=bucket,type=cloud-storage,bucket=BUCKET,readonly=false,mount-options=uid=10001;gid=10001;rename-dir-limit=200" \
   --add-volume-mount volume=bucket,mount-path=/mnt/bucket
 ```
