@@ -30,4 +30,9 @@ export class AnalyticsView {
       ${note}`;
     countUp(this.root.querySelector<HTMLElement>("[data-count]")!, c.total, fmtVal);
   }
+
+  /** Shows a short message instead of a total, such as when the selected dates hold no observed days. */
+  note(text: string): void {
+    this.root.innerHTML = `<p class="reading">${escapeXml(text)}</p>`;
+  }
 }

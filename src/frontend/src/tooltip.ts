@@ -28,6 +28,14 @@ function claim(el: Element): string {
   return el.getAttribute("data-tip") ?? "";
 }
 
+/** Opens the tooltip of an element at once; set up by `initTooltips`. */
+let openNow: (el: Element) => void = () => {};
+
+/** Shows an element's tooltip straight away, for a tap on a touch screen where there is no hover. */
+export function openTip(el: Element): void {
+  openNow(el);
+}
+
 /** Nearest element at or above `target` that carries a tooltip. */
 function tipTarget(target: EventTarget | null): Element | null {
   if (!(target instanceof Element)) return null;
@@ -83,6 +91,8 @@ export function initTooltips(): void {
       tip.classList.add("is-open");
     }, delay);
   };
+
+  openNow = (el) => show(el, 0);
 
   document.addEventListener("pointerover", (e) => {
     const el = tipTarget(e.target);

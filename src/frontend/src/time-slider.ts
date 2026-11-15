@@ -1,6 +1,7 @@
-import { fromDay, formatDay, monthStart, parts, toDay } from "./dates";
+import { daysInMonth, fromDay, formatDay, monthStart, parts, toDay } from "./dates";
 import { SelectMenu } from "./select-menu";
-import { defaultInterval, timeFrames, type Frame, type Interval } from "./timeline";
+import { escapeXml, fmtInt } from "./format";
+import { defaultInterval, timeFrames, type Frame, type Interval, type OutlookLabel } from "./timeline";
 
 /** Most steps one animation can hold; each step is one request to the backend. */
 export const MAX_ANIMATION_STEPS = 200;
@@ -14,6 +15,19 @@ const INTERVALS: { value: Interval; label: string }[] = [
   { value: "month", label: "Month" },
   { value: "day", label: "Day" },
 ];
+
+/** What each forecast label means, from the held-out evaluation in docs/fire-outlook.md. */
+export const TRUST: Record<OutlookLabel, string> = {
+  forecast: "Forecast: recent fire improves on the usual chance for this time of year.",
+  "weak forecast": "Weak forecast: recent fire adds a little to the usual chance for this time of year.",
+  seasonal: "Seasonal: the usual chance for this time of year, not a forecast of this period in particular.",
+  baseline: "Baseline: each cell's share of past years with fire.",
+};
+
+/** Tooltip of a forecast step: that it is not observed data, and how far it can be trusted. */
+export function forecastTip(f: Frame): string {
+  return `${f.label}: forecast, not observed data. ${f.outlook ? TRUST[f.outlook] : ""}`.trim();
+}
 
 const svg = (path: string, fill = false) => `<svg class="ico${fill ? " ico-fill" : ""}" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}" /></svg>`;
 const ICON = {
@@ -32,22 +46,33 @@ export interface TimelineHost {
   prepare(frames: Frame[], progress: (done: number) => void): Promise<void>;
   /** Dates under the brush while it is dragged; shown, not loaded. */
   preview(start: string, end: string): void;
-  /** Dates the user settled on with the brush. */
+  /** Dates the user settled on with the brush, or the selected dates cut to the end of the track. */
   pick(start: string, end: string): void;
+  /** Last day the selected dates can reach: the end of the interval's forecast, or of the record without one. */
+  setEnd(end: string): void;
   /** Interval the user picked from the menu. */
   pickInterval(interval: Interval): void;
 }
 
 /**
- * Thin timeline along the bottom of the map. A strip of monthly fire activity covers the whole record, and the
- * brush on it is the selected dates: drag its ends or its body to change them, in whole months. The play and step
- * buttons walk the map through the selected dates one step at a time; clearing the step shows the whole period.
+ * Thin timeline along the bottom of the map. A strip of monthly fire activity covers the whole record and runs on
+ * over the forecast of the interval (30 days, 12 months or 5 years after the data), whose bars stand on a grey band
+ * and are scaled by the cells with fire expected. The brush on it is the selected dates, which can reach to the end
+ * of that forecast: drag its ends or its body to change them, in whole months. The play and step buttons walk the map through the selected dates one step at a time, observed steps
+ * first, then forecast ones; clearing the step shows the whole observed part of the period.
  */
 export class Timeline {
   private interval: Interval = "month";
   /** Interval the viewer picked from the menu; kept when the dates change, instead of the default for their length. */
   private picked: Interval | null = null;
+  /** Observed steps of the selected dates, followed by their forecast steps. */
   private frames: Frame[] = [];
+  /** Number of observed steps, before the forecast steps. */
+  private past = 0;
+  /** Monthly activity bars of the record, drawn before the forecast of the interval. */
+  private pastBars = "";
+  /** Cells with fire expected over the area per lead of each interval, lead 1 first; empty until loaded. */
+  private expected: Partial<Record<Interval, number[]>> = {};
   /** Step on the map, or null while the map shows the whole selected period. */
   private current: number | null = null;
   private playing = false;
@@ -58,9 +83,12 @@ export class Timeline {
   private range: [number, number];
   private readonly recA: number;
   private readonly recB: number;
-  /** Month number (year * 12 + month) of the record's first month, and the months the record spans. */
+  /** Last day of the track: the end of the interval's forecast, or of the record without one. */
+  private axB: number;
+  /** Month number (year * 12 + month) of the record's first month, and the months the track spans. */
   private readonly m0: number;
-  private readonly months: number;
+  private months = 0;
+  private readonly years: HTMLElement;
 
   private readonly track: HTMLElement;
   private readonly activity: SVGSVGElement;
@@ -71,23 +99,24 @@ export class Timeline {
   private readonly playBtn: HTMLButtonElement;
   private readonly now: HTMLElement;
   private readonly nowLabel: HTMLElement;
+  private readonly clearBtn: HTMLButtonElement;
   private readonly menu: SelectMenu;
   private readonly status: HTMLElement;
 
-  constructor(root: HTMLElement, private readonly host: TimelineHost, recordStart: string, recordEnd: string) {
+  /** `outlook` holds the forecast steps of each interval, which the track runs on into. */
+  constructor(
+    root: HTMLElement,
+    private readonly host: TimelineHost,
+    recordStart: string,
+    recordEnd: string,
+    private readonly outlook: Partial<Record<Interval, Frame[]>> = {},
+  ) {
     this.recA = toDay(recordStart);
     this.recB = toDay(recordEnd);
+    this.axB = this.recB;
     this.range = [this.recA, this.recB];
     const a = parts(this.recA);
-    const b = parts(this.recB);
     this.m0 = a.year * 12 + a.month;
-    this.months = b.year * 12 + b.month - this.m0 + 1;
-    const every = Math.ceil((b.year - a.year + 1) / YEAR_LABELS);
-    let years = "";
-    for (let y = a.year + 1; y <= b.year; y++) {
-      const left = (this.frac(monthStart(y, 0)) * 100).toFixed(2);
-      years += `<i style="left:${left}%">${(y - a.year) % every === 0 ? `<span>${y}</span>` : ""}</i>`;
-    }
     root.innerHTML = `
       <div class="tl-ctl">
         <button type="button" class="icon-btn tl-step" data-by="-1">${ICON.prev}</button>
@@ -95,8 +124,8 @@ export class Timeline {
         <button type="button" class="icon-btn tl-step" data-by="1">${ICON.next}</button>
       </div>
       <div class="tl-track">
-        <svg class="tl-activity" viewBox="0 0 ${this.months} 20" preserveAspectRatio="none" aria-hidden="true"></svg>
-        <div class="tl-years" aria-hidden="true">${years}</div>
+        <svg class="tl-activity" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div class="tl-years" aria-hidden="true"></div>
         <div class="tl-brush">
           <span class="tl-handle" data-end="a" role="slider" tabindex="0" aria-label="Start of the selected dates"></span>
           <span class="tl-handle" data-end="b" role="slider" tabindex="0" aria-label="End of the selected dates"></span>
@@ -109,6 +138,7 @@ export class Timeline {
     const $ = <T extends Element = HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
     this.track = $(".tl-track");
     this.activity = $<SVGSVGElement>(".tl-activity");
+    this.years = $(".tl-years");
     this.brush = $(".tl-brush");
     this.head = $(".tl-head");
     [this.prevBtn, this.nextBtn] = root.querySelectorAll<HTMLButtonElement>(".tl-step");
@@ -122,17 +152,49 @@ export class Timeline {
     });
     this.status = $(".tl-status");
 
-    this.prevBtn.addEventListener("click", () => void this.go(this.current === null ? this.frames.length - 1 : this.current - 1));
+    this.prevBtn.addEventListener("click", () => void this.go(this.current === null ? (this.past || this.frames.length) - 1 : this.current - 1));
     this.nextBtn.addEventListener("click", () => void this.go(this.current === null ? 0 : this.current + 1));
     this.playBtn.addEventListener("click", () => (this.playing ? this.pause() : this.play()));
-    $(".tl-clear").addEventListener("click", () => this.clear());
+    this.clearBtn = $<HTMLButtonElement>(".tl-clear");
+    this.clearBtn.addEventListener("click", () => this.clear());
     this.bindTrack();
+    this.setEnd(this.endOf(this.interval));
     this.sync();
+  }
+
+  /** Last day of an interval's forecast, or of the record without one. */
+  private endOf(interval: Interval): number {
+    const fc = this.outlook[interval] ?? [];
+    return fc.length ? Math.max(this.recB, toDay(fc[fc.length - 1].to)) : this.recB;
+  }
+
+  /** Lays the track out from the record's start to `end`: its months, year marks and the date fields' limit. */
+  private setEnd(end: number): void {
+    this.axB = end;
+    const a = parts(this.recA);
+    const b = parts(end);
+    this.months = b.year * 12 + b.month - this.m0 + 1;
+    this.activity.setAttribute("viewBox", `0 0 ${this.months} 20`);
+    const every = Math.ceil((b.year - a.year + 1) / YEAR_LABELS);
+    let years = "";
+    for (let y = a.year + 1; y <= b.year; y++) {
+      const left = (this.frac(monthStart(y, 0)) * 100).toFixed(2);
+      years += `<i style="left:${left}%">${(y - a.year) % every === 0 ? `<span>${y}</span>` : ""}</i>`;
+    }
+    this.years.innerHTML = years;
+    this.host.setEnd(fromDay(end));
+  }
+
+  /** The cells with fire expected over the selected area per lead of each interval, which scale the forecast bars. */
+  setExpected(expected: Partial<Record<Interval, number[]>>): void {
+    this.expected = expected;
+    this.drawStrip();
   }
 
   /**
    * New selected dates: moves the brush and rebuilds the steps, keeping the interval the viewer picked. A step on
-   * the map that still falls in the new dates stays on the map; otherwise the map goes back to the whole period.
+   * the map that still falls in the new dates stays on the map; otherwise the map goes back to the whole period, or
+   * to the first step when the dates hold only forecast.
    */
   setRange(start: string, end: string): void {
     this.pause();
@@ -140,10 +202,17 @@ export class Timeline {
     this.range = [toDay(start), toDay(end)];
     this.current = null;
     this.setFrames(this.picked ?? defaultInterval(start, end));
-    if (!keep || keep.to < start || keep.from > end) return;
-    this.current = Math.max(0, this.frames.findIndex((f) => f.to >= keep.from));
+    let i = -1;
+    if (keep?.lead) i = this.frames.findIndex((f) => f.lead === keep.lead);
+    else if (keep && keep.to >= start && keep.from <= end) i = Math.max(0, this.frames.findIndex((f) => f.to >= keep.from));
+    if (i < 0 && !this.past && this.frames.length) i = 0;
+    if (i < 0) {
+      if (!this.past) void this.host.show(null);
+      return;
+    }
+    this.current = i;
     this.sync();
-    void this.host.show(this.frames[this.current]);
+    void this.host.show(this.frames[i]);
   }
 
   /** Keeps this interval for every later range, as if the viewer had picked it (restored from the page URL). */
@@ -153,13 +222,70 @@ export class Timeline {
 
   /** The area's daily record, drawn as monthly bars along the track. */
   setActivity(values: ArrayLike<number>, firstDay: number): void {
-    const sums = new Array<number>(this.months).fill(0);
+    const sums = new Array<number>(this.monthOf(this.recB) + 1).fill(0);
     for (let d = this.recA; d <= this.recB; d++) sums[this.monthOf(d)] += values[d - firstDay] ?? 0;
     const max = Math.max(...sums);
-    // Square-root heights keep quiet months visible next to the peak fire seasons
-    this.activity.innerHTML = max
-      ? sums.map((v, i) => (v > 0 ? `<rect x="${i + 0.1}" y="${(20 - Math.max(1, Math.sqrt(v / max) * 20)).toFixed(1)}" width="0.8" height="20"/>` : "")).join("")
+    const last = this.monthOf(this.recB);
+    // Square-root heights keep quiet months visible next to the peak fire seasons; the last month ends with the record
+    this.pastBars = max
+      ? sums.map((v, i) => {
+          if (v <= 0) return "";
+          const w = i === last ? Math.min(0.8, this.x(this.recB + 1) - i - 0.1) : 0.8;
+          return `<rect x="${i + 0.1}" y="${(20 - Math.max(1, Math.sqrt(v / max) * 20)).toFixed(1)}" width="${w.toFixed(3)}" height="20"/>`;
+        }).join("")
       : "";
+    this.drawStrip();
+  }
+
+  /**
+   * Draws the activity bars and, after the record, the forecast of the interval on a grey band: one bar per month,
+   * as tall as the cells with fire expected in it (square root of its share of the forecast's highest month), with
+   * a tooltip saying it is a forecast. The forecast has its own scale, as its unit differs from the record's.
+   */
+  private drawStrip(): void {
+    const future = this.outlook[this.interval] ?? [];
+    const expected = this.expected[this.interval] ?? [];
+    const rank: OutlookLabel[] = ["forecast", "weak forecast", "seasonal", "baseline"];
+    let fc = "";
+    if (future.length) {
+      const first = this.recB + 1;
+      const end = toDay(future[future.length - 1].to) + 1;
+      fc += `<rect class="fc-band" x="${this.x(first).toFixed(3)}" y="0" width="${(this.x(end) - this.x(first)).toFixed(3)}" height="20"/>`;
+      const slots: { m: number; a: number; b: number; inside: Frame[]; value: number }[] = [];
+      for (let m = this.monthOf(first); m <= this.monthOf(end - 1); m++) {
+        const y = Math.floor((this.m0 + m) / 12);
+        const mo = (this.m0 + m) % 12;
+        const a = Math.max(first, monthStart(y, mo));
+        const b = Math.min(end - 1, monthStart(y, mo + 1) - 1);
+        const inside = future.filter((f) => toDay(f.to) >= a && toDay(f.from) <= b);
+        // A step counts in a month for the share of its days that fall in it
+        const value = inside.reduce((sum, f) => {
+          const days = Math.min(b, toDay(f.to)) - Math.max(a, toDay(f.from)) + 1;
+          return sum + (expected[f.lead! - 1] ?? 0) * (days / (toDay(f.to) - toDay(f.from) + 1));
+        }, 0);
+        if (inside.length) slots.push({ m, a, b, inside, value });
+      }
+      const max = Math.max(0, ...slots.map((s) => s.value));
+      for (const { m, a, b, inside, value } of slots) {
+        const labels = [...new Set(inside.map((f) => f.outlook!))].sort((p, q) => rank.indexOf(p) - rank.indexOf(q));
+        const span = inside.length > 1 ? `${inside[0].label} to ${inside[inside.length - 1].label}` : inside[0].label;
+        const amount = expected.length ? ` About ${fmtInt(value)} cells with fire expected.` : "";
+        const tip = `${span}: forecast, not observed data.${amount} ${labels.map((l) => TRUST[l]).join(" ")}`;
+        const x0 = Math.max(this.x(a), m + 0.1);
+        const x1 = Math.min(this.x(b + 1), m + 0.9);
+        const h = max > 0 && value > 0 ? Math.max(1, Math.sqrt(value / max) * 20) : 0;
+        fc += `<g class="fc"><title>${escapeXml(tip)}</title>
+          <rect class="fc-hit" x="${this.x(a).toFixed(3)}" y="0" width="${(this.x(b + 1) - this.x(a)).toFixed(3)}" height="20"/>
+          ${h ? `<rect x="${x0.toFixed(3)}" y="${(20 - h).toFixed(1)}" width="${Math.max(0.05, x1 - x0).toFixed(3)}" height="20"/>` : ""}</g>`;
+      }
+    }
+    this.activity.innerHTML = this.pastBars + fc;
+  }
+
+  /** Position of the start of a day along the activity strip, in months from the track's first month. */
+  private x(day: number): number {
+    const p = parts(day);
+    return p.year * 12 + p.month - this.m0 + (p.date - 1) / daysInMonth(p.year, p.month);
   }
 
   /** Whether the map shows one step instead of the whole selected period. */
@@ -169,19 +295,50 @@ export class Timeline {
 
   private setInterval(interval: Interval): void {
     this.pause();
-    const keep = this.current === null ? null : this.frames[this.current].from;
+    const keep = this.current === null ? null : this.frames[this.current];
     this.setFrames(interval);
-    if (keep === null) return;
-    this.current = Math.max(0, this.frames.findIndex((f) => f.to >= keep));
+    if (keep === null) {
+      // Dates holding only forecast have no whole period, so their first step goes on the map
+      if (!this.past && this.frames.length) void this.go(0);
+      return;
+    }
+    if (!this.frames.length) {
+      void this.host.show(null);
+      return;
+    }
+    // A forecast step on the map stays in the forecast, on the step holding its start or else the last one
+    const first = keep.lead && this.frames.length > this.past ? this.past : 0;
+    const i = this.frames.findIndex((f, k) => k >= first && f.to >= keep.from);
+    this.current = i >= 0 ? i : keep.lead ? this.frames.length - 1 : 0;
     this.sync();
     void this.host.show(this.frames[this.current]);
   }
 
+  /**
+   * Steps of the selected dates: observed ones up to the record's end, then the forecast steps after it. The track
+   * ends with the interval's forecast; selected dates running past it are cut to it and handed back to the page.
+   */
   private setFrames(interval: Interval): void {
     this.interval = interval;
-    this.frames = timeFrames(fromDay(this.range[0]), fromDay(this.range[1]), interval);
+    const end = this.endOf(interval);
+    if (end !== this.axB) this.setEnd(end);
+    if (this.range[1] > end) {
+      this.range = [Math.min(this.range[0], end), end];
+      const [a, b] = this.range.map(fromDay);
+      // After the current update, so the page is not asked to update while it is updating
+      window.setTimeout(() => this.host.pick(a, b));
+    }
+    const [a, b] = this.range;
+    const past = a <= this.recB ? timeFrames(fromDay(a), fromDay(Math.min(b, this.recB)), interval) : [];
+    const future = (this.outlook[interval] ?? []).filter((f) => toDay(f.to) >= a && Math.max(toDay(f.from), this.recB + 1) <= b);
+    this.frames = [...past, ...future];
+    this.past = past.length;
     this.prepared = null;
-    this.status.textContent = "";
+    const all = this.outlook[interval] ?? [];
+    this.status.textContent = this.frames.length || !all.length
+      ? ""
+      : `The ${interval} forecast runs from ${all[0].label} to ${all[all.length - 1].label}; pick earlier dates or a longer step.`;
+    this.drawStrip();
     this.sync();
   }
 
@@ -193,8 +350,9 @@ export class Timeline {
     return this.host.show(this.frames[this.current]);
   }
 
-  /** Back to the whole selected period. */
+  /** Back to the whole selected period; dates holding only forecast have no whole period to show. */
   private clear(): void {
+    if (!this.past) return;
     this.pause();
     this.current = null;
     this.sync();
@@ -244,7 +402,7 @@ export class Timeline {
 
   /** Position of the start of a day along the track, from 0 to 1. */
   private frac(day: number): number {
-    return (day - this.recA) / (this.recB - this.recA + 1);
+    return (day - this.recA) / (this.axB - this.recA + 1);
   }
 
   /** Index of the month holding a day, counted from the record's first month. */
@@ -253,16 +411,16 @@ export class Timeline {
     return p.year * 12 + p.month - this.m0;
   }
 
-  /** First and last day of a run of months, cut to the record. */
+  /** First and last day of a run of months, cut to the track. */
   private monthDays(first: number, last: number): [number, number] {
     const start = (i: number) => monthStart(Math.floor((this.m0 + i) / 12), (this.m0 + i) % 12);
-    return [Math.max(this.recA, start(first)), Math.min(this.recB, start(last + 1) - 1)];
+    return [Math.max(this.recA, start(first)), Math.min(this.axB, start(last + 1) - 1)];
   }
 
   /** Index of the step under a pointer on the track, clamped to the first or last step. */
   private stepAt(clientX: number): number {
     const r = this.track.getBoundingClientRect();
-    const date = fromDay(this.recA + Math.floor(((clientX - r.left) / r.width) * (this.recB - this.recA + 1)));
+    const date = fromDay(this.recA + Math.floor(((clientX - r.left) / r.width) * (this.axB - this.recA + 1)));
     const i = this.frames.findIndex((f) => f.to >= date);
     return i < 0 ? this.frames.length - 1 : i;
   }
@@ -354,7 +512,7 @@ export class Timeline {
     this.brush.querySelectorAll<HTMLElement>(".tl-handle").forEach((h) => {
       const day = h.dataset.end === "a" ? a : b;
       h.setAttribute("aria-valuemin", String(this.recA));
-      h.setAttribute("aria-valuemax", String(this.recB));
+      h.setAttribute("aria-valuemax", String(this.axB));
       h.setAttribute("aria-valuenow", String(day));
       h.setAttribute("aria-valuetext", formatDay(day));
     });
@@ -384,6 +542,11 @@ export class Timeline {
       btn.title = `${which} ${unit}`;
     }
     this.now.hidden = !frame;
-    this.nowLabel.textContent = frame ? frame.label : "";
+    this.now.classList.toggle("is-forecast", !!frame?.lead);
+    this.nowLabel.textContent = frame ? (frame.lead ? `Forecast \u00b7 ${frame.label}` : frame.label) : "";
+    if (frame?.lead) this.nowLabel.title = forecastTip(frame);
+    else this.nowLabel.removeAttribute("title");
+    this.nowLabel.removeAttribute("data-tip");
+    this.clearBtn.hidden = !this.past;
   }
 }

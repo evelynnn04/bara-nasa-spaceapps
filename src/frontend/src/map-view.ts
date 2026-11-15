@@ -1,9 +1,9 @@
 import { AttributionControl, GeoJSONSource, LngLatBounds, Map as MLMap, Marker, NavigationControl, Popup, setWorkerUrl, type ExpressionSpecification, type FilterSpecification, type MapMouseEvent, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
-import type { CellsResponse } from "./api";
-import { RAMPS, quantileBreaks, type RampName } from "./ramps";
-import { UNIT_SHORT, escapeXml, fmtInt, fmtVal } from "./format";
+import type { CellsResponse, OutlookCells } from "./api";
+import { CHANCE_BREAKS, RAMPS, quantileBreaks, type RampName } from "./ramps";
+import { UNIT_SHORT, escapeXml, fmtChance, fmtInt, fmtVal } from "./format";
 import type { BBox, LngLat } from "./types";
 
 /** Map chrome colours. Keep in step with the tokens in style.css. */
@@ -68,6 +68,8 @@ export class MapView {
   breaks: number[] = [0];
   /** Side of the delivered cells in degrees (0.05, or 0.25 for an unusually large layer). */
   private resDeg = 0.05;
+  /** What the cells show: observed hotspots, or forecast chances of fire (with the period they are for). */
+  private forecast: { label: string } | null = null;
   private polygon: LngLat[] | null = null;
   private outlineIds: string[] = [];
   private draft: LngLat[] = [];
@@ -80,6 +82,7 @@ export class MapView {
   /** Ids of the coastline layers traced from the basemap's sea, shown while an area is selected. */
   private coastLayers: string[] = [];
   private callout: Marker | null = null;
+  private readonly credits = new Map<string, string>();
   private readonly popup = new Popup({ closeButton: false, closeOnClick: false, className: "hs-popup", offset: 8 });
 
   constructor(el: HTMLElement, private readonly cb: MapCallbacks) {
@@ -169,18 +172,30 @@ export class MapView {
    */
   setCells(c: CellsResponse | null, breaks?: number[]): void {
     const cells = c?.cells;
+    this.forecast = null;
     this.resDeg = c?.res_deg ?? 0.05;
-    const h = this.resDeg / 2;
     this.breaks = breaks ?? (cells ? quantileBreaks(cells.value, RAMPS[this.ramp].steps.length) : [0]);
+    this.drawCells(cells?.lon ?? [], cells?.lat ?? [], (i) => ({
+      value: cells!.value[i], modis: cells!.modis_px[i], viirs: cells!.viirs_px[i], frp: cells!.frp_max[i],
+    }));
+  }
+
+  /**
+   * Shows the forecast chance of fire per cell for one lead, in the palette's ramp with the fixed chance classes.
+   * `label` names the day, month or year it is for; the popup marks it as a forecast.
+   */
+  setOutlook(c: OutlookCells, label: string): void {
+    this.forecast = { label };
+    this.resDeg = c.grid_deg;
+    this.breaks = CHANCE_BREAKS;
+    this.drawCells(c.cells.lon, c.cells.lat, (i) => ({ value: c.cells.chance[i] }));
+  }
+
+  private drawCells(lon: number[], lat: number[], props: (i: number) => GeoJSON.GeoJsonProperties): void {
+    const h = this.resDeg / 2;
     this.hotspots = {
       type: "FeatureCollection",
-      features: cells
-        ? cells.value.map((value, i) => ({
-            type: "Feature",
-            geometry: { type: "Polygon", coordinates: [cellRing(cells.lon[i], cells.lat[i], h)] },
-            properties: { value, modis: cells.modis_px[i], viirs: cells.viirs_px[i], frp: cells.frp_max[i] },
-          }))
-        : [],
+      features: lon.map((x, i) => ({ type: "Feature", geometry: { type: "Polygon", coordinates: [cellRing(x, lat[i], h)] }, properties: props(i) })),
     };
     this.source("hotspots")?.setData(this.hotspots);
     this.syncCellPaint();
@@ -297,7 +312,7 @@ export class MapView {
     return this.map.getSource<GeoJSONSource>(id);
   }
 
-  /** Step expression colouring cells by harmonised value with the active ramp (one colour while there are no classes). */
+  /** Step expression colouring cells by value (hotspots or chance) with the active ramp (one colour while there are no classes). */
   private colorExpr(): string | ["step", ["get", string], string, ...(string | number)[]] {
     const steps = RAMPS[this.ramp].steps;
     const offset = steps.length - this.breaks.length;
@@ -318,6 +333,25 @@ export class MapView {
         this.map.setPaintProperty(layer.id, "text-halo-color", MAP.background);
       }
     }
+  }
+
+  /**
+   * Adds a line to the map credits (the info icon). MapLibre lists the credit of every source a layer draws from, so
+   * the credit rides on an empty source with an invisible layer, added again whenever the style reloads.
+   */
+  addCredit(id: string, html: string): void {
+    if (!html || this.credits.has(id)) return;
+    this.credits.set(id, html);
+    // The style can be briefly busy after it first loaded, so wait for the map to settle rather than for "load"
+    const install = () => (this.map.isStyleLoaded() ? this.installCredit(id, html) : this.map.once("idle", install));
+    install();
+  }
+
+  private installCredit(id: string, html: string): void {
+    const m = this.map;
+    if (m.getSource(id)) return;
+    m.addSource(id, { type: "geojson", data: EMPTY, attribution: html });
+    m.addLayer({ id, type: "line", source: id, paint: { "line-opacity": 0 } });
   }
 
   private installLayers(): void {
@@ -372,10 +406,10 @@ export class MapView {
       }
       const p = f.properties as { value: number; modis: number; viirs: number; frp: number };
       m.getCanvas().style.cursor = "pointer";
-      this.popup
-        .setLngLat(e.lngLat)
-        .setHTML(`<strong>${fmtVal(p.value)} ${UNIT_SHORT}</strong> in this ${this.resDeg}° cell<br>Raw hotspots: VIIRS ${fmtInt(p.viirs)} &middot; MODIS ${fmtInt(p.modis)}<br>Highest fire radiative power ${p.frp} MW`)
-        .addTo(m);
+      const html = this.forecast
+        ? `<strong>${fmtChance(p.value)} chance of fire</strong> in this ${this.resDeg}° cell<br>${escapeXml(this.forecast.label)}<br>Forecast, not observed data`
+        : `<strong>${fmtVal(p.value)} ${UNIT_SHORT}</strong> in this ${this.resDeg}° cell<br>Raw hotspots: VIIRS ${fmtInt(p.viirs)} &middot; MODIS ${fmtInt(p.modis)}<br>Highest fire radiative power ${p.frp} MW`;
+      this.popup.setLngLat(e.lngLat).setHTML(html).addTo(m);
     });
     m.on("mouseleave", "hotspots", () => {
       if (!this.drawing) m.getCanvas().style.cursor = "";
@@ -383,6 +417,7 @@ export class MapView {
     });
     this.syncPolygon();
     this.syncDraft();
+    for (const [id, html] of this.credits) this.installCredit(id, html);
   }
 
   /**

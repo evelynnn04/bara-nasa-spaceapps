@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultInterval, labelledTicks, stepShare, timeFrames } from "./timeline";
+import { defaultInterval, labelledTicks, outlookFrames, stepShare, timeFrames } from "./timeline";
 
 describe("defaultInterval", () => {
   it("opens in days, months or years by the length of the selected dates", () => {
@@ -52,5 +52,15 @@ describe("stepShare", () => {
     expect(stepShare({ interval: "month", from: "2015-09-16", to: "2015-09-30", label: "", tick: "" })).toBeCloseTo(0.5);
     expect(stepShare({ interval: "year", from: "2016-01-01", to: "2016-06-30", label: "", tick: "" })).toBeCloseTo(182 / 366);
     expect(stepShare({ interval: "day", from: "2015-09-16", to: "2015-09-16", label: "", tick: "" })).toBe(1);
+  });
+});
+
+describe("outlookFrames", () => {
+  it("covers the whole target day, month or year of each lead and keeps its lead and label", () => {
+    expect(outlookFrames("day", [{ lead: 1, target: "2026-11-15", label: "forecast" }])).toEqual([
+      { interval: "day", from: "2026-11-15", to: "2026-11-15", label: "15 Nov 2026", tick: "15 Nov", lead: 1, outlook: "forecast" },
+    ]);
+    expect(outlookFrames("month", [{ lead: 3, target: "2027-02", label: "seasonal" }])[0]).toMatchObject({ from: "2027-02-01", to: "2027-02-28", label: "Feb 2027", lead: 3 });
+    expect(outlookFrames("year", [{ lead: 1, target: "2027", label: "baseline" }])[0]).toMatchObject({ from: "2027-01-01", to: "2027-12-31", label: "2027", outlook: "baseline" });
   });
 });

@@ -103,6 +103,8 @@ def test_endpoints(tmp_path, monkeypatch):
     every = client.get("/api/outlook/cells?step=month&lead=1&min_chance=0").json()
     assert few["count"] <= every["count"] and few["expected_cells"] == every["expected_cells"] == cells["expected_cells"]
     assert every["expected_cells"] == pytest.approx(sum(every["cells"]["chance"]), abs=0.01)
+    expected = client.get("/api/outlook/expected?step=month&area=idn-riau").json()["expected_cells"]
+    assert len(expected) == outlook.MONTH_LEADS and expected[0] == cells["expected_cells"]
     assert client.get("/api/outlook/cells?step=year&lead=6").status_code == 400
     assert client.get("/api/outlook/cells?step=week").status_code == 422
     api.configure(None, None)

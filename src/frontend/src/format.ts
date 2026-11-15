@@ -22,6 +22,12 @@ export function fmtCompact(n: number): string {
   return `${k < 10 ? k.toFixed(1).replace(/\.0$/, "") : Math.round(k)}k`;
 }
 
+/** A chance from 0 to 1 as a percentage: whole percents from 10 % up, else one decimal (0.4%, 3.5%, 62%). */
+export function fmtChance(p: number): string {
+  const pct = p * 100;
+  return `${pct >= 10 ? Math.round(pct) : Math.round(pct * 10) / 10}%`;
+}
+
 /** Signed percentage, or an en dash when there is nothing to compare with. */
 export function fmtPct(p: number | null): string {
   if (p === null || !Number.isFinite(p)) return "–";

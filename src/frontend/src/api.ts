@@ -1,4 +1,6 @@
+import type { Attribution, AttributionInfo, Cause } from "./attribution";
 import { toDay } from "./dates";
+import type { Interval, OutlookLead } from "./timeline";
 import type { DayNight, Filters, Hotspots } from "./types";
 
 /** Base URL of the backend; empty means the same origin (the dev server proxies `/api`). */
@@ -112,6 +114,45 @@ export interface FireEvent {
   bbox: [number, number, number, number];
   regency_id: string | null;
   province_id: string | null;
+  /** Likely cause; null when the attribution has not been built, absent from older backends. */
+  attribution?: Attribution | null;
+}
+
+export interface EventsResponse {
+  events: FireEvent[];
+  /** null when the attribution has not been built. */
+  attribution_disclaimer?: string | null;
+}
+
+/** The forecast timeline of one step size: the issue date and, per lead, its target and trust label. */
+export interface OutlookTimeline {
+  step: Interval;
+  unit: string;
+  /** Last data day, last complete month (`YYYY-MM`) or year of the last data day. */
+  issued: string;
+  /** First and last complete year the chances were counted on. */
+  estimated_on: [number, number];
+  leads: OutlookLead[];
+}
+
+/** Cells with fire expected over an area at every lead of one step size, lead 1 first. */
+export interface OutlookExpected {
+  step: Interval;
+  issued: string;
+  expected_cells: number[];
+}
+
+/** The fire outlook of one lead over an area: per 0.05 degree cell, the chance that it holds fire. */
+export interface OutlookCells {
+  step: Interval;
+  lead: number;
+  target: string;
+  issued: string;
+  grid_deg: number;
+  /** Sum of the chances over the area, also of cells left out below `min_chance`. */
+  expected_cells: number;
+  count: number;
+  cells: { lon: number[]; lat: number[]; chance: number[] };
 }
 
 /** Daily harmonised values over the record; unobserved days are 0 in `daily` and 1 in `missing`. */
@@ -204,6 +245,8 @@ export interface Counting {
 export class Api {
   private readonly seriesCache = new Map<string, Promise<DailySeries>>();
   private readonly agreementCache = new Map<string, Promise<AgreementResponse>>();
+  private readonly expectedCache = new Map<string, Promise<OutlookExpected>>();
+  private attributionInfo: Promise<AttributionInfo> | null = null;
 
   meta(): Promise<Meta> {
     return getJson("meta", {});
@@ -228,8 +271,44 @@ export class Api {
     return getJson("cells/scale", { ...areaParams(f), interval, ...c });
   }
 
-  events(f: Filters, hotspots: Hotspots, signal?: AbortSignal, limit = 5): Promise<{ events: FireEvent[] }> {
-    return getJson("events", { ...areaParams(f), from: f.start, to: f.end, hotspots, limit: String(limit) }, signal);
+  events(f: Filters, hotspots: Hotspots, signal?: AbortSignal, limit = 5, cause: Cause | null = null): Promise<EventsResponse> {
+    const params: Record<string, string> = { ...areaParams(f), from: f.start, to: f.end, hotspots, limit: String(limit) };
+    if (cause) params.cause = cause;
+    return getJson("events", params, signal);
+  }
+
+  /**
+   * How causes are attributed, with labels and citations. Reads as not available when the request fails or takes
+   * longer than 8 s, so the events never wait on it; a failure is not kept, the next call asks again.
+   */
+  attribution(): Promise<AttributionInfo> {
+    if (!this.attributionInfo) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 8000);
+      this.attributionInfo = getJson<AttributionInfo>("attribution", {}, ctl.signal)
+        .finally(() => clearTimeout(timer))
+        .catch((): AttributionInfo => {
+          this.attributionInfo = null;
+          return { available: false, disclaimer: null, categories: [], sources: {} };
+        });
+    }
+    return this.attributionInfo;
+  }
+
+  /** The forecast timeline of one step size; it fails with the API's message while the outlook is not built. */
+  outlook(step: Interval): Promise<OutlookTimeline> {
+    return getJson("outlook", { step });
+  }
+
+  /** Cells with fire expected over the area at every forecast lead of one step size. */
+  outlookExpected(f: Filters, step: Interval): Promise<OutlookExpected> {
+    const params = { ...areaParams(f), step };
+    return this.cached(this.expectedCache, params, () => getJson<OutlookExpected>("outlook/expected", params));
+  }
+
+  /** Chance of fire per cell of the area for one forecast lead, leaving out cells under 1 %. */
+  outlookCells(f: Filters, step: Interval, lead: number, signal?: AbortSignal): Promise<OutlookCells> {
+    return getJson("outlook/cells", { ...areaParams(f), step, lead: String(lead) }, signal);
   }
 
   /**
