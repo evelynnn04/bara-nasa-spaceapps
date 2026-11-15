@@ -20,7 +20,7 @@ import { RegionIndex, loadBoundaries, regionsFromBoundaries, unionBBox, type Bou
 import { initCards, measureInsets } from "./screen";
 import { select, type Selection } from "./store";
 import { Timeline } from "./time-slider";
-import type { Frame, Interval } from "./timeline";
+import { stepShare, type Frame, type Interval } from "./timeline";
 import type { DayNight, Filters, Hotspots, SelectionMode } from "./types";
 import { readUrlState, writeUrlState, type ViewState } from "./url-state";
 
@@ -157,13 +157,16 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   /**
    * Shows a status line under the download button. Confirmations fade out after a reading time
    * (5 s plus 60 ms per character, at most 12 s) that pauses while the pointer is over the note;
-   * errors stay until the next note. `loadError` marks a failed data load, cleared on the next update.
+   * notes marked `error` (errors, and "Preparing…" while it is true) stay until the next note.
+   * `loadError` marks a failed data load, cleared on the next update.
    */
   function setNote(text: string, opts: { error?: boolean; loadError?: boolean } = {}): void {
     const note = $("#dl-note");
     window.clearTimeout(noteTimer);
     note.classList.remove("is-fading");
     note.textContent = text;
+    note.onmouseenter = null;
+    note.onmouseleave = null;
     if (opts.loadError) note.dataset.loadError = "true";
     else delete note.dataset.loadError;
     if (!text || opts.error || opts.loadError) return;
@@ -333,7 +336,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       try {
         const [c, q] = await Promise.all([stepCells(frame), stepQuantiles(frame.interval)]);
         // Without the record's scale the step falls back to quantiles of its own cells
-        const breaks = q?.length ? breaksFrom(q, RAMPS[ramp].steps.length) : undefined;
+        const share = stepShare(frame);
+        const breaks = q?.length ? breaksFrom(q.map((v) => v * share), RAMPS[ramp].steps.length) : undefined;
         if (g === generation && wantedFrame === frame) showCells(c, frame, breaks);
       } catch (err) {
         if (g !== generation || (err as Error).name === "AbortError") return;
@@ -443,15 +447,26 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     }
   });
 
-  $("#dl-detections").addEventListener("click", (e) => {
-    pulse(e.currentTarget as HTMLButtonElement);
-    const a = document.createElement("a");
-    a.href = api.detectionsUrl(filters, counting());
-    a.download = "";
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setNote("Downloading the raw detections. A long period takes a moment to start.");
+  $("#dl-detections").addEventListener("click", async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    pulse(btn);
+    btn.disabled = true;
+    setNote("Preparing the raw detections…", { error: true });
+    try {
+      // The browser streams the file to disk itself; this first check only catches a refusal from the API
+      await api.checkDetections(filters, counting());
+      const a = document.createElement("a");
+      a.href = api.detectionsUrl(filters, counting());
+      a.download = "";
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setNote("Downloading the raw detections. A long period takes a moment to start.");
+    } catch (err) {
+      setNote(`Could not save the raw detections: ${(err as Error).message}`, { error: true });
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   /** Frames the selected areas (or every area) between the floating cards. */

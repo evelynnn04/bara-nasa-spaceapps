@@ -1,4 +1,4 @@
-import { MONTHS, formatDay, fromDay, monthStart, parts, toDay } from "./dates";
+import { MONTHS, daysInMonth, formatDay, fromDay, monthStart, parts, toDay } from "./dates";
 
 /** Length of one step of the map timeline. */
 export type Interval = "day" | "month" | "year";
@@ -68,4 +68,16 @@ export function labelledTicks(count: number, max: number): number[] {
   if (count - 1 - out[out.length - 1] < every / 2) out.pop();
   out.push(count - 1);
   return out;
+}
+
+/**
+ * Share of a full step that a step covers: below 1 only for a first or last step clipped to the
+ * picked dates (the second half of a month covers about 0.5). The record's colour scale is for full
+ * steps, so it is scaled by this share to colour a partial step by the same rate.
+ */
+export function stepShare(f: Frame): number {
+  if (f.interval === "day") return 1;
+  const p = parts(toDay(f.from));
+  const full = f.interval === "month" ? daysInMonth(p.year, p.month) : toDay(`${p.year + 1}-01-01`) - toDay(`${p.year}-01-01`);
+  return Math.min(1, (toDay(f.to) - toDay(f.from) + 1) / full);
 }

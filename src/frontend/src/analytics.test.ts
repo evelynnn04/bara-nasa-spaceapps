@@ -84,9 +84,11 @@ describe("anomalies", () => {
     expect(a.verdicts[a.labels.indexOf("2015")]).toBe("unusual");
     expect(a.unusual[a.labels.indexOf("2015")]).toBe(true);
     expect(a.verdicts[a.labels.indexOf("2013")]).not.toBe("unusual");
-    // The reference lines are the average and median over every year
-    expect(a.mean[0]).toBeCloseTo((60 + 60 + 60 + 300) / 4);
+    // Each point's references leave out its own year
+    expect(a.mean[0]).toBeCloseTo((60 + 60 + 300) / 3);
     expect(a.median[0]).toBe(60);
+    // Never unusual inside its own usual range
+    a.values.forEach((v, i) => expect(a.unusual[i]).toBe(v > a.threshold[i] && v > 0));
   });
 
   it("reads each month of a year against the same month in other years", () => {

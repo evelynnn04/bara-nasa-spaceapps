@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultInterval, labelledTicks, timeFrames } from "./timeline";
+import { defaultInterval, labelledTicks, stepShare, timeFrames } from "./timeline";
 
 describe("defaultInterval", () => {
   it("opens in days, months or years by the length of the selected dates", () => {
@@ -43,5 +43,14 @@ describe("labelledTicks", () => {
     expect(labelledTicks(25, 6)).toEqual([0, 5, 10, 15, 20, 24]);
     expect(labelledTicks(23, 6)).toEqual([0, 5, 10, 15, 22]);
     expect(labelledTicks(0, 6)).toEqual([]);
+  });
+});
+
+describe("stepShare", () => {
+  it("is 1 for whole steps and the covered part for clipped ones", () => {
+    expect(stepShare({ interval: "month", from: "2015-09-01", to: "2015-09-30", label: "", tick: "" })).toBe(1);
+    expect(stepShare({ interval: "month", from: "2015-09-16", to: "2015-09-30", label: "", tick: "" })).toBeCloseTo(0.5);
+    expect(stepShare({ interval: "year", from: "2016-01-01", to: "2016-06-30", label: "", tick: "" })).toBeCloseTo(182 / 366);
+    expect(stepShare({ interval: "day", from: "2015-09-16", to: "2015-09-16", label: "", tick: "" })).toBe(1);
   });
 });

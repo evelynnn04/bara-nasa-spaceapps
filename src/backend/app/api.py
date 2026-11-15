@@ -631,42 +631,49 @@ def detections_csv(area: Area = Depends(area_param), span: tuple[dt.date, dt.dat
     a presumed vegetation fire (type 0, or an untyped near-real-time hotspot off the static-source
     mask); with `all`, every hotspot. Whether it enters the harmonised record also depends on its
     satellite being the record satellite of the day. Any period is accepted, and every matching
-    row is sent, streamed in chunks as it is read."""
+    row is sent. Rows are read and sorted one calendar month at a time and streamed as they are
+    written, so memory stays at about one month of detections however long the period is."""
     cur = cursor()
     if not store.has(cur, "detections", "static_mask"):
         raise HTTPException(503, "Normalised detections are missing. Run `python -m app normalise` first.")
     cx, cy = cell_expr()
     half = {"all": "TRUE", "day": "c.daynight = 'D'", "night": "c.daynight = 'N'"}[daynight]
     counted = f"coalesce({qualifying_sql('c')}, FALSE)" if hotspots == "vegetation" else "TRUE"
-    source = f"""
-        FROM (SELECT d.*, {cx} AS cx, {cy} AS cy FROM detections d
-              WHERE d.local_date BETWEEN DATE '{span[0]}' AND DATE '{span[1]}') c
-        LEFT JOIN cells k ON k.cx = c.cx AND k.cy = c.cy
-        LEFT JOIN static_mask m ON m.mx = CAST(floor(c.lon / {MASK_RES}) AS INTEGER)
-                               AND m.my = CAST(floor(c.lat / {MASK_RES}) AS INTEGER)
-        WHERE {half} AND ({area.where(cur)})
-    """
-    res = cur.execute(f"""
-        SELECT strftime(c.acq_utc, '%Y-%m-%dT%H:%MZ'), c.local_date, c.lon, c.lat, c.sensor, c.platform,
-               c.daynight, round(CAST(c.frp AS DOUBLE), 2), c.confidence, c.type, c.version, c.source,
-               CAST({counted} AS VARCHAR), c.cx, c.cy, k.province_id, k.regency_id
-        {source}
-        ORDER BY c.acq_utc, c.platform, c.lon, c.lat
-    """)
+    where = area.where(cur)
+
+    def month_sql(a: dt.date, b: dt.date) -> str:
+        return f"""
+            SELECT strftime(c.acq_utc, '%Y-%m-%dT%H:%MZ'), c.local_date, c.lon, c.lat, c.sensor, c.platform,
+                   c.daynight, round(CAST(c.frp AS DOUBLE), 2), c.confidence, c.type, c.version, c.source,
+                   CAST({counted} AS VARCHAR), c.cx, c.cy, k.province_id, k.regency_id
+            FROM (SELECT d.*, {cx} AS cx, {cy} AS cy FROM detections d
+                  WHERE d.local_date BETWEEN DATE '{a}' AND DATE '{b}') c
+            LEFT JOIN cells k ON k.cx = c.cx AND k.cy = c.cy
+            LEFT JOIN static_mask m ON m.mx = CAST(floor(c.lon / {MASK_RES}) AS INTEGER)
+                                   AND m.my = CAST(floor(c.lat / {MASK_RES}) AS INTEGER)
+            WHERE {half} AND ({where})
+            ORDER BY c.acq_utc, c.platform, c.lon, c.lat
+        """
+
+    def months() -> Iterator[tuple[dt.date, dt.date]]:
+        a = span[0]
+        while a <= span[1]:
+            nxt = (a.replace(day=1) + dt.timedelta(days=32)).replace(day=1)
+            yield a, min(span[1], nxt - dt.timedelta(days=1))
+            a = nxt
 
     def lines() -> Iterator[str]:
         buf = io.StringIO()
         out = csv.writer(buf)
         out.writerow(CSV_COLUMNS)
-        chunk = res.fetchmany(5000)
-        while True:
-            yield buf.getvalue()
-            buf.seek(0)
-            buf.truncate()
-            if not chunk:
-                return
-            out.writerows(chunk)
-            chunk = res.fetchmany(5000)
+        yield buf.getvalue()
+        for a, b in months():
+            res = cur.execute(month_sql(a, b))
+            while chunk := res.fetchmany(5000):
+                buf.seek(0)
+                buf.truncate()
+                out.writerows(chunk)
+                yield buf.getvalue()
 
     name = f"detections_{span[0]}_{span[1]}.csv"
     return StreamingResponse(lines(), media_type="text/csv; charset=utf-8",

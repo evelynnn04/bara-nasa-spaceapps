@@ -211,6 +211,21 @@ export class Api {
     return apiUrl("detections.csv", { ...areaParams(f), from: f.start, to: f.end, ...c });
   }
 
+  /**
+   * Asks for the raw detections and stops once the response starts, throwing the API's message when it
+   * refuses (a bad area, missing data), so the page can report it before starting the real download.
+   */
+  async checkDetections(f: Filters, c: Counting): Promise<void> {
+    const ctl = new AbortController();
+    const res = await fetch(this.detectionsUrl(f, c), { signal: ctl.signal });
+    if (res.ok) {
+      ctl.abort();
+      return;
+    }
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${res.status}`);
+  }
+
   private cached<T>(cache: Map<string, Promise<T>>, params: Record<string, string>, load: () => Promise<T>): Promise<T> {
     const key = new URLSearchParams(params).toString();
     let hit = cache.get(key);

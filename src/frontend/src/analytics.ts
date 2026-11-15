@@ -212,24 +212,22 @@ function leaveOneOut(values: number[]): { mean: number; median: number; threshol
 }
 
 /**
- * One calendar month in every year of the record. The reference lines are the average and median
- * over all years; each year's reading compares it with the other years (leave one out).
+ * One calendar month in every year of the record, each year against the other years (leave one out).
+ * The average, median and usual range at each point are that year's references, the same ones its
+ * reading uses, so a point drawn inside the usual range is never called unusual.
  */
 export function anomalyForMonth(s: Series, month: number): AnomalyResult {
   const years = recordYears(s);
   const values = years.map((y) => monthCount(s, y, month));
   const refs = leaveOneOut(values);
-  const mu = mean(values);
-  const med = median(values);
-  const thr = mu + UNUSUAL_SD * std(values);
   return {
     kind: "month",
     title: `${MONTHS[month]} in every year`,
     labels: years.map(String),
     values,
-    mean: values.map(() => mu),
-    median: values.map(() => med),
-    threshold: values.map(() => thr),
+    mean: refs.map((r) => r.mean),
+    median: refs.map((r) => r.median),
+    threshold: refs.map((r) => r.threshold),
     unusual: values.map((v, i) => v > refs[i].threshold && v > 0),
     verdicts: values.map((v, i) => verdictFor(v, refs[i].median, refs[i].threshold)),
   };

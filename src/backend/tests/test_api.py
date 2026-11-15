@@ -237,7 +237,11 @@ def test_csv_reports_zero_rows_when_nothing_matches(client):
 
 def test_csv_accepts_periods_longer_than_a_year(client):
     res = client.get("/api/detections.csv?from=2014-01-01&to=2016-06-01&area=idn-riau")
-    assert res.status_code == 200 and len(res.text.strip().splitlines()) > 1
+    lines = res.text.strip().splitlines()
+    assert res.status_code == 200 and len(lines) > 1
+    # Read a month at a time, the rows still come out in time order across month boundaries
+    times = [line.split(",")[0] for line in lines[1:]]
+    assert times == sorted(times)
 
 
 @pytest.mark.parametrize("url", ["/api/series?area=nope", "/api/series?poly=1,2;3,4",
