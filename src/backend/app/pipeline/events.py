@@ -12,6 +12,9 @@ Descriptors per event:
 - **intensity:** harmonised hotspots, raw hotspots, maximum hotspot fire radiative power.
 
 Events are built once per hotspot type setting (column `hotspots`), each from its own record.
+
+`event_cells.parquet` lists the cells of every event with their harmonised hotspots summed over the
+event's days (columns hotspots, event, cx, cy, w), for the cause attribution (`app.attribution`).
 """
 
 from __future__ import annotations
@@ -35,6 +38,10 @@ NEIGHBOURS = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)]
 
 def events_path() -> Path:
     return config.derived_dir() / "events.parquet"
+
+
+def event_cells_path() -> Path:
+    return config.derived_dir() / "event_cells.parquet"
 
 
 def label(rows: list[tuple[dt.date, int, int]]) -> list[int]:
@@ -67,13 +74,18 @@ def label(rows: list[tuple[dt.date, int, int]]) -> list[int]:
     return [ids.setdefault(find(i), len(ids)) for i in range(len(rows))]
 
 
-def build(con: duckdb.DuckDBPyConnection, dest: Path) -> dict[str, int]:
+def build(con: duckdb.DuckDBPyConnection, dest: Path, cells_dest: Path | None = None) -> dict[str, int]:
     """Labels the record's active cell-days of every hotspot type setting and writes one row per
-    event; returns the event count per setting."""
+    event, plus the cells of every event to `cells_dest` when given; returns the event count per
+    setting."""
     counts = {h: _label_setting(con, h, dest) for h in weights.HOTSPOTS}
     union = " UNION ALL ".join(f"SELECT '{h}' AS hotspots, * FROM events_{h}" for h in weights.HOTSPOTS)
     con.execute(f"COPY ({union} ORDER BY hotspots, harmonised DESC) TO {quote(str(dest))} "
                 "(FORMAT parquet, COMPRESSION zstd)")
+    if cells_dest is not None:
+        union = " UNION ALL ".join(f"SELECT '{h}' AS hotspots, * FROM event_cells_{h}" for h in weights.HOTSPOTS)
+        con.execute(f"COPY ({union} ORDER BY hotspots, event, cx, cy) TO {quote(str(cells_dest))} "
+                    "(FORMAT parquet, COMPRESSION zstd)")
     return counts
 
 
@@ -127,6 +139,8 @@ def _label_setting(con: duckdb.DuckDBPyConnection, hotspots: str, dest: Path) ->
                    regency.regency_id, province.province_id
             FROM e JOIN peak USING (event) JOIN regency USING (event) JOIN province USING (event)
     """)
+    con.execute(f"CREATE OR REPLACE TEMP TABLE event_cells_{hotspots} AS "
+                "SELECT event, cx, cy, sum(w) AS w FROM labelled GROUP BY ALL")
     tmp.unlink()
     return con.execute(f"SELECT count(*) FROM events_{hotspots}").fetchone()[0]
 
@@ -134,4 +148,4 @@ def _label_setting(con: duckdb.DuckDBPyConnection, hotspots: str, dest: Path) ->
 def run() -> None:
     """Rebuilds `events.parquet` from the harmonised record."""
     con = store.connect(weights.load_params())
-    log.info("fire events: %s", build(con, events_path()))
+    log.info("fire events: %s", build(con, events_path(), event_cells_path()))
