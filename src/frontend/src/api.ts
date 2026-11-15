@@ -60,6 +60,8 @@ export interface Meta {
   default_hotspots: Hotspots;
   verdict: string;
   settings: Partial<Record<Hotspots, SettingMeta>>;
+  /** When the tables were last replaced by an update and each stream last fetched (UTC); null for data built by hand. */
+  data: { updated: string | null; fetched: Record<string, string> | null } | null;
 }
 
 export interface SeriesResponse {

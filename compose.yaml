@@ -12,3 +12,18 @@ services:
       timeout: 3s
       retries: 3
     restart: unless-stopped
+
+  # Keeps the data current: `docker compose --profile refresh up`. Every hour it downloads the
+  # recent FIRMS data, rebuilds the tables and publishes them; `app` notices and reloads. It needs
+  # FIRMS_MAP_KEY (from `.env` or the shell) and writes to `./data` as your own user, so files stay
+  # yours: put HOST_UID and HOST_GID (`id -u`, `id -g`) in `.env` if they are not 1000.
+  updater:
+    build: .
+    profiles: ["refresh"]
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    command: ["python", "-m", "app", "update", "--every", "60"]
+    environment:
+      FIRMS_MAP_KEY: ${FIRMS_MAP_KEY:-}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

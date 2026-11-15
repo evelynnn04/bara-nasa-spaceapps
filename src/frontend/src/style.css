@@ -1921,6 +1921,35 @@ body:has(.card-dialog[open]) {
   display: none;
 }
 
+/* Newer data has arrived: its own line, so other notes never replace it */
+.data-notice {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: min(720px, calc(100vw - 2 * var(--edge)));
+  margin: 0;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+  color: var(--ink);
+  font-size: var(--fs-small);
+}
+
+.data-notice[hidden] {
+  display: none;
+}
+
+.data-notice:not([hidden]) ~ .dl-note {
+  top: calc(100% + 52px);
+}
 
 /* Smaller screens: the stage stacks */
 
@@ -1986,6 +2015,12 @@ body:has(.card-dialog[open]) {
 
   .dl-note {
     grid-area: 3 / 1;
+    justify-self: end;
+    position: static;
+  }
+
+  .data-notice {
+    grid-area: 4 / 1;
     justify-self: end;
     position: static;
   }

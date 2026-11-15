@@ -41,6 +41,10 @@
         <button type="button" class="pill" id="dl-detections" aria-label="Download raw detections CSV" title="Every satellite detection in the selected area and dates, with its source">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>CSV
         </button>
+        <p class="data-notice" id="data-notice" role="status" aria-live="polite" hidden>
+          <span id="data-notice-text"></span>
+          <button type="button" class="pill pill-xs" id="data-notice-reload">Reload</button>
+        </p>
         <p class="dl-note" id="dl-note" role="status" aria-live="polite"></p>
       </div>
     </header>

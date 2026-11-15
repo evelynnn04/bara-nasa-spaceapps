@@ -202,18 +202,36 @@ def build_static_mask(con: duckdb.DuckDBPyConnection, glob: str | None = None) -
     return con.execute(f"SELECT count(*) FROM read_parquet({quote(str(path))})").fetchone()[0]
 
 
-def run() -> None:
+def _reuse_stream(con: duckdb.DuckDBPyConnection, stream: config.Stream, source: Path, out: Path) -> int:
+    """Copies a product's normalised files from `source` into `out`; returns their row count."""
+    out.mkdir(parents=True, exist_ok=True)
+    files = sorted(source.glob(f"{stream.key}_*.parquet"))
+    for path in files:
+        shutil.copy2(path, out / path.name)
+    n = con.execute(f"SELECT count(*) FROM read_parquet({quote(str(out / f'{stream.key}_*.parquet'))})").fetchone()[0] if files else 0
+    log.info("%s: raw files unchanged, %d rows reused", stream.key, n)
+    return n
+
+
+def run(reuse: tuple[str, ...] = (), reuse_from: Path | None = None) -> None:
     """Normalises every product and year found in `data/raw`, then builds the static mask.
 
-    Everything is written to a staging folder first and swapped in only once every product has
-    passed validation, so a failure leaves the previous detections untouched."""
+    The products named in `reuse` are copied from the detections folder `reuse_from` instead (an
+    update does this for products whose raw files have not changed). Everything is written to a
+    staging folder first and swapped in only once every product has passed validation, so a
+    failure leaves the previous detections untouched."""
     con = duckdb.connect()
     _load_clip(con)
     final = detections_dir()
     staging = final.with_name(final.name + ".new")
     shutil.rmtree(staging, ignore_errors=True)
     try:
-        total = sum(normalise_stream(con, stream, staging) for stream in config.STREAMS.values())
+        total = 0
+        for stream in config.STREAMS.values():
+            if stream.key in reuse and reuse_from is not None:
+                total += _reuse_stream(con, stream, reuse_from, staging)
+            else:
+                total += normalise_stream(con, stream, staging)
         n_mask = build_static_mask(con, str(staging / "*.parquet"))
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
