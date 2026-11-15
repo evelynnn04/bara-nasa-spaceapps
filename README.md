@@ -15,7 +15,7 @@ Requires Docker with Compose v2.
 docker compose up --build
 ```
 
-The API listens on `http://localhost:8000`. Check it with `curl http://localhost:8000/health`, which returns `{"status":"ok"}`. Interactive API docs are at `http://localhost:8000/docs`. Stop it with `docker compose down`.
+The API listens on `http://localhost:8000`. Check it with `curl http://localhost:8000/health`, which returns `{"status":"ok"}`. Interactive API docs are at `http://localhost:8000/docs`. The dashboard is served at `http://localhost:8080`, forwarding `/api` to the API. Stop both with `docker compose down`. The data must be in place first (see "Fire data").
 
 ### Local development without Docker
 Dependencies are managed with [uv](https://docs.astral.sh/uv/) and pinned in `src/backend/uv.lock`.
@@ -141,3 +141,38 @@ Run the backend tests with:
 cd src/backend
 uv run pytest
 ```
+
+## Deploying to Cloud Run
+The API and the dashboard are two Cloud Run services, each built from its own folder:
+
+| Service | Dockerfile | Needs |
+|---|---|---|
+| API | `src/backend/Dockerfile` | the data mounted at `/data` |
+| Dashboard | `src/frontend/Dockerfile` | `API_UPSTREAM`, the API service URL |
+
+The data is not committed, so the API reads it from a Cloud Storage bucket mounted at `/data`. It
+needs `data/derived/`, `data/parquet/` and the region outlines (about 220 MB):
+
+```bash
+gcloud storage buckets create gs://BUCKET --location=REGION
+gcloud storage cp -r data/derived data/parquet gs://BUCKET/
+gcloud storage cp src/frontend/public/boundaries.geojson gs://BUCKET/
+```
+
+Deploy the API with the bucket mounted read-only, then the dashboard pointing at it:
+
+```bash
+gcloud run deploy API_SERVICE --source src/backend --region REGION --allow-unauthenticated \
+  --execution-environment gen2 --memory 2Gi \
+  --add-volume name=data,type=cloud-storage,bucket=BUCKET,readonly=true \
+  --add-volume-mount volume=data,mount-path=/data
+
+gcloud run deploy DASHBOARD_SERVICE --source src/frontend --region REGION --allow-unauthenticated \
+  --set-env-vars API_UPSTREAM=https://API_SERVICE_URL
+```
+
+`API_UPSTREAM` is the API's `https://...run.app` URL, without a trailing slash. The browser only
+talks to the dashboard, which forwards `/api` to the API, so the API needs no CORS setup. To deploy
+on every push instead, connect each service to the repository in the Cloud Run console with build
+type Dockerfile and the Dockerfile paths above. After refreshing the data, copy `data/derived/` and
+`data/parquet/` to the bucket again; the API reads the new files on its next start.
