@@ -110,7 +110,8 @@ zip -r spaceapps-fire-data-YYYY-MM-DD.zip data
 
 With the data in place, `docker compose up --build` mounts `data/` into the backend. The API is
 documented at `http://localhost:8000/docs`; the main endpoints are `/api/meta`, `/api/series`,
-`/api/cells`, `/api/agreement`, `/api/events` and `/api/detections.csv`.
+`/api/cells`, `/api/agreement`, `/api/events`, `/api/anomalies` and `/api/detections.csv`. The anomaly
+method is described in [docs/anomaly.md](docs/anomaly.md).
 
 ## Running the dashboard
 The dashboard in `src/frontend/` reads everything from the backend. Start the backend first (with

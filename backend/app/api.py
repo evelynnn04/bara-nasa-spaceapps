@@ -31,7 +31,7 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from . import config, geo, queries, store
+from . import anomaly, config, geo, queries, store
 from .db import quote
 from .harmonise import fit, weights
 from .pipeline.celldays import cell_expr, qualifying_sql
@@ -296,6 +296,89 @@ def agreement(area: Area = Depends(area_param), daynight: DayNight = "all") -> d
                    for (y, m), v in sorted(monthly.items())],
         "harmonised": queries.agreement(window, harmonised=True),
         "raw": queries.agreement(window, harmonised=False),
+    }
+
+
+@router.get("/anomalies")
+def anomalies(area: Area = Depends(area_param),
+              year: int | None = Query(None, ge=1, le=9999, description="Year; default the last data month's."),
+              month: int | None = Query(None, ge=1, le=12, description="Month 1-12; default the last data month."),
+              reference: Literal["other", "prior"] = Query(
+                  "other", description="Reference years: every other year, or only earlier years.")) -> dict:
+    """How unusual a month's fire activity is, per 0.25° grid cell and for the whole area.
+
+    Hotspot count and summed fire radiative power of the VIIRS reference record are compared with
+    the same calendar month in the reference years and scored independently with the empirical
+    upper-tail rank `A = 1 - (1 + #{X_j >= x}) / (n + 1)`. Labels: normal below 0.80, elevated from
+    0.80, anomalous from 0.90, extreme from 0.97. The thresholds are provisional and uncalibrated;
+    with n reference years the highest score is n / (n + 1), listed in `baseline.max_score`.
+
+    `grids` lists the grid cells touching the area with at least one hotspot in the month; their
+    values cover the whole grid cell, and `in_area_share` is the share of its hotspots inside the
+    area. An unfinished month is compared over the same days of the other years and is marked
+    provisional. See `docs/anomaly.md`."""
+    flags = _flags()
+    last = flags[-1][0]
+    year = year or last.year
+    month = month or last.month
+    try:
+        b = anomaly.baseline(flags, year, month, reference)
+    except ValueError as err:
+        raise HTTPException(400, str(err)) from err
+    cur = cursor()
+    anomaly.area_grids(cur, area.where(cur), "agrid")
+    grids = anomaly.monthly_grids(cur, b, "agrid")
+    details = anomaly.target_details(cur, b, "agrid", "agrid_cells")
+    quality = anomaly.data_quality(b)
+    n = len(b.reference)
+    common = {"period_start": b.target.start, "period_end": b.target.end, "product": anomaly.PRODUCT,
+              "historical_sample_size": n, "baseline_granularity": anomaly.GRANULARITY,
+              "score_calibration_status": anomaly.CALIBRATION}
+
+    out = []
+    for (gx, gy), values in grids.items():
+        if values.get(b.target.year, (0.0, 0.0))[0] <= 0:
+            continue
+        d = details[(gx, gy)]
+        rec = anomaly.record(values, b)
+        west, south, east, north = anomaly.grid_bounds(gx, gy)
+        out.append({
+            "grid_id": anomaly.grid_id(gx, gy), "lon": west + anomaly.GRID_DEG / 2, "lat": south + anomaly.GRID_DEG / 2,
+            "bbox": [west, south, east, north], **common, **rec,
+            "in_area_share": round(d["fc_in"] / rec["hotspot_count"], 3) if rec["hotspot_count"] else None,
+            "environmental_context": _context(d, rec["hotspot_count"]),
+        })
+    out.sort(key=lambda r: (-anomaly.RANK.get(r["label"], -1), -max(r["hotspot_score"] or 0, r["frp_score"] or 0),
+                            -r["hotspot_count"]))
+    labels = {k: 0 for k in (*anomaly.LABELS, anomaly.INSUFFICIENT)}
+    for r in out:
+        labels[r["label"]] += 1
+    whole = anomaly.record(anomaly.area_totals(cur, b, "agrid_cells"), b)
+    return {
+        "period": {"year": year, "month": month, "start": b.target.start, "end": b.target.end,
+                   "provisional": b.provisional},
+        "product": anomaly.PRODUCT, "grid_deg": anomaly.GRID_DEG, "reference": reference,
+        "baseline": {"granularity": anomaly.GRANULARITY, "years": b.years, "sample_size": n,
+                     "excluded_years": b.excluded, "min_coverage": anomaly.MIN_COVERAGE,
+                     "max_score": round(anomaly.max_score(n), 4) if n else None,
+                     "reachable_labels": anomaly.reachable_labels(n) if n >= anomaly.MIN_REFERENCE else [],
+                     "calibration_status": anomaly.CALIBRATION},
+        "thresholds": {name: lower for name, lower in anomaly.THRESHOLDS},
+        "data_quality": quality,
+        "area": {**common, **whole},
+        "counts": labels,
+        "grids": out,
+    }
+
+
+def _context(d: dict, hotspots: int) -> dict:
+    """Context of a grid cell, reported beside the score and never folded into it."""
+    return {
+        "island_group": d["island_group"], "province_id": d["province_id"], "regency_id": d["regency_id"],
+        "active_cells_005": d["cells"], "night_share": round(d["fc_night"] / hotspots, 3) if hotspots else None,
+        "frp_max_mw": round(d["frp_max"], 1),
+        "forest_cover": None, "wind": None,
+        "unavailable": ["forest_cover", "wind"],
     }
 
 
