@@ -335,6 +335,7 @@ export class MapView {
     this.addSeaMasks();
     this.addCoast();
     for (const id of ["outline-glow", "outline-line", "polygon-line"]) m.moveLayer(id);
+    this.raisePlaceLabels();
     m.addLayer({ id: "event-box", type: "line", source: "event-box", paint: { "line-color": MAP.drawLine, "line-width": 1.5, "line-dasharray": [3, 2] } });
     m.addLayer({ id: "draft-line", type: "line", source: "draft", filter: ["==", ["geometry-type"], "LineString"], paint: { "line-color": MAP.drawLine, "line-width": 1.5, "line-dasharray": [2, 2] } });
     m.addLayer({ id: "draft-points", type: "circle", source: "draft", filter: ["==", ["geometry-type"], "Point"], paint: { "circle-color": MAP.drawPoint, "circle-radius": 4.5, "circle-stroke-color": MAP.background, "circle-stroke-width": 1.5 } });
@@ -407,6 +408,13 @@ export class MapView {
     this.coastLayers = ["coast-glow", "coast-line"];
     this.map.setPaintProperty("outline-line", "line-opacity", below(1));
     this.map.setPaintProperty("outline-glow", "line-opacity", below(0.35));
+  }
+
+  /** Lifts the basemap's place and water names above the fire cells, so region names stay readable over them. */
+  private raisePlaceLabels(): void {
+    for (const layer of this.map.getStyle().layers ?? []) {
+      if (layer.type === "symbol" && (layer["source-layer"] === "places" || layer["source-layer"] === "water")) this.map.moveLayer(layer.id);
+    }
   }
 
   private syncPolygon(): void {
