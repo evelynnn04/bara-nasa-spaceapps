@@ -140,6 +140,16 @@ def test_cells_agreement_events_and_csv(client):
     assert lines[1].split(",")[12] == "true"
 
 
+def test_critical_periods_cover_every_month_and_week(client):
+    body = client.get("/api/critical?area=idn-riau").json()
+    assert [p["period"] for p in body["months"]["periods"]] == list(range(1, 13))
+    assert [p["period"] for p in body["weeks"]["periods"]] == list(range(1, 54))
+    # Three months of data hold no complete year, so nothing can be called critical.
+    assert body["months"]["years"] == [] and not any(p["critical"] for p in body["months"]["periods"])
+    assert body["method"]["ratio_min"] == 1.5
+    assert client.get("/api/critical?area=idn-nope").status_code == 400
+
+
 def test_area_ids_are_checked_against_known_areas(client):
     assert client.get("/api/series?area=idn-doesnotexist").status_code == 400
     # An outline in the boundary file with no cell in the dataset is a valid, empty area.

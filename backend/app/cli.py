@@ -21,6 +21,7 @@ def main(argv: list[str] | None = None) -> None:
     ev.add_argument("--unit", choices=("province", "regency", "grid"), default="province")
     every = sub.add_parser("all", help="download, normalise, build, fit, cache")
     every.add_argument("--no-api", action="store_true")
+    sub.add_parser("validate-critical", help="check the critical-period definition on the full record")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s",
@@ -49,4 +50,7 @@ def main(argv: list[str] | None = None) -> None:
         from .harmonise import weights
         con = store.connect(weights.load_params())
         print(json.dumps(anomaly.evaluate(con, queries.day_flags(con), args.unit), indent=2))
+    if args.cmd == "validate-critical":
+        from . import critical_validation
+        critical_validation.run()
     logging.getLogger("app").info("done in %.0f s", time.time() - t0)

@@ -110,8 +110,11 @@ zip -r spaceapps-fire-data-YYYY-MM-DD.zip data
 
 With the data in place, `docker compose up --build` mounts `data/` into the backend. The API is
 documented at `http://localhost:8000/docs`; the main endpoints are `/api/meta`, `/api/series`,
-`/api/cells`, `/api/agreement`, `/api/events`, `/api/anomalies` and `/api/detections.csv`. The anomaly
-method is described in [docs/anomaly.md](docs/anomaly.md).
+`/api/cells`, `/api/agreement`, `/api/events`, `/api/anomalies`, `/api/critical` and
+`/api/detections.csv`. The anomaly method is described in [docs/anomaly.md](docs/anomaly.md). How
+`/api/critical` finds historically critical fire periods is described in
+[docs/critical-periods.md](docs/critical-periods.md); `uv run python -m app validate-critical` (in
+`backend`) reproduces its validation on the local data.
 
 Data unzipped from a zip made before the anomaly endpoint lacks the day and night fire radiative
 power. Run `uv run python -m app build` and `uv run python -m app cache` once (about 20 seconds, no
