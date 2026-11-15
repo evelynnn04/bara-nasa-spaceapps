@@ -19,16 +19,17 @@ A cell **holds fire** when the record satellite saw at least one presumed vegeta
 in it. Only the VIIRS era (from February 2012) is used, because MODIS sees far fewer small fires,
 and the chance of "any fire" is not harmonised across the sensor change.
 
-The chance is a probability between 0 and 1. It is not the fire cell-days the rest of the dashboard
-shows, so the timeline needs its own legend. Summed over an area, the chances give the **expected
+The chance is a probability between 0 and 1. It is not the hotspot count (Aqua MODIS-equivalent)
+the rest of the dashboard shows, so the timeline needs its own legend. Summed over an area, the chances give the **expected
 number of cells with fire** (`expected_cells`).
 
 ## How the chances are made
 
-Every chance is a **frequency counted in the record**, with no fitted curve, so the chances are
-calibrated by construction (see the calibration results below). Past cell-days and cell-months are
-grouped by what was known at the issue date, and the share of each group that burned at the lead
-is the chance.
+Every chance is a **frequency counted in the record**, with no fitted curve. Past cell-days and
+cell-months are grouped by what was known at the issue date, and the share of each group that
+burned at the lead is the chance. On the years it is counted from, a chance therefore equals the
+share that burned; on later years it runs high, because recent years burned less (see the
+calibration results below).
 
 **Grouped by, day step:**
 
@@ -61,7 +62,8 @@ Three safeguards:
    receive their class's chance, so no cell drops out of the map.
 
 The tables and the outlook for the latest data are built by `python -m app cache` (about 14 seconds
-of its run) into `data/derived/outlook.parquet` and `data/derived/outlook.json`.
+of its run) into `data/derived/outlook.parquet` and `data/derived/outlook.json`. Every cell with a
+chance above zero is stored, so the expected number of cells with fire over an area is exact.
 
 ## Labels
 
@@ -131,6 +133,9 @@ worse than the long-term normal at every lead.
 |---|---|---|---|---|---|---|
 | Share that burned | 0.013 | 0.061 | 0.123 | 0.225 | 0.355 | 0.548 |
 
+The day chances run 8 to 38 % above the share that burned, most at small chances (0.018 given,
+0.013 burned) and least at the top (0.594 given, 0.548 burned).
+
 ### Month step
 
 | Lead (months) | vs normal | vs calibrated normal | vs calibrated, fire-prone cells | AUC outlook / normal |
@@ -149,8 +154,8 @@ worse than the long-term normal.
 |---|---|---|---|---|---|---|
 | Share that burned | 0.051 | 0.103 | 0.183 | 0.276 | 0.477 | 0.707 |
 
-The month chances run about a quarter too high in the middle range: the test years were quieter
-than the years the tables were counted on.
+The month chances run 10 to 44 % above the share that burned, most at low and middle chances
+(0.148 given, 0.103 burned) and least at the top (0.779 given, 0.707 burned).
 
 ### Year step
 
@@ -161,11 +166,14 @@ is kept.
 ### Reading the results
 
 - **Days 1 to 3 and month 1 are real forecasts.** Recent fire improves on the normal by 4 to 8 %
-  (11 % for fire-prone cells on day 1), and the day chances are well calibrated.
+  (11 % for fire-prone cells on day 1).
+- **The chances run high on held-out years:** 8 to 38 % above the share that burned on day 1,
+  10 to 44 % on month 1. The test years burned less than the years the tables were counted on.
+  The ranking of cells (AUC) is not affected, but a chance should be read as an upper estimate.
 - **The gain fades smoothly.** It halves by about day 7 and is near zero after month 2, as expected
   without weather data.
 - **Beyond that, the outlook is the season.** That is still useful to show, labelled as such.
-- **The month step is somewhat overconfident** in the middle of the range; see Limits.
+- **Correcting that bias** (for example by weighting recent years) is left for later; see Limits.
 
 ## Endpoints
 
@@ -191,12 +199,13 @@ responses), so the dashboard should fetch one lead at a time as the timeline pla
   `cache`).
 - **No weather.** Rain, wind and drought are not inputs, which is why skill fades after a few days
   and after one month.
-- **El Nino is not used yet.** The Oceanic Nino Index of the activity forecast (on its own branch)
-  is a candidate for months 1 and 2 once that work is merged. Exploration suggested it may help
-  there; it must be validated here first.
+- **El Nino is not used.** In earlier tests on monthly totals per area, NOAA's Oceanic Nino Index
+  improved forecasts one and two months ahead and made them worse further out. Adding it here would
+  mean downloading the index and validating it for months 1 and 2 first.
 - **Drift.** Fire activity in the recent test years was lower than in the years the tables were
-  counted on, so month chances run high. A weighting towards recent years could correct this, but
-  the last-3-years normal alone did worse.
+  counted on, so the chances run high on both steps (see the calibration results). A weighting
+  towards recent years could correct this, but the last-3-years normal alone did worse, so it needs
+  its own evaluation.
 - **Clouds and smoke** hide fires from the satellites, so the record, and every chance counted from
   it, misses some fire.
 - **Coarse grid.** A 5.5 km cell holds many separate fires; "fire in the cell" says nothing about

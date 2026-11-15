@@ -563,7 +563,7 @@ def fire_outlook(step: OutlookStep = "day") -> dict:
 @router.get("/outlook/cells")
 def fire_outlook_cells(area: Area = Depends(area_param), step: OutlookStep = "day",
                        lead: int = Query(1, ge=1, le=outlook.DAY_LEADS, description="Steps after the issue date."),
-                       min_chance: float = Query(0.01, ge=outlook.MIN_CHANCE, le=1,
+                       min_chance: float = Query(0.01, ge=0, le=1,
                                                  description="Leave out cells with a smaller chance.")) -> dict:
     """The fire outlook of one lead for every 0.05° cell of an area: the chance that the cell holds
     fire on that day, in that month or in that year. `expected_cells` is the sum of the chances over

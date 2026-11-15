@@ -98,6 +98,11 @@ def test_endpoints(tmp_path, monkeypatch):
     assert cells["target"] == "2016-09" and cells["count"] >= 1 and max(cells["cells"]["chance"]) > 0.5
     day = client.get("/api/outlook/cells?step=day&lead=3").json()
     assert day["target"] == "2016-09-13" and max(day["cells"]["chance"]) > 0.5
+    # The expected count sums every cell of the area, also those left out of the map.
+    few = client.get("/api/outlook/cells?step=month&lead=1&min_chance=1").json()
+    every = client.get("/api/outlook/cells?step=month&lead=1&min_chance=0").json()
+    assert few["count"] <= every["count"] and few["expected_cells"] == every["expected_cells"] == cells["expected_cells"]
+    assert every["expected_cells"] == pytest.approx(sum(every["cells"]["chance"]), abs=0.01)
     assert client.get("/api/outlook/cells?step=year&lead=6").status_code == 400
     assert client.get("/api/outlook/cells?step=week").status_code == 422
     api.configure(None, None)

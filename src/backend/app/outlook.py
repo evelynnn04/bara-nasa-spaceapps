@@ -7,8 +7,10 @@ each step after the last data, for three step sizes:
 - **month:** fire in month t + k, k = 1 to `MONTH_LEADS`, issued after the last complete month t;
 - **year:** fire in year Y + k, k = 1 to `YEAR_LEADS`, where Y is the year of the last data day.
 
-Every chance is a frequency counted in the record (VIIRS era, from `config.SPLICE`): no fitted
-curve, so the chances are calibrated by construction. Each count is over cells sharing:
+Every chance is a frequency counted in the record (VIIRS era, from `config.SPLICE`), with no fitted
+curve: on the years it is counted from, a chance equals the share of its cells that burned. On
+later years the chances run high, because recent years burned less (see the document). Each count
+is over cells sharing:
 
 - the **normal** of the cell, its share of fire for the target calendar month over the years
   used (days with fire for the day step, years with fire for the month step), in classes
@@ -52,8 +54,6 @@ MONTH_NORMAL_EDGES = (0.03, 0.08, 0.15, 0.25, 0.4, 0.6, 0.8)
 NORMAL_PRIOR = 30
 #: Pseudo-counts drawing a table chance towards the chance of its normal class.
 SMOOTH = 50
-#: Chances below this are not stored or sent.
-MIN_CHANCE = 0.002
 
 #: Label of each lead, from the held-out evaluation (`python -m app validate-outlook`): `forecast`
 #: where recent fire improves on the calibrated normal by at least 4 % (Brier skill), `weak
@@ -360,7 +360,8 @@ def issue_dates(con: duckdb.DuckDBPyConnection) -> dict:
 
 def build(con: duckdb.DuckDBPyConnection, hotspots: str = "vegetation") -> dict:
     """Counts the tables over every complete VIIRS-era year and writes the outlook of every step
-    (`outlook.parquet`: step, lead, cx, cy, chance) and its description (`outlook.json`)."""
+    (`outlook.parquet`: step, lead, cx, cy, chance, every cell with a chance above 0, so that sums over
+    an area are exact) and its description (`outlook.json`)."""
     prepare(con, hotspots)
     years = complete_years(con)
     issued = issue_dates(con)
@@ -374,10 +375,10 @@ def build(con: duckdb.DuckDBPyConnection, hotspots: str = "vegetation") -> dict:
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(".part")
     con.execute(f"""COPY (
-        SELECT 'day' AS step, k AS lead, cx, cy, p AS chance FROM ({day_predict_sql(day_leads)}) WHERE p >= {MIN_CHANCE}
-        UNION ALL SELECT 'month', k, cx, cy, p FROM ({month_predict_sql(month_leads)}) WHERE p >= {MIN_CHANCE}
+        SELECT 'day' AS step, k AS lead, cx, cy, p AS chance FROM ({day_predict_sql(day_leads)}) WHERE p > 0
+        UNION ALL SELECT 'month', k, cx, cy, p FROM ({month_predict_sql(month_leads)}) WHERE p > 0
         UNION ALL SELECT 'year', CAST(r.k AS INTEGER), n.cx, n.cy, n.f FROM ({year_normal_sql(years)}) n
-                  CROSS JOIN range(1, {YEAR_LEADS + 1}) r(k) WHERE n.f >= {MIN_CHANCE}
+                  CROSS JOIN range(1, {YEAR_LEADS + 1}) r(k) WHERE n.f > 0
         ORDER BY 1, 2, 3, 4) TO '{tmp}' (FORMAT parquet)""")
     tmp.replace(out)
     meta = {
