@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import email
+import os
 from pathlib import Path
 
 import pytest
@@ -22,7 +23,9 @@ SECRET = "test-secret"
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    """Alerts set up, writing emails to an outbox folder; returns the outbox."""
+    """Alerts set up, writing emails to an outbox folder; returns the outbox. The repository `.env`
+    is ignored, so a developer's SMTP settings never send test emails."""
+    monkeypatch.setattr("app.config._secret", lambda var: os.environ.get(var, "").strip())
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("ALERTS_SECRET", SECRET)
     monkeypatch.setenv("ALERTS_OUTBOX", str(tmp_path / "outbox"))
