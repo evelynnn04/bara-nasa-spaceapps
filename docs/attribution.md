@@ -109,13 +109,27 @@ the cited literature where it gives one; where it does not, the threshold is a s
    the evidence cannot tell them apart. When `dry_months` also holds, as in the 2015 Sumatra and
    Kalimantan droughts, wildfire leads by a point and is named with medium confidence.
 
-### 5. Result on the real data
+### 5. Result on the 2026-11-15 data
 
-The counts per cause have to be regenerated with `python -m app attribute`: the counts first
-published here came from an earlier version of the rules, in which `natural_vegetation` and
-`large_long` also held on cleared forest. That version turned many large clearing fires into
-wildfire or into ties with wildfire, so it understated land clearing and overstated wildfire and
-unknown. Expect land clearing to grow at the expense of both once the attribution is rebuilt.
+Of the 724,101 events of the vegetation record:
+
+| Cause | Events | Share |
+|---|---|---|
+| Land clearing | 152,754 | 21 % |
+| Wildfire | 143,408 | 20 % |
+| Agricultural burning | 92,663 | 13 % |
+| Unknown | 335,276 | 46 % |
+
+The split follows the known geography of burning: agricultural burning is the most common named
+cause in Java, Bali and Nusa Tenggara, land clearing in Sumatra, and wildfire in Kalimantan,
+Sulawesi-Maluku and Papua. The largest events of 2015 and 2019, peat-forest fires during El Niño
+and positive Indian Ocean Dipole droughts, are attributed to wildfire: with medium confidence where
+the forest was also cleared (the largest 2015 events in Kalimantan, Sumatra and Papua, 4 points
+against 3), and with high confidence where it was not. Unknown remains the largest group. Most
+unknown events have no key evidence for any cause: typically a fire in normal weather on natural
+vegetation or mixed land, with no forest loss beyond the usual. About 7 % of them are ties between
+land clearing and wildfire, and 7 % have fewer than 2 points. Event size does not set the groups
+apart: in every group the median event is one cell burning for one day.
 
 ### 6. Confidence
 

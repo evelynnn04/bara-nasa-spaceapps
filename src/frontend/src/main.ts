@@ -15,7 +15,7 @@ import { initFx, pulse } from "./fx";
 import { MapView } from "./map-view";
 import { RAMPS, type RampName } from "./ramps";
 import { SelectMenu } from "./select-menu";
-import { RegionIndex, regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
+import { RegionIndex, loadBoundaries, regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
 import { initCards, measureInsets } from "./screen";
 import { select, unobserved, type Selection } from "./store";
 import { Timeline } from "./time-slider";
@@ -41,13 +41,6 @@ Promise.all([loadBoundaries(), api.meta()]).then(([b, meta]) => boot(b, meta), (
 function trackHeaderHeight(): void {
   const header = $("#top");
   new ResizeObserver(() => document.documentElement.style.setProperty("--top-h", `${header.offsetHeight}px`)).observe(header);
-}
-
-/** Fetches the country, province and city/regency outlines that the area list is built from. */
-async function loadBoundaries(): Promise<Boundaries> {
-  const res = await fetch(`${import.meta.env.BASE_URL}boundaries.geojson`);
-  if (!res.ok) throw new Error(`boundaries: HTTP ${res.status}`);
-  return res.json();
 }
 
 function boot(boundaries: Boundaries, meta: Meta): void {

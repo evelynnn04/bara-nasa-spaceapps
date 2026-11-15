@@ -3,137 +3,123 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0b0706" />
-    <title>Burning Activity Calendar</title>
+    <meta name="description" content="Bara: fly through an Indonesian rainforest as it burns, then rise to orbit and see the real 2015 fire record, harmonised from NASA's MODIS and VIIRS satellites." />
+    <title>Bara · Burning Activity Calendar</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&display=swap" rel="stylesheet" />
   </head>
-  <body class="t3">
-    <a class="skip" href="#g-main">Skip to the results</a>
+  <body class="landing is-intro">
+    <a class="skip" href="#facts">Skip to the facts</a>
+    <canvas id="world" class="world" aria-hidden="true"></canvas>
+    <canvas id="scene" class="scene" aria-hidden="true"></canvas>
+    <div class="lp-haze" id="haze" aria-hidden="true"></div>
+    <div class="vignette" aria-hidden="true"></div>
 
-    <header class="g-top" id="top">
-      <a class="g-brand" href="#overview" aria-label="Burning Activity Calendar, back to the overview">
-        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c1 3 4.5 4.6 4.5 9a4.5 4.5 0 0 1-9 0c0-2 .9-3.3 2.2-4.3.2 1.7 1.1 2.7 2.2 2.7 0-2.7-.9-4.9.1-7.4z" /></svg>      </a>
-      <div class="g-filters" role="group" aria-label="Filters">
-        <div class="seg hf-dn" role="group" aria-label="Detections counted" title="Count detections made by day, by night or both">
-          <button type="button" class="seg-btn" data-dn="all" aria-pressed="true">All</button>
-          <button type="button" class="seg-btn" data-dn="day" aria-pressed="false">Day</button>
-          <button type="button" class="seg-btn" data-dn="night" aria-pressed="false">Night</button>
-          <span class="seg-thumb" aria-hidden="true"></span>
-        </div>
-        <div class="seg hf-ht" role="group" aria-label="Hotspot types counted" title="Count presumed vegetation fires only, or every hotspot type including volcanoes and gas flares">
-          <button type="button" class="seg-btn" data-ht="vegetation" aria-pressed="true" aria-label="Vegetation fires">Vegetation</button>
-          <button type="button" class="seg-btn" data-ht="all" aria-pressed="false" aria-label="All hotspot types">All types</button>
-          <span class="seg-thumb" aria-hidden="true"></span>
-        </div>
-        <div class="seg hf-mode" role="group" aria-label="Area selection mode">
-          <button type="button" class="seg-btn" data-mode="area" aria-pressed="true">Area</button>
-          <button type="button" class="seg-btn" data-mode="polygon" aria-pressed="false">Polygon</button>
-          <span class="seg-thumb" aria-hidden="true"></span>
-        </div>
-        <div class="hf-area" id="area-picker"></div>
-        <div class="hf-palette" id="palette-menu"></div>
+    <!-- Title card. Explore (or the first scroll) starts the flight. -->
+    <section class="intro" id="intro" aria-labelledby="intro-title">
+      <div class="intro-title">
+        <h1 id="intro-title"><img class="intro-logo" src="/brand/bara-wordmark.png" alt="Bara" width="983" height="247" /></h1>
       </div>
-      <div class="g-export">
-        <button type="button" class="pill" id="dl-detections" aria-label="Download raw detections CSV" title="Every satellite detection in the selected area and dates, with its source">
-          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg><span class="g-export-long">Raw detections </span>CSV
-        </button>
-        <p class="dl-note" id="dl-note" role="status" aria-live="polite"></p>
+      <p class="intro-sub">Bara is Indonesian for <em>ember</em>. Fly through a rainforest as it burns, then rise until you can see the whole
+        fire record from orbit.</p>
+      <div class="intro-actions">
+        <button type="button" class="explore" id="explore">Explore</button>
+        <a class="explore explore-ghost" href="/dashboard/">Open the dashboard</a>
       </div>
+      <p class="intro-load" id="intro-load" role="status">Growing the forest…</p>
+    </section>
+
+    <header class="hud" aria-label="Site">
+      <a class="hud-logo" href="/" aria-label="Bara, home"><img src="/brand/bara-wordmark.png" alt="" width="983" height="247" /></a>
+      <nav class="hud-right" aria-label="Links">
+        <button type="button" class="hud-link" id="about-open">About</button>
+        <a class="hud-link hud-cta" href="/dashboard/">Dashboard <span aria-hidden="true">→</span></a>
+      </nav>
     </header>
 
-    <main>
-      <h1 class="visually-hidden">Burning Activity Calendar</h1>
-      <section class="g-stage" id="overview" aria-label="Overview">
-        <div class="g-map">
-          <div id="map" tabindex="0" aria-label="Map of active fire cells for the selected area and dates"></div>
-          <div class="g-shade" aria-hidden="true"></div>
-          <div class="g-time" role="group" aria-label="Dates and map timeline">
-            <div class="tl-dates"><div id="date-from"></div><div id="date-to"></div></div>
-            <div class="tl" id="time-slider"></div>
-          </div>
-        </div>
+    <p class="hint" id="hint" aria-hidden="true">Scroll to begin the journey</p>
+    <div class="progress" aria-hidden="true"><i id="progress"></i></div>
 
-        <div class="g-tools" role="group" aria-label="Map tools">
-          <button type="button" class="pill pill-glass" id="draw-start" hidden>
-            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18l4-12 10 4-6 9z" /></svg><span id="draw-start-label">Draw polygon</span>
-          </button>
-          <p class="draw-tip" id="draw-tip" role="status" hidden></p>
-          <p class="map-caution" id="dn-caution" role="note" hidden>Night only: quiet months read high, because Aqua records few hotspots at night.</p>
-          <button type="button" class="pill pill-glass" id="draw-finish" hidden disabled>Finish</button>
-          <button type="button" class="pill pill-glass" id="draw-cancel" hidden>Cancel</button>
-          <button type="button" class="pill pill-glass" id="draw-clear" hidden>Clear polygon</button>
-        </div>
+    <!--
+      Fact stops along the flight. data-p is where on the flight (0–1) a stop is centred; the world changes
+      at the same places (journey.ts ACTS). data-scrub="from,to,decimals" runs a number up as you approach.
+    -->
+    <main id="facts" class="facts">
+      <article class="stop" data-p="0.05">
+        <h2>A river through the rainforest</h2>
+        <p>Sumatra and Kalimantan hold some of the richest rainforest on Earth. Every day and every night, two kinds of NASA instrument
+          look down on it for fire.</p>
+      </article>
+      <article class="stop is-right" data-p="0.15">
+        <h2>Two eyes in orbit</h2>
+        <p>MODIS has watched since 2000, on Terra and then Aqua. From 2012, VIIRS joined: sharper eyes on Suomi NPP, then NOAA-20 and
+          NOAA-21.</p>
+      </article>
+      <article class="stop" data-p="0.29">
+        <h2>A hotspot</h2>
+        <p>To a satellite, a fire is a pixel hotter than its neighbours: about 1 km across for MODIS, 375 m for VIIRS. One fire can light
+          one MODIS pixel and several VIIRS pixels.</p>
+      </article>
+      <article class="stop is-right" data-p="0.38">
+        <h2><span data-scrub="1,4.9,1">4.9</span> times</h2>
+        <p>In 2015, Indonesia's worst fire year on record, VIIRS logged <strong data-scrub="0,875824,0">875,824</strong> detections.
+          MODIS logged <strong data-scrub="0,178578,0">178,578</strong>.</p>
+      </article>
+      <article class="stop" data-p="0.48">
+        <h2>September or October</h2>
+        <p>Which month burned worst in 2015? MODIS says September. VIIRS says October. Both are right about what they saw.</p>
+      </article>
+      <article class="stop is-right" data-p="0.57">
+        <h2>One record</h2>
+        <p>Count hotspots in MODIS terms: an Aqua hotspot counts 1, a VIIRS hotspot counts 1 divided by a factor for its island
+          group, month and half of the day, about 6 by day and 16 at night. Use one satellite at a time.</p>
+      </article>
+      <article class="stop" data-p="0.66">
+        <h2>11 of 14</h2>
+        <p>On held-out years the sensor gap fell from about 7× to <strong data-scrub="7,1.01,2" data-suffix="×">1.01×</strong>, and the
+          two agree on the peak month in 11 of 14 years; the other three are near-ties. Partly converged, and the app says so.</p>
+      </article>
+      <article class="stop is-right" data-p="0.75">
+        <h2>No data is not zero</h2>
+        <p>A day no satellite saw is shown as missing, never as zero. Smoke and cloud can still hide a fire on a day that was observed.</p>
+      </article>
+      <article class="stop" data-p="0.88">
+        <h2>Every light is real</h2>
+        <p>Each glowing point is a 0.05° cell where the harmonised record saw fire:
+          <strong id="live-cells">thousands of</strong> cells in three months of 2015.</p>
+      </article>
 
-        <button type="button" class="pill map-reset" id="reset-view">
-          <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4 4v5h5" /></svg>Reset view
-        </button>
-
-        <div class="g-main" id="g-main">
-          <div class="g-col g-left">
-            <p class="col-cap" id="cap-dates" aria-live="polite"></p>
-            <article class="gc" data-card="analytics" id="analytics-card" aria-labelledby="c-analytics">
-              <div class="gc-head">
-                <h2 class="gc-title" id="c-analytics">Historical analytics</h2>
-                <div class="card-actions">
-                  <button type="button" class="pill pill-xs" data-export="analytics" data-format="csv">CSV</button>
-                  <button type="button" class="pill pill-xs" data-export="analytics" data-format="png">PNG</button>
-                </div>
-              </div>
-              <div class="gc-body" id="an-summary" aria-busy="true"></div>
-            </article>
-            <article class="gc" data-card="events" aria-labelledby="c-events">
-              <div class="gc-head"><h2 class="gc-title" id="c-events">Largest fire events</h2></div>
-              <div class="gc-body ev-body">
-                <div class="ev-filter" id="cause-menu" hidden></div>
-                <div id="events" aria-busy="true"></div>
-              </div>
-            </article>
-          </div>
-
-          <div class="g-col g-right">
-            <p class="col-cap">All years</p>
-            <article class="gc" data-card="calendar" id="calendar-card" aria-labelledby="c-calendar">
-              <div class="gc-head">
-                <h2 class="gc-title" id="c-calendar">Burning activity calendar</h2>
-                <div class="card-actions">
-                  <button type="button" class="pill pill-xs" data-export="calendar" data-format="csv">
-                    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>CSV
-                  </button>
-                </div>
-              </div>
-              <div class="gc-body" id="calendar" aria-busy="true"></div>
-            </article>
-            <article class="gc" data-card="patterns" aria-labelledby="c-patterns">
-              <div class="gc-head"><h2 class="gc-title" id="c-patterns">Historical patterns</h2></div>
-              <div class="gc-body an-patterns" id="an-patterns" aria-busy="true"></div>
-            </article>
-            <article class="gc" data-card="anomaly" data-expandable id="anomaly-card" aria-labelledby="c-anomaly">
-              <div class="gc-head">
-                <h2 class="gc-title" id="c-anomaly">Historical comparison</h2>
-                <div class="card-actions">
-                  <button type="button" class="pill pill-xs" data-export="anomaly" data-format="csv">CSV</button>
-                  <button type="button" class="pill pill-xs" data-export="anomaly" data-format="png">PNG</button>
-                </div>
-              </div>
-              <div class="gc-body" id="anomaly" aria-busy="true"></div>
-            </article>
-            <article class="gc" data-card="agreement" aria-labelledby="c-agreement">
-              <div class="gc-head"><h2 class="gc-title" id="c-agreement">Do MODIS and VIIRS agree here?</h2></div>
-              <div class="gc-body" id="agreement" aria-busy="true"></div>
-            </article>
-          </div>
-
-        </div>
-
-        <div class="g-foot">
-          <div class="map-legend" id="map-legend"></div>
+      <section class="finale" id="finale" data-p="1">
+        <h2>See where it burns</h2>
+        <p>Pick any area and period. Compare the raw satellite records with the harmonised one, find unusual months, and download every
+          detection.</p>
+        <div class="finale-actions">
+          <a class="explore" id="go-dashboard" href="/dashboard/">Open the dashboard</a>
         </div>
       </section>
-
     </main>
-    <script type="module" src="/src/main.ts"></script>
+
+    <div class="track" id="track" aria-hidden="true"></div>
+
+    <dialog class="lp-about" id="about" aria-labelledby="about-title">
+      <form method="dialog"><button class="lp-about-close" aria-label="Close">×</button></form>
+      <h2 id="about-title">About Bara</h2>
+      <p>Bara is the front door to the <a href="/dashboard/">Burning Activity Calendar</a>, built for the NASA Space Apps Challenge 2026
+        (<em>Harmonization of MODIS and VIIRS Hot Spots</em>). The forest and its fire are an illustration, grown in your browser. The
+        view from orbit is real data: the coastline from the project's province outlines, and every fire light a harmonised 0.05° cell
+        from the project's record for August to October 2015.</p>
+      <h3>References</h3>
+      <ul>
+        <li>NASA FIRMS: MODIS Collection 6.1 and VIIRS 375 m active fire products (S-NPP, NOAA-20, NOAA-21).</li>
+        <li>Harmonisation method and held-out test: docs/harmonisation.md in the project repository.</li>
+        <li>Boundaries: geoBoundaries gbOpen, © OpenStreetMap contributors (ODbL).</li>
+      </ul>
+      <p class="lp-about-ack">We acknowledge the use of data and imagery from NASA's Fire Information for Resource Management System (FIRMS),
+        part of NASA's Earth Science Data and Information System (ESDIS).</p>
+    </dialog>
+
+    <script type="module" src="/src/landing/landing.ts"></script>
   </body>
 </html>
