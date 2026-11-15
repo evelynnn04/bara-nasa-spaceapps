@@ -33,6 +33,20 @@ SOURCES = ("hansen", "peat", "modis", "imerg", "climate")
 HANSEN_CELL_PX = 40000
 #: IMERG rainfall is stored in hundredths of mm/day.
 RAIN_SCALE = 100
+#: Last year of Hansen forest loss, and the canopy cover (%) that counts as tree cover in 2000.
+HANSEN_LAST_YEAR = 2024
+CANOPY_MIN = 30
+#: IGBP classes of MODIS LC_Type1 grouped for attribution.
+GROUPS: dict[str, tuple[int, ...]] = {
+    "forest": (1, 2, 3, 4, 5),
+    "shrub_savanna": (6, 7, 8, 9),
+    "grassland": (10,),
+    "wetland": (11,),
+    "cropland": (12,),
+    "urban": (13,),
+    "mosaic": (14,),
+    "other": (15, 16, 17),
+}
 
 
 def table_path(name: str, root: Path | None = None) -> Path:
@@ -54,8 +68,6 @@ def layer_sql(root: Path | None = None) -> dict[str, str]:
     - `peat` (cx, cy, peat): share of the cell's mapped pixels;
     - `rain` (rx, ry, month, rain): mm/day on the 0.1° grid;
     - `climate` (month, oni, dmi)."""
-    from .modis import GROUPS
-
     out = {}
 
     def glob(source: str) -> str | None:

@@ -25,14 +25,13 @@ import numpy as np
 
 from .. import config
 from ..db import quote
-from . import fetch, grid, piece_dir
+from . import CANOPY_MIN, HANSEN_LAST_YEAR, fetch, grid, piece_dir
 
 log = logging.getLogger("app.context.hansen")
 
 VERSION = "GFC-2024-v1.12"
 URL = "https://storage.googleapis.com/earthenginepartners-hansen/{v}/Hansen_{v}_{layer}_{tile}.tif"
-LAST_YEAR = 2024
-CANOPY_MIN = 30
+LAST_YEAR = HANSEN_LAST_YEAR
 #: Pixels per cell side: 0.05° / 0.00025°.
 PX = 200
 TILE_DEG = 10

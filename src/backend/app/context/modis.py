@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import config
-from . import fetch, grid, piece_dir
+from . import GROUPS, fetch, grid, piece_dir
 
 log = logging.getLogger("app.context.modis")
 
@@ -32,17 +32,6 @@ TILE = 1111950.5197665233
 PIXELS = 2400
 X0, Y0 = -20015109.355798, 10007554.677899
 
-#: IGBP classes of LC_Type1 grouped for attribution.
-GROUPS: dict[str, tuple[int, ...]] = {
-    "forest": (1, 2, 3, 4, 5),
-    "shrub_savanna": (6, 7, 8, 9),
-    "grassland": (10,),
-    "wetland": (11,),
-    "cropland": (12,),
-    "urban": (13,),
-    "mosaic": (14,),
-    "other": (15, 16, 17),
-}
 CLASSES = 18
 
 
