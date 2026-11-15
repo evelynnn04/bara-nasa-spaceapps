@@ -150,6 +150,12 @@ def test_critical_periods_cover_every_month_and_week(client):
     assert client.get("/api/critical?area=idn-nope").status_code == 400
 
 
+def test_forecast_needs_complete_years(client):
+    res = client.get("/api/forecast?area=idn-riau")
+    assert res.status_code == 503 and "complete years" in res.json()["detail"]
+    assert client.get("/api/forecast?area=idn-nope").status_code == 400
+
+
 def test_area_ids_are_checked_against_known_areas(client):
     assert client.get("/api/series?area=idn-doesnotexist").status_code == 400
     # An outline in the boundary file with no cell in the dataset is a valid, empty area.

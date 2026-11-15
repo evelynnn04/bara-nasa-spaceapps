@@ -27,6 +27,8 @@ FIRMS_BASE = "https://firms.modaps.eosdis.nasa.gov"
 ARCHIVE_URL = FIRMS_BASE + "/data/country/zips/{name}_{year}_Indonesia.csv"
 AREA_URL = FIRMS_BASE + "/api/area/csv/{key}/{source}/{bbox}/{days}/{date}"
 AVAILABILITY_URL = FIRMS_BASE + "/api/data_availability/csv/{key}/ALL"
+#: Oceanic Nino Index (NOAA CPC), the predictor of the fire activity forecast. Public, no key.
+ONI_URL = "https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt"
 #: The area API accepts at most this many days per request.
 API_MAX_DAYS = 5
 #: west, south, east, north. Wider than Indonesia so the clip, not the box, decides membership.

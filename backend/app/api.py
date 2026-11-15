@@ -31,7 +31,7 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from . import anomaly, config, critical, geo, queries, store
+from . import anomaly, config, critical, forecast, geo, queries, store
 from .db import quote
 from .harmonise import fit, weights
 from .pipeline.celldays import cell_expr, qualifying_sql
@@ -65,6 +65,8 @@ def configure(con: duckdb.DuckDBPyConnection | None, params: dict | None) -> Non
         _daily.cache_clear()
         _flags.cache_clear()
         _parents.cache_clear()
+        _forecast_fit.cache_clear()
+        _oni.cache_clear()
 
 
 def _ready() -> dict:
@@ -225,6 +227,37 @@ def critical_periods(area: Area = Depends(area_param), daynight: DayNight = "all
     flags = _flags()
     values = queries.record_series(_daily(area, daynight), flags)
     return {"unit": fit.UNIT, "daynight": daynight, **critical.critical_periods([f[0] for f in flags], values)}
+
+
+@lru_cache(maxsize=1)
+def _oni() -> dict:
+    return forecast.load_oni()
+
+
+@lru_cache(maxsize=3)
+def _forecast_fit(daynight: str) -> forecast.Fit:
+    """Forecast coefficients fitted on every province and city/regency over the complete years."""
+    regions = forecast.region_monthly(cursor(), daynight)
+    years = forecast.complete_years(forecast.log_series(regions["idn"][1])) if "idn" in regions else []
+    if len(years) < forecast.MIN_YEARS:
+        raise HTTPException(503, "The record holds too few complete years to forecast.")
+    return forecast.fit(forecast.fit_areas(regions, years), _oni(), years)
+
+
+@router.get("/forecast")
+def fire_forecast(area: Area = Depends(area_param), daynight: DayNight = "all") -> dict:
+    """Monthly fire activity of an area one to three months after its last complete month.
+
+    Each forecast gives the median, an 80 % interval, the area's normal for that month, and the
+    probability that the month is `elevated` against earlier years (the anomaly module's 0.80
+    score), with an outlook label. The predictors are the area's normal, its current anomaly and,
+    one and two months ahead, the Oceanic Nino Index (left out when `python -m app indices` has not
+    fetched it). `activity.confidence` follows the area's mean annual activity. Evaluated on
+    held-out years in `docs/forecast.md`."""
+    flags = _flags()
+    values = queries.record_series(_daily(area, daynight), flags)
+    return {"unit": fit.UNIT, "daynight": daynight,
+            **forecast.forecast([f[0] for f in flags], values, _forecast_fit(daynight), _oni())}
 
 
 @router.get("/cells")

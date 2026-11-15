@@ -22,6 +22,8 @@ def main(argv: list[str] | None = None) -> None:
     every = sub.add_parser("all", help="download, normalise, build, fit, cache")
     every.add_argument("--no-api", action="store_true")
     sub.add_parser("validate-critical", help="check the critical-period definition on the full record")
+    sub.add_parser("indices", help="download the climate indices (ONI) used by the forecast")
+    sub.add_parser("validate-forecast", help="evaluate the fire activity forecast on held-out years")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s",
@@ -53,4 +55,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "validate-critical":
         from . import critical_validation
         critical_validation.run()
+    if args.cmd == "indices":
+        from .pipeline import download
+        logging.getLogger("app").info("ONI seasons: %d", download.download_indices())
+    if args.cmd == "validate-forecast":
+        from . import forecast_validation
+        forecast_validation.run()
     logging.getLogger("app").info("done in %.0f s", time.time() - t0)

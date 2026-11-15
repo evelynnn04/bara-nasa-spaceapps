@@ -240,8 +240,21 @@ def download_api(archive_last_year: int) -> dict[str, int]:
     return stats
 
 
+def download_indices() -> int:
+    """Fetches the Oceanic Nino Index table into `data/raw/indices` (always, it is revised monthly).
+    Returns the number of seasons it holds."""
+    from ..forecast import oni_path, read_oni
+    data = _get(config.ONI_URL, timeout=60)
+    seasons = len(read_oni(data.decode("utf-8", errors="replace")))
+    if not seasons:
+        raise ValueError(f"unexpected ONI payload: {data[:120]!r}")
+    _write_atomic(oni_path(), data)
+    return seasons
+
+
 def run(archive_last_year: int = config.FIT_END.year, api: bool = True) -> None:
-    """Downloads the archive, then (with a key) the API windows."""
+    """Downloads the climate indices and the archive, then (with a key) the API windows."""
+    log.info("indices done: %d ONI seasons", download_indices())
     log.info("archive done: %s", download_archive(archive_last_year))
     if api:
         log.info("api done: %s", download_api(archive_last_year))
