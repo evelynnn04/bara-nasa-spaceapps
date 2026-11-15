@@ -48,6 +48,6 @@ export class EventsView {
       })
       .join("");
     this.root.innerHTML = `<ol class="ev-list">${items}</ol>
-      <p class="mini-note">An event joins burning cells that touch and are active within a day of each other. Its figures cover the whole event, also outside the selected dates. Pick one to frame it on the map.</p>`;
+      <p class="mini-note">An event joins burning cells that touch and are active within a day of each other. Its figures cover the whole event, also outside the selected dates, and always count day and night detections. Pick one to frame it on the map.</p>`;
   }
 }

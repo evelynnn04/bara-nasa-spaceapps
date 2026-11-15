@@ -5,7 +5,7 @@ import { UNIT, UNIT_SHORT, escapeXml, fmtInt, fmtVal } from "./format";
 
 type Mode = "harmonised" | "raw";
 
-const DOCS_URL = "https://github.com/evelynnn04/spaceapps/blob/main/docs/harmonisation.md";
+const DOCS_URL = "https://github.com/evelynnn04/bara-nasa-spaceapps/blob/main/docs/harmonisation.md";
 
 const TONE: Record<string, string> = { converged: "is-good", partial: "is-warning", "did not converge": "is-critical" };
 
