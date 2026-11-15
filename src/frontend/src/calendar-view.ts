@@ -6,12 +6,12 @@ import { reducedMotion } from "./fx";
 import { RAMPS, colorFor, inkOn, stepBounds, type RampName } from "./ramps";
 import type { Selection } from "./store";
 
-type Level = { kind: "years" } | { kind: "days"; year: number; month: number };
+type Level = { kind: "year" } | { kind: "days"; year: number; month: number };
 
 interface CellData {
   label: string;
   value: number;
-  /** "data" has activity, "zero" has none, "missed" was not observed, "none" is outside the record or the selected dates. */
+  /** "data" has activity, "zero" has none, "missed" was not observed, "none" is outside the record. */
   state: "data" | "zero" | "missed" | "none";
 }
 
@@ -22,16 +22,21 @@ const SPRING = "cubic-bezier(0.34, 1.56, 0.64, 1)";
 const EASE_OUT = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 /**
- * Burning activity calendar: a month-by-year heatmap that drills into a daily heatmap for one month,
- * with a back button, a breadcrumb for the current level and previous and next month buttons.
+ * Burning activity calendar: every day of one picked year as twelve small month grids, each opening
+ * a daily heatmap of that month. A year picker, a breadcrumb and previous and next buttons move through
+ * the record; the dashboard's date filter does not apply here.
  */
 export class CalendarView {
-  private level: Level = { kind: "years" };
+  private level: Level = { kind: "year" };
+  /** Year shown at the year level; 0 until the first record arrives. */
+  private year = 0;
   private sel: Selection | null = null;
   private ramp: RampName = "ember";
   private readonly stage: HTMLElement;
   private readonly back: HTMLButtonElement;
   private readonly crumb: HTMLElement;
+  private readonly yearField: HTMLElement;
+  private readonly yearSel: HTMLSelectElement;
   private readonly nav: HTMLElement;
   private readonly prev: HTMLButtonElement;
   private readonly next: HTMLButtonElement;
@@ -40,9 +45,10 @@ export class CalendarView {
   constructor(root: HTMLElement) {
     root.innerHTML = `
       <div class="cal-bar">
-        <button type="button" class="pill cal-back" hidden><span class="chev chev-left" aria-hidden="true"></span>Back to months</button>
+        <button type="button" class="pill cal-back" hidden><span class="chev chev-left" aria-hidden="true"></span>Back to year</button>
+        <label class="field field-inline cal-year"><span class="visually-hidden">Year</span><select class="input"></select></label>
         <nav class="cal-crumb" aria-label="Calendar level"><ol></ol></nav>
-        <div class="cal-nav" hidden>
+        <div class="cal-nav">
           <button type="button" class="icon-btn cal-step" data-step="-1"><span class="chev chev-left" aria-hidden="true"></span></button>
           <button type="button" class="icon-btn cal-step" data-step="1"><span class="chev chev-right" aria-hidden="true"></span></button>
         </div>
@@ -52,6 +58,13 @@ export class CalendarView {
     this.stage = root.querySelector(".cal-stage")!;
     this.back = root.querySelector(".cal-back")!;
     this.crumb = root.querySelector(".cal-crumb ol")!;
+    this.yearField = root.querySelector(".cal-year")!;
+    this.yearSel = this.yearField.querySelector("select")!;
+    this.yearSel.addEventListener("change", () => {
+      const dir = +this.yearSel.value < this.year ? "prev" : "next";
+      this.year = +this.yearSel.value;
+      this.swap(null, dir);
+    });
     this.nav = root.querySelector(".cal-nav")!;
     [this.prev, this.next] = root.querySelectorAll<HTMLButtonElement>(".cal-step");
     this.legend = root.querySelector(".legend")!;
@@ -64,18 +77,21 @@ export class CalendarView {
       if (btn && !btn.disabled) this.step(+btn.dataset.step!);
     });
     this.stage.addEventListener("click", (e) => {
-      const cell = (e.target as Element).closest<HTMLButtonElement>("button.cell");
-      if (cell) this.drill(+cell.dataset.y!, +cell.dataset.m!, cell);
+      const month = (e.target as Element).closest<HTMLButtonElement>("button.cal-month");
+      if (month) this.drill(this.year, +month.dataset.m!, month);
     });
   }
 
   get granularity(): string {
-    return this.level.kind === "years" ? "Month by year" : `Day, ${MONTHS_LONG[this.level.month]} ${this.level.year}`;
+    return this.level.kind === "year" ? "Month by year" : `Day, ${MONTHS_LONG[this.level.month]} ${this.level.year}`;
   }
 
   render(sel: Selection, ramp: RampName): void {
     this.sel = sel;
     this.ramp = ramp;
+    const [a, b] = [parts(sel.from).year, parts(sel.to).year];
+    if (this.year < a || this.year > b) this.year = b;
+    this.yearSel.innerHTML = Array.from({ length: b - a + 1 }, (_, i) => `<option>${b - i}</option>`).join("");
     this.stage.replaceChildren(this.buildLayer());
     this.syncChrome();
   }
@@ -83,21 +99,20 @@ export class CalendarView {
   private syncChrome(): void {
     const days = this.level.kind === "days";
     this.back.hidden = !days;
-    this.nav.hidden = !days;
-    if (this.level.kind === "days") {
-      const { year, month } = this.level;
-      this.crumb.innerHTML = `<li><button type="button" class="crumb-link">Months</button></li><li aria-current="page">${MONTHS_LONG[month]} ${year}</li>`;
-      for (const btn of [this.prev, this.next]) {
-        const t = this.neighbour(+btn.dataset.step!);
-        btn.disabled = !t;
-        const which = btn === this.prev ? "Previous" : "Next";
-        btn.setAttribute("aria-label", t ? `${which} month, ${MONTHS_LONG[t.month]} ${t.year}` : `${which} month`);
-        btn.title = t ? `${MONTHS_LONG[t.month]} ${t.year}` : "";
-      }
-    } else {
-      this.crumb.innerHTML = `<li aria-current="page">Months</li>`;
+    this.yearField.hidden = days;
+    this.yearSel.value = String(this.year);
+    this.crumb.innerHTML = this.level.kind === "days"
+      ? `<li><button type="button" class="crumb-link">${this.level.year}</button></li><li aria-current="page">${MONTHS_LONG[this.level.month]}</li>`
+      : "";
+    for (const btn of [this.prev, this.next]) {
+      const t = this.neighbour(+btn.dataset.step!);
+      const name = !t ? "" : t.month === undefined ? String(t.year) : `${MONTHS_LONG[t.month]} ${t.year}`;
+      const which = `${btn === this.prev ? "Previous" : "Next"} ${days ? "month" : "year"}`;
+      btn.disabled = !t;
+      btn.setAttribute("aria-label", t ? `${which}, ${name}` : which);
+      btn.title = name;
     }
-    const { max } = this.cells();
+    const max = this.level.kind === "days" ? this.cells().max : this.yearMonths().max;
     const steps = RAMPS[this.ramp].steps;
     const bounds = stepBounds(max, steps.length);
     this.legend.innerHTML = `
@@ -105,9 +120,13 @@ export class CalendarView {
       <span class="legend-item"><span class="sw sw-none"></span>Not observed</span>`;
   }
 
-  /** The month `delta` months away from the shown one, or null when it lies outside the record or the selected dates. */
-  private neighbour(delta: number): { year: number; month: number } | null {
-    if (this.level.kind !== "days" || !this.sel) return null;
+  /** The year or month `delta` steps away from the shown one, or null when it lies outside the record. */
+  private neighbour(delta: number): { year: number; month?: number } | null {
+    if (!this.sel) return null;
+    if (this.level.kind === "year") {
+      const year = this.year + delta;
+      return year < parts(this.sel.from).year || year > parts(this.sel.to).year ? null : { year };
+    }
     const i = this.level.year * 12 + this.level.month + delta;
     const year = Math.floor(i / 12);
     const month = i % 12;
@@ -120,16 +139,39 @@ export class CalendarView {
   private step(delta: number): void {
     const t = this.neighbour(delta);
     if (!t) return;
-    this.level = { kind: "days", ...t };
+    this.year = t.year;
+    if (t.month !== undefined) this.level = { kind: "days", year: t.year, month: t.month };
     this.swap(null, delta < 0 ? "prev" : "next");
   }
 
-  /** Cell values for the current level. Rows are years (or weeks), columns months (or weekdays). */
+  /** Days of the picked year grouped by month, with each month's total and the year's busiest day. */
+  private yearMonths(): { months: { m: number; total: number; outside: boolean; lead: number; days: CellData["state"][]; values: number[] }[]; max: number } {
+    const sel = this.sel!;
+    let max = 0;
+    const months = MONTHS.map((_, m) => {
+      const start = monthStart(this.year, m);
+      const values: number[] = [];
+      const days: CellData["state"][] = [];
+      let total = 0;
+      for (let day = start; day < start + daysInMonth(this.year, m); day++) {
+        const outside = day < sel.from || day > sel.to;
+        const value = outside ? 0 : sel.daily[day - sel.firstDay];
+        values.push(value);
+        days.push(outside ? "none" : sel.missing[day - sel.firstDay] === 1 ? "missed" : value ? "data" : "zero");
+        total += value;
+        max = Math.max(max, value);
+      }
+      return { m, total, outside: monthOutsideRecord(sel, this.year, m), lead: weekdayMon(start), days, values };
+    });
+    return { months, max };
+  }
+
+  /** Month-by-year values of the whole record (for the CSV), or the weeks of the open month. */
   private cells(): { rows: { label: string; cells: (CellData & { y: number; m: number; day?: number })[] }[]; max: number } {
     const sel = this.sel!;
     const rows: { label: string; cells: (CellData & { y: number; m: number; day?: number })[] }[] = [];
     let max = 0;
-    if (this.level.kind === "years") {
+    if (this.level.kind === "year") {
       const a = parts(sel.from).year;
       const b = parts(sel.to).year;
       for (let y = a; y <= b; y++) {
@@ -168,35 +210,52 @@ export class CalendarView {
     return { rows, max };
   }
 
+  /** The picked year: one button per month holding a small grid of its days. */
+  private buildYear(): HTMLElement {
+    const { months, max } = this.yearMonths();
+    const layer = document.createElement("div");
+    layer.className = "cal-layer is-year";
+    layer.innerHTML = `<div class="cal-months" role="group" aria-label="Days of ${this.year} by month">${months
+      .map((mo) => {
+        const minis = `${'<i class="mini is-blank"></i>'.repeat(mo.lead)}${mo.days
+          .map((state, d) => {
+            const fill = state === "data" ? colorFor(mo.values[d], max, this.ramp)! : "";
+            return `<i class="mini is-${state === "missed" ? "none" : state}"${fill ? ` style="background:${fill}"` : ""}></i>`;
+          })
+          .join("")}`;
+        const head = `<span class="cal-month-h"><span>${MONTHS[mo.m]}</span><span class="cal-month-v">${mo.outside ? "" : fmtCompact(mo.total)}</span></span>`;
+        const name = `${MONTHS_LONG[mo.m]} ${this.year}`;
+        if (mo.outside) return `<span class="cal-month is-outside" role="img" aria-label="${name}: outside the record">${head}<span class="cal-mini" aria-hidden="true">${minis}</span></span>`;
+        const text = `${name}: ${fmtVal(mo.total)} ${UNIT_SHORT}`;
+        return `<button type="button" class="cal-month" style="--d:${mo.m}" data-m="${mo.m}" aria-label="${text}. Show days" title="${text}">${head}<span class="cal-mini" aria-hidden="true">${minis}</span></button>`;
+      })
+      .join("")}</div>`;
+    return layer;
+  }
+
   private buildLayer(): HTMLElement {
+    if (this.level.kind === "year") return this.buildYear();
     const { rows, max } = this.cells();
     const layer = document.createElement("div");
-    const days = this.level.kind === "days";
-    layer.className = `cal-layer ${days ? "is-days" : "is-years"}`;
-    const head = (days ? WEEKDAYS : MONTHS).map((h) => `<span class="cal-h" aria-hidden="true">${h}</span>`).join("");
+    layer.className = "cal-layer is-days";
+    const head = WEEKDAYS.map((h) => `<span class="cal-h" aria-hidden="true">${h}</span>`).join("");
     const body = rows
       .map((row, r) => {
-        const label = days ? "" : `<span class="cal-y">${row.label}</span>`;
         const cells = row.cells
           .map((c, i) => {
             const fill = c.state === "data" ? colorFor(c.value, max, this.ramp)! : "";
             const style = `--d:${r + i}${fill ? `;background:${fill};color:${inkOn(fill)}` : ""}`;
-            const text = c.state === "none" ? "outside the selected dates" : c.state === "missed" ? "not observed by the satellite" : `${fmtVal(c.value)} ${UNIT_SHORT}`;
-            if (days) {
-              if (!c.day) return `<span class="cell is-blank" aria-hidden="true"></span>`;
-              const cls = c.state === "missed" ? "none" : c.state;
-              return `<span class="cell is-${cls}" style="${style}" role="img" aria-label="${c.label}: ${text}" title="${c.label}: ${text}">
-                <span class="cell-day">${c.day}</span><span class="cell-v">${c.state === "none" || c.state === "missed" ? "" : fmtCompact(c.value)}</span></span>`;
-            }
-            if (c.state === "none") return `<span class="cell is-none" style="${style}" role="img" aria-label="${c.label}: outside the selected dates" title="${c.label}: outside the selected dates"></span>`;
-            return `<button type="button" class="cell is-${c.state}" style="${style}" data-y="${c.y}" data-m="${c.m}" aria-label="${c.label}: ${text}. Show days" title="${c.label}: ${text}">
-              <span class="cell-v">${fmtCompact(c.value)}</span></button>`;
+            const text = c.state === "none" ? "outside the record" : c.state === "missed" ? "not observed by the satellite" : `${fmtVal(c.value)} ${UNIT_SHORT}`;
+            if (!c.day) return `<span class="cell is-blank" aria-hidden="true"></span>`;
+            const cls = c.state === "missed" ? "none" : c.state;
+            return `<span class="cell is-${cls}" style="${style}" role="img" aria-label="${c.label}: ${text}" title="${c.label}: ${text}">
+              <span class="cell-day">${c.day}</span><span class="cell-v">${c.state === "none" || c.state === "missed" ? "" : fmtCompact(c.value)}</span></span>`;
           })
           .join("");
-        return label + cells;
+        return cells;
       })
       .join("");
-    layer.innerHTML = `<div class="cal-grid" role="group" aria-label="${escapeXml(this.granularity)} heatmap">${days ? "" : '<span class="cal-h cal-corner"></span>'}${head}${body}</div>`;
+    layer.innerHTML = `<div class="cal-grid" role="group" aria-label="${escapeXml(this.granularity)} heatmap">${head}${body}</div>`;
     return layer;
   }
 
@@ -210,9 +269,10 @@ export class CalendarView {
   private goBack(): void {
     if (this.level.kind !== "days") return;
     const { year, month } = this.level;
-    this.level = { kind: "years" };
-    const next = this.swap(null, "out", `button.cell[data-y="${year}"][data-m="${month}"]`);
-    next.querySelector<HTMLElement>(`button.cell[data-y="${year}"][data-m="${month}"]`)?.focus({ preventScroll: true });
+    this.year = year;
+    this.level = { kind: "year" };
+    const next = this.swap(null, "out", `.cal-month[data-m="${month}"]`);
+    next.querySelector<HTMLElement>(`.cal-month[data-m="${month}"]`)?.focus({ preventScroll: true });
   }
 
   private originOf(el: HTMLElement): { x: number; y: number; s: number } {
@@ -260,11 +320,11 @@ export class CalendarView {
   /** Rows for the CSV export at the current granularity. */
   csv(): { header: string[]; rows: Cell[][] } {
     const { rows } = this.cells();
-    const flat = rows.flatMap((r) => r.cells).filter((c) => this.level.kind === "years" || c.day);
-    if (this.level.kind === "years") {
+    const flat = rows.flatMap((r) => r.cells).filter((c) => this.level.kind === "year" || c.day);
+    if (this.level.kind === "year") {
       return {
         header: ["year", "month", "fire_cell_days", "status"],
-        rows: flat.map((c) => [c.y, MONTHS[c.m], c.state === "none" ? "" : round4(c.value), c.state === "none" ? "outside dates" : c.state]),
+        rows: flat.map((c) => [c.y, MONTHS[c.m], c.state === "none" ? "" : round4(c.value), c.state === "none" ? "outside record" : c.state]),
       };
     }
     return {
@@ -272,7 +332,7 @@ export class CalendarView {
       rows: flat.map((c) => [
         fromDay(monthStart(c.y, c.m) + c.day! - 1),
         c.state === "none" || c.state === "missed" ? "" : round4(c.value),
-        c.state === "none" ? "outside dates" : c.state === "missed" ? "not observed" : c.state,
+        c.state === "none" ? "outside record" : c.state === "missed" ? "not observed" : c.state,
       ]),
     };
   }

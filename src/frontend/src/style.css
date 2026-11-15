@@ -1832,18 +1832,6 @@ body:has(.card-dialog[open]) {
   gap: 10px;
 }
 
-.g-right .is-years .cal-grid {
-  grid-template-columns: 30px repeat(12, minmax(0, 1fr));
-  gap: 2px;
-  min-width: 0;
-}
-
-.g-right .is-years .cell {
-  height: 22px;
-  border-radius: 4px;
-  font-size: var(--fs-caption);
-}
-
 .g-right .is-days .cal-grid {
   min-width: 0;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -1854,10 +1842,6 @@ body:has(.card-dialog[open]) {
   padding-bottom: 5px;
 }
 
-.g-right .cal-y {
-  font-size: var(--fs-caption);
-  padding-right: 4px;
-}
 
 .g-right .cal-h {
   font-size: var(--fs-caption);
@@ -2927,14 +2911,79 @@ select.input {
   align-items: center;
 }
 
-.is-years .cal-grid {
-  grid-template-columns: 36px repeat(12, minmax(28px, 1fr));
-  min-width: 400px;
+/* One picked year: twelve months, each a small grid of its days */
+.cal-months {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
 }
 
-/* Year cells are too narrow for tabular figures; values here are read one by one, not down a column */
-.is-years .cell {
-  font-variant-numeric: proportional-nums;
+.cal-month {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding: 6px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-2);
+  font: var(--fs-caption)/1 var(--sans);
+  text-align: left;
+  transition: background-color var(--dur-2) var(--ease-out);
+}
+
+button.cal-month {
+  cursor: pointer;
+}
+
+button.cal-month:hover {
+  background: var(--glass-line);
+}
+
+button.cal-month:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.cal-month.is-outside {
+  opacity: 0.45;
+}
+
+.cal-month-h {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.cal-month-v {
+  color: var(--ink-3);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-mini {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.mini {
+  aspect-ratio: 1;
+  border-radius: 2px;
+}
+
+.mini.is-zero {
+  background: var(--glass-line);
+}
+
+.mini.is-none {
+  background: repeating-linear-gradient(45deg, var(--hatch-a) 0 2px, var(--line) 2px 4px);
+}
+
+.is-fresh .cal-month {
+  animation: cell-in 360ms var(--ease-out) backwards;
+  animation-delay: calc(var(--d, 0) * 20ms);
 }
 
 .is-days .cal-grid {
@@ -2947,14 +2996,6 @@ select.input {
   color: var(--ink-3);
   font-size: var(--fs-caption);
   text-align: center;
-}
-
-.cal-y {
-  color: var(--ink-2);
-  font-size: var(--fs-small);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  padding-right: 6px;
 }
 
 .cell {
@@ -2997,21 +3038,10 @@ select.input {
   visibility: hidden;
 }
 
-button.cell {
-  cursor: pointer;
-}
-
-button.cell:hover,
-button.cell:focus-visible,
 .is-days .cell.is-data:hover {
   z-index: 1;
   transform: scale(1.12);
   box-shadow: 0 0 0 2px var(--cream), 0 4px 14px var(--shadow);
-}
-
-button.cell:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
 }
 
 .is-fresh .cell {
@@ -3128,6 +3158,7 @@ button.cell:focus-visible {
 
   .gc,
   .chip,
+  .is-fresh .cal-month,
   .is-fresh .cell {
     animation: fade var(--dur-2) linear backwards !important;
     animation-delay: 0ms !important;
@@ -3150,8 +3181,6 @@ button.cell:focus-visible {
 
   .pill:active,
   .btn:active,
-  button.cell:hover,
-  button.cell:focus-visible,
   .is-days .cell.is-data:hover {
     transform: none;
   }
