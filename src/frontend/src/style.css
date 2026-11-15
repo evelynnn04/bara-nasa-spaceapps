@@ -1917,6 +1917,83 @@ body:has(.card-dialog[open]) {
   display: none;
 }
 
+/* Email alerts dialog */
+.alert-dialog {
+  width: min(520px, calc(100vw - 48px));
+}
+
+.alert-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.alert-pick {
+  position: relative;
+}
+
+.alert-suggest {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--glass-solid);
+  box-shadow: var(--glass-shadow);
+}
+
+.alert-suggest[hidden] {
+  display: none;
+}
+
+.alert-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.alert-option:hover,
+.alert-option:focus-visible {
+  background: var(--surface);
+}
+
+.alert-hp {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.alert-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.alert-status {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
+
+.alert-status.is-error {
+  color: var(--critical, #e06c5a);
+}
+
 /* Newer data has arrived: its own line, so other notes never replace it */
 .data-notice {
   position: absolute;

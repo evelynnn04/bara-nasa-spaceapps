@@ -38,6 +38,9 @@
         <div class="hf-palette" id="palette-menu"></div>
       </div>
       <div class="g-export">
+        <button type="button" class="pill" id="alerts-open" aria-haspopup="dialog" title="Get an email when fire activity in your regions becomes unusual" hidden>
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0" /></svg>Alerts
+        </button>
         <button type="button" class="pill" id="dl-detections" aria-label="Download raw detections CSV" title="Every satellite detection in the selected area and dates, with its source">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>CSV
         </button>
@@ -139,6 +142,32 @@
       </section>
 
     </main>
+    <dialog class="card-dialog alert-dialog" id="alerts" aria-labelledby="alerts-title">
+      <button type="button" class="icon-btn help-close alert-close" aria-label="Close" title="Close">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" /></svg>
+      </button>
+      <article class="gc">
+        <div class="gc-head">
+          <h2 class="gc-title" id="alerts-title">Email alerts</h2>
+        </div>
+        <form class="alert-form" novalidate>
+          <p class="mini-note">Get an email when a month's fire activity in a region becomes unusual for that time of year. We send a confirmation link first, and every alert has an unsubscribe link.</p>
+          <label class="d-label" for="alert-email">Email</label>
+          <input class="input" id="alert-email" name="email" type="email" autocomplete="email" required placeholder="you@example.org" />
+          <label class="d-label" for="alert-search">Regions</label>
+          <ul class="chips alert-chips" aria-label="Chosen regions"></ul>
+          <div class="alert-pick">
+            <input class="input" id="alert-search" type="search" autocomplete="off" placeholder="Add a province or city…" />
+            <ul class="alert-suggest" role="listbox" aria-label="Matching regions" hidden></ul>
+          </div>
+          <div class="alert-hp" aria-hidden="true"><label>Website <input name="website" tabindex="-1" autocomplete="off" /></label></div>
+          <div class="alert-actions">
+            <button type="submit" class="pill is-primary">Send confirmation</button>
+            <p class="alert-status" role="status" aria-live="polite"></p>
+          </div>
+        </form>
+      </article>
+    </dialog>
     <dialog class="card-dialog help-dialog" id="help" aria-labelledby="help-title">
       <button type="button" class="icon-btn help-close" id="help-close" aria-label="Close" title="Close">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" /></svg>
