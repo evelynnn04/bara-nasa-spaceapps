@@ -30,10 +30,11 @@ export class EventsView {
     return { name: province?.name ?? `${e.lat.toFixed(2)}°, ${e.lon.toFixed(2)}°`, province: "" };
   }
 
-  render(events: FireEvent[]): void {
+  /** Lists the events, or says `empty` when there are none. */
+  render(events: FireEvent[], empty = "No fire events in this area and period."): void {
     this.events = events;
     if (!events.length) {
-      this.root.innerHTML = `<p class="reading">No fire events in this area and period.</p>`;
+      this.root.innerHTML = `<p class="reading">${escapeXml(empty)}</p>`;
       return;
     }
     const items = events

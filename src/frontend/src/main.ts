@@ -2,7 +2,7 @@ import "./style.css";
 import { AgreementView } from "./agreement-view";
 import { AnalyticsView } from "./analytics-view";
 import { AnomalyView } from "./anomaly-view";
-import { Api, type AgreementResponse, type CellsResponse, type FireEvent, type Meta } from "./api";
+import { Api, type AgreementResponse, type CellsResponse, type FireEvent, type Meta, type OutlookCells, type OutlookTimeline } from "./api";
 import { setChartPalette } from "./charts";
 import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
@@ -10,7 +10,7 @@ import { DatePicker } from "./date-picker";
 import { parts, toDay } from "./dates";
 import { EventsView } from "./events-view";
 import { downloadCsv, slug, toCsv } from "./export";
-import { UNIT_SHORT, fmtCompact, fmtVal } from "./format";
+import { UNIT_SHORT, escapeXml, fmtChance, fmtCompact, fmtInt, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
 import { initTooltips } from "./tooltip";
 import { MapView } from "./map-view";
@@ -19,8 +19,8 @@ import { SelectMenu } from "./select-menu";
 import { RegionIndex, loadBoundaries, regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
 import { initCards, measureInsets } from "./screen";
 import { select, type Selection } from "./store";
-import { Timeline } from "./time-slider";
-import { stepShare, type Frame, type Interval } from "./timeline";
+import { Timeline, forecastTip } from "./time-slider";
+import { outlookFrames, stepShare, type Frame, type Interval } from "./timeline";
 import type { DayNight, Filters, Hotspots, SelectionMode } from "./types";
 import { readUrlState, writeUrlState, type ViewState } from "./url-state";
 
@@ -32,7 +32,9 @@ const api = new Api();
 initFx();
 initTooltips();
 trackHeaderHeight();
-Promise.all([loadBoundaries(), api.meta()]).then(([b, meta]) => boot(b, meta), (err: Error) => {
+/** The forecast timelines of every step size, or the error that kept them from loading. */
+const outlook = Promise.all((["day", "month", "year"] as const).map((s) => api.outlook(s))).catch((err: Error) => err);
+Promise.all([loadBoundaries(), api.meta(), outlook]).then(([b, meta, o]) => boot(b, meta, o), (err: Error) => {
   $("#dl-note").textContent = `Could not load the fire data (${err.message}). Check that the backend is running, then reload the page.`;
 });
 
@@ -42,10 +44,15 @@ function trackHeaderHeight(): void {
   new ResizeObserver(() => document.documentElement.style.setProperty("--top-h", `${header.offsetHeight}px`)).observe(header);
 }
 
-function boot(boundaries: Boundaries, meta: Meta): void {
+function boot(boundaries: Boundaries, meta: Meta, outlook: OutlookTimeline[] | Error): void {
   const regions = new RegionIndex(regionsFromBoundaries(boundaries).regions);
   const recordStart = meta.record.start;
   const recordEnd = meta.record.end;
+  /** Forecast steps per step size; the selected dates may run into them, up to the end of the longest. */
+  const forecast = outlook instanceof Error ? {} : Object.fromEntries(outlook.map((o) => [o.step, outlookFrames(o.step, o.leads)]));
+  const trackEnd = Object.values(forecast).flat().reduce((end, f) => (f.to > end ? f.to : end), recordEnd);
+  /** Complete years the forecast chances were counted on, for the legend. */
+  const outlookYears = outlook instanceof Error ? "" : outlook[0].estimated_on.join("-");
   const defaults: ViewState = {
     filters: { mode: "area", regionIds: ["idn"], polygon: null, start: `${recordEnd.slice(0, 4)}-01-01`, end: recordEnd },
     ramp: "ember",
@@ -53,7 +60,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     hotspots: meta.default_hotspots ?? "vegetation",
     step: null,
   };
-  const initial = readUrlState(defaults, (id) => regions.byId.has(id), recordStart, recordEnd);
+  const initial = readUrlState(defaults, (id) => regions.byId.has(id), recordStart, trackEnd);
   let filters: Filters = initial.filters;
   let ramp: RampName = initial.ramp;
   let daynight: DayNight = initial.daynight;
@@ -77,6 +84,10 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   let wantedFrame: Frame | null = null;
   /** Cells of timeline steps already asked for, for the current filters. */
   const stepCache = new Map<string, Promise<CellsResponse>>();
+  /** Forecast chances of the leads already asked for, for the current area. */
+  const outlookCache = new Map<string, Promise<OutlookCells>>();
+  /** The forecast step on the map with its expected number of cells with fire, for the legend; null for data. */
+  let shownForecast: { frame: Frame; expected: number } | null = null;
   /** Value quantiles of one step of each interval over the whole record, keyed by area, counting and interval. */
   const scaleCache = new Map<string, Promise<number[]>>();
   let timeRequests: AbortController | null = null;
@@ -129,6 +140,14 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   const fromIn = new DatePicker($("#date-from"), "From", range, (start) => onDate({ start }));
   const toIn = new DatePicker($("#date-to"), "To", range, (end) => onDate({ end }));
   for (const el of [fromIn, toIn]) el.setBounds(recordStart, recordEnd);
+
+  /** The selected dates cut to the record, for everything that shows observed data; null when they are all forecast. */
+  function observed(): Filters | null {
+    return filters.start > recordEnd ? null : { ...filters, end: filters.end < recordEnd ? filters.end : recordEnd };
+  }
+
+  /** Year of the last observed selected day, for the sensor comparison. */
+  const endYear = () => parts(toDay(observed()?.end ?? recordEnd)).year;
 
   function areaLabel(): string {
     if (filters.mode === "polygon") return filters.polygon ? `Drawn polygon (${filters.polygon.length} corners)` : "All areas";
@@ -229,11 +248,13 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     setLoad(seriesCards, "busy");
     api.series(filters, counting()).then((s) => {
       if (!current()) return;
-      sel = select(s, filters.start, filters.end);
+      const ob = observed();
+      sel = ob ? select(s, ob.start, ob.end) : null;
       record = select(s, recordStart, recordEnd);
       timeline.setActivity(s.daily, s.firstDay);
       calendar.render(record, ramp);
-      analytics.render(sel);
+      if (sel) analytics.render(sel);
+      else analytics.note("The selected dates are all forecast, so there are no observed hotspots to total.");
       anomaly.render(record, ramp, areaChanged);
       setLoad(seriesCards, "ready");
     }, (err) => {
@@ -246,7 +267,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     api.agreement(filters, counting()).then((a) => {
       if (!current()) return;
       lastAgreement = a;
-      agreement.render(a, meta.settings[hotspots], parts(toDay(filters.end)).year);
+      agreement.render(a, meta.settings[hotspots], endYear());
       setLoad(["agreement"], "ready");
     }, (err) => {
       if (!current()) return;
@@ -264,7 +285,16 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       $(".g-map").classList.remove("is-loading");
       $("#map").setAttribute("aria-busy", "false");
     };
-    api.cells(filters, counting(), ctl.signal).then((c) => {
+    const ob = observed();
+    if (!ob) {
+      // Dates holding only forecast: the timeline puts their first forecast step on the map
+      loaded();
+      fullCells = null;
+      events.render([], "The selected dates are all forecast, which holds no observed fire events.");
+      setLoad(["events"], "ready");
+      return;
+    }
+    api.cells(ob, counting(), ctl.signal).then((c) => {
       if (!current()) return;
       loaded();
       fullCells = c;
@@ -272,12 +302,13 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     }, (err) => {
       if (!current()) return;
       loaded();
+      shownForecast = null;
       map.setCells(null);
       map.setCallout(null, "");
       renderMapLegend();
       showError("the map cells", err);
     });
-    api.events(filters, hotspots, ctl.signal, 3).then((r) => {
+    api.events(ob, hotspots, ctl.signal, 3).then((r) => {
       if (!current()) return;
       events.render(r.events);
       setLoad(["events"], "ready");
@@ -290,6 +321,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
 
   /** Puts cells on the map with their legend; a timeline step has no most-active-cell callout. */
   function showCells(c: CellsResponse, step: Frame | null = null, breaks?: number[]): void {
+    shownForecast = null;
     map.setCells(c, breaks);
     map.setCallout(step ? null : c.top, c.top ? (regions.byId.get(c.top.region_id)?.name ?? "") : "");
     renderMapLegend();
@@ -307,6 +339,27 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       if (stepCache.size > 400) stepCache.delete(stepCache.keys().next().value!);
     }
     return hit;
+  }
+
+  /** Forecast chances of one lead over the area, loaded once per area and kept for stepping back and forth. */
+  function forecastCells(f: Frame): Promise<OutlookCells> {
+    const key = `${f.interval}|${f.lead}`;
+    let hit = outlookCache.get(key);
+    if (!hit) {
+      const ctl = (timeRequests ??= new AbortController());
+      hit = api.outlookCells(filters, f.interval, f.lead!, ctl.signal);
+      hit.catch(() => outlookCache.delete(key));
+      outlookCache.set(key, hit);
+    }
+    return hit;
+  }
+
+  /** Puts the forecast chances of one lead on the map, with the forecast legend. */
+  function showForecast(c: OutlookCells, frame: Frame): void {
+    shownForecast = { frame, expected: c.expected_cells };
+    map.setOutlook(c, `Forecast for ${frame.label}`);
+    map.setCallout(null, "");
+    renderMapLegend();
   }
 
   /**
@@ -330,10 +383,22 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       wantedFrame = frame;
       if (!frame) {
         if (fullCells) showCells(fullCells);
+        else if (!observed()) {
+          // Forecast dates without a step of this size: nothing to put on the map
+          shownForecast = null;
+          map.setCells(null);
+          map.setCallout(null, "");
+          $("#map-legend").innerHTML = "";
+        }
         return;
       }
       const g = generation;
       try {
+        if (frame.lead) {
+          const c = await forecastCells(frame);
+          if (g === generation && wantedFrame === frame) showForecast(c, frame);
+          return;
+        }
         const [c, q] = await Promise.all([stepCells(frame), stepQuantiles(frame.interval)]);
         // Without the record's scale the step falls back to quantiles of its own cells
         const share = stepShare(frame);
@@ -349,7 +414,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       let done = 0;
       const worker = async () => {
         while (next < list.length) {
-          await stepCells(list[next++]);
+          const f = list[next++];
+          await (f.lead ? forecastCells(f) : stepCells(f));
           progress(++done);
         }
       };
@@ -361,17 +427,32 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       step = interval;
       saveUrl();
     },
-  }, recordStart, recordEnd);
+    setEnd: (end) => {
+      for (const el of [fromIn, toIn]) el.setBounds(recordStart, end);
+    },
+  }, recordStart, recordEnd, forecast);
   timeline.usePicked(step);
+  if (outlook instanceof Error) setNote(`The fire forecast is not available: ${outlook.message}`);
 
   /** Drops the timeline steps loaded for earlier filters and lays the timeline over the new dates. */
   function resetTimeline(): void {
     timeRequests?.abort();
     timeRequests = null;
     stepCache.clear();
+    outlookCache.clear();
     fullCells = null;
     wantedFrame = null;
+    timeline.setExpected({});
     timeline.setRange(filters.start, filters.end);
+    if (outlook instanceof Error) return;
+    const g = generation;
+    // Scales the forecast bars by the cells with fire expected over the area; without them the bars are left out
+    Promise.all(outlook.map((o) => api.outlookExpected(filters, o.step))).then(
+      (list) => {
+        if (g === generation) timeline.setExpected(Object.fromEntries(list.map((o) => [o.step, o.expected_cells])));
+      },
+      () => {},
+    );
   }
 
   document.querySelectorAll<HTMLButtonElement>(".hf-mode [data-mode]").forEach((b) =>
@@ -412,13 +493,17 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     saveUrl();
     applyPalette();
     renderMapLegend();
-    if (lastAgreement) agreement.render(lastAgreement, meta.settings[hotspots], parts(toDay(filters.end)).year);
+    if (lastAgreement) agreement.render(lastAgreement, meta.settings[hotspots], endYear());
     if (!record) return;
     calendar.render(record, ramp);
     anomaly.render(record, ramp, false);
   });
 
   function renderMapLegend(): void {
+    if (shownForecast) {
+      renderForecastLegend(shownForecast.frame, shownForecast.expected);
+      return;
+    }
     const steps = RAMPS[ramp].steps;
     const b = map.breaks;
     const used = steps.slice(steps.length - b.length);
@@ -427,10 +512,21 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       <span class="legend-scale"><span class="legend-end">&lt;${fmtCompact(first)}</span><span class="legend-ramp">${used.map((c, i) => `<span class="sw" style="background:${c}" title="${i ? `${fmtVal(b[i])}+` : `under ${fmtVal(first)}`}"></span>`).join("")}</span><span class="legend-end">${fmtCompact(b[b.length - 1])}+</span></span>`;
   }
 
+  /** Legend of a forecast step: chance classes, marked as forecast, and the cells expected to burn. */
+  function renderForecastLegend(frame: Frame, expected: number): void {
+    const b = map.breaks;
+    const steps = RAMPS[ramp].steps;
+    const tip = `${forecastTip(frame)} Chance that a 0.05° cell has at least one vegetation-fire hotspot, counted from the ${outlookYears} record; the day/night and hotspot type filters do not apply. Cells under 1% are not drawn.`;
+    $("#map-legend").innerHTML = `<span class="legend-fc" title="${escapeXml(tip)}">Forecast</span>
+      <span class="legend-k">Chance of fire per cell</span>
+      <span class="legend-scale"><span class="legend-end">1%</span><span class="legend-ramp">${steps.map((c, i) => `<span class="sw" style="background:${c}" title="${i ? `${fmtChance(b[i])}+` : `1% to ${fmtChance(b[1])}`}"></span>`).join("")}</span><span class="legend-end">${fmtChance(b[b.length - 1])}+</span></span>
+      <span class="legend-k" title="Sum of the chances over the selected area">About ${fmtInt(expected)} cells with fire expected</span>`;
+  }
+
   document.addEventListener("click", async (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>("[data-export]");
     if (!btn) return;
-    if (!sel || !record) {
+    if (!record) {
       setNote("The daily record for these filters is not loaded yet, so there is nothing to save.", { error: true });
       return;
     }
@@ -451,12 +547,18 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     const btn = e.currentTarget as HTMLButtonElement;
     pulse(btn);
     btn.disabled = true;
+    const ob = observed();
+    if (!ob) {
+      setNote("The selected dates are all forecast, so there are no observed detections to save.", { error: true });
+      btn.disabled = false;
+      return;
+    }
     setNote("Preparing the raw detections…", { error: true });
     try {
       // The browser streams the file to disk itself; this first check only catches a refusal from the API
-      await api.checkDetections(filters, counting());
+      await api.checkDetections(ob, counting());
       const a = document.createElement("a");
-      a.href = api.detectionsUrl(filters, counting());
+      a.href = api.detectionsUrl(ob, counting());
       a.download = "";
       document.body.append(a);
       a.click();

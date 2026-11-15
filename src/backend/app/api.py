@@ -661,6 +661,20 @@ def fire_outlook_cells(area: Area = Depends(area_param), step: OutlookStep = "da
     }
 
 
+@router.get("/outlook/expected")
+def fire_outlook_expected(area: Area = Depends(area_param), step: OutlookStep = "day") -> dict:
+    """Cells with fire expected over an area at every lead of one step size: the sum of the
+    chances over its cells, as `expected_cells` of `/api/outlook/cells`, lead 1 first."""
+    meta = _outlook_meta()
+    cur = cursor()
+    sums = dict(cur.execute(f"""
+        SELECT c.lead, sum(c.chance) FROM outlook c JOIN cells k ON k.cx = c.cx AND k.cy = c.cy
+        WHERE c.step = {quote(step)} AND ({area.where(cur)}) GROUP BY c.lead
+    """).fetchall())
+    return {"step": step, "issued": meta["issued"][step], "unit": "cells with fire expected",
+            "expected_cells": [round(sums.get(k, 0.0), 2) for k in range(1, OUTLOOK_LEADS[step] + 1)]}
+
+
 CSV_COLUMNS = ("acq_utc", "local_date", "lon", "lat", "sensor", "platform", "daynight", "frp", "confidence",
                "type", "version", "source", "counted", "cell_x", "cell_y", "province_id", "regency_id")
 

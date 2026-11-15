@@ -1,4 +1,5 @@
 import { toDay } from "./dates";
+import type { Interval, OutlookLead } from "./timeline";
 import type { DayNight, Filters, Hotspots } from "./types";
 
 /** Base URL of the backend; empty means the same origin (the dev server proxies `/api`). */
@@ -112,6 +113,37 @@ export interface FireEvent {
   province_id: string | null;
 }
 
+/** The forecast timeline of one step size: the issue date and, per lead, its target and trust label. */
+export interface OutlookTimeline {
+  step: Interval;
+  unit: string;
+  /** Last data day, last complete month (`YYYY-MM`) or year of the last data day. */
+  issued: string;
+  /** First and last complete year the chances were counted on. */
+  estimated_on: [number, number];
+  leads: OutlookLead[];
+}
+
+/** Cells with fire expected over an area at every lead of one step size, lead 1 first. */
+export interface OutlookExpected {
+  step: Interval;
+  issued: string;
+  expected_cells: number[];
+}
+
+/** The fire outlook of one lead over an area: per 0.05 degree cell, the chance that it holds fire. */
+export interface OutlookCells {
+  step: Interval;
+  lead: number;
+  target: string;
+  issued: string;
+  grid_deg: number;
+  /** Sum of the chances over the area, also of cells left out below `min_chance`. */
+  expected_cells: number;
+  count: number;
+  cells: { lon: number[]; lat: number[]; chance: number[] };
+}
+
 /** Daily harmonised values over the record; unobserved days are 0 in `daily` and 1 in `missing`. */
 export interface DailySeries {
   daily: Float64Array;
@@ -175,6 +207,7 @@ export interface Counting {
 export class Api {
   private readonly seriesCache = new Map<string, Promise<DailySeries>>();
   private readonly agreementCache = new Map<string, Promise<AgreementResponse>>();
+  private readonly expectedCache = new Map<string, Promise<OutlookExpected>>();
 
   meta(): Promise<Meta> {
     return getJson("meta", {});
@@ -201,6 +234,22 @@ export class Api {
 
   events(f: Filters, hotspots: Hotspots, signal?: AbortSignal, limit = 5): Promise<{ events: FireEvent[] }> {
     return getJson("events", { ...areaParams(f), from: f.start, to: f.end, hotspots, limit: String(limit) }, signal);
+  }
+
+  /** The forecast timeline of one step size; it fails with the API's message while the outlook is not built. */
+  outlook(step: Interval): Promise<OutlookTimeline> {
+    return getJson("outlook", { step });
+  }
+
+  /** Cells with fire expected over the area at every forecast lead of one step size. */
+  outlookExpected(f: Filters, step: Interval): Promise<OutlookExpected> {
+    const params = { ...areaParams(f), step };
+    return this.cached(this.expectedCache, params, () => getJson<OutlookExpected>("outlook/expected", params));
+  }
+
+  /** Chance of fire per cell of the area for one forecast lead, leaving out cells under 1 %. */
+  outlookCells(f: Filters, step: Interval, lead: number, signal?: AbortSignal): Promise<OutlookCells> {
+    return getJson("outlook/cells", { ...areaParams(f), step, lead: String(lead) }, signal);
   }
 
   /**

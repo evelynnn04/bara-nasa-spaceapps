@@ -190,7 +190,18 @@ is kept.
 - `cells`: `lon`, `lat` and `chance` of every cell with at least `min_chance` (default 0.01).
 
 A frame of the whole country is up to about 1 MB before compression (the API compresses
-responses), so the dashboard should fetch one lead at a time as the timeline plays.
+responses), so the dashboard fetches one lead at a time as the timeline plays.
+
+`GET /api/outlook/expected?step=...&area=...` (or `poly=...`) returns `expected_cells` of every
+lead of a step, lead 1 first.
+
+The dashboard runs the map timeline on after the record over the leads of its step size (day, month
+or year), on a grey background. Its bars are the cells with fire expected per month over the
+selected area, on a scale of their own, since the unit differs from the record's hotspots. The
+selected dates can run to the end of that forecast, and playing walks through the observed steps,
+then the forecast ones; the cards keep counting observed days only. Each forecast month's tooltip
+says it is a forecast, not observed data, with its label. On the map, a forecast step draws the
+chances per cell, and the legend gives `expected_cells` for the selected area.
 
 ## Limits
 
