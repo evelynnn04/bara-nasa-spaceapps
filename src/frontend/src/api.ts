@@ -1,3 +1,4 @@
+import type { Attribution, AttributionInfo, Cause } from "./attribution";
 import { toDay } from "./dates";
 import type { DayNight, Filters, Hotspots } from "./types";
 
@@ -110,6 +111,14 @@ export interface FireEvent {
   bbox: [number, number, number, number];
   regency_id: string | null;
   province_id: string | null;
+  /** Likely cause; null when the attribution has not been built, absent from older backends. */
+  attribution?: Attribution | null;
+}
+
+export interface EventsResponse {
+  events: FireEvent[];
+  /** null when the attribution has not been built. */
+  attribution_disclaimer?: string | null;
 }
 
 /** Daily harmonised values over the record; unobserved days are 0 in `daily` and 1 in `missing`. */
@@ -175,6 +184,7 @@ export interface Counting {
 export class Api {
   private readonly seriesCache = new Map<string, Promise<DailySeries>>();
   private readonly agreementCache = new Map<string, Promise<AgreementResponse>>();
+  private attributionInfo: Promise<AttributionInfo> | null = null;
 
   meta(): Promise<Meta> {
     return getJson("meta", {});
@@ -194,8 +204,18 @@ export class Api {
     return getJson("cells", { ...areaParams(f), from: f.start, to: f.end, ...c }, signal);
   }
 
-  events(f: Filters, hotspots: Hotspots, signal?: AbortSignal, limit = 5): Promise<{ events: FireEvent[] }> {
-    return getJson("events", { ...areaParams(f), from: f.start, to: f.end, hotspots, limit: String(limit) }, signal);
+  events(f: Filters, hotspots: Hotspots, signal?: AbortSignal, limit = 5, cause: Cause | null = null): Promise<EventsResponse> {
+    const params: Record<string, string> = { ...areaParams(f), from: f.start, to: f.end, hotspots, limit: String(limit) };
+    if (cause) params.cause = cause;
+    return getJson("events", params, signal);
+  }
+
+  /** How causes are attributed, with labels and citations; reads as not available when the request fails. */
+  attribution(): Promise<AttributionInfo> {
+    this.attributionInfo ??= getJson<AttributionInfo>("attribution", {}).catch(
+      (): AttributionInfo => ({ available: false, disclaimer: null, categories: [], sources: {} }),
+    );
+    return this.attributionInfo;
   }
 
   /** Downloads raw detections as CSV; returns the file, its name and how many rows matched in total. */

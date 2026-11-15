@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { nationalReading } from "./agreement-view";
-import type { SettingMeta } from "./api";
+import { apiUrl, type SettingMeta } from "./api";
 import { UNIT, UNIT_SHORT } from "./format";
 import { readUrlState, writeUrlState, type ViewState } from "./url-state";
 
@@ -9,6 +9,7 @@ const defaults: ViewState = {
   ramp: "ember",
   daynight: "all",
   hotspots: "vegetation",
+  cause: null,
 };
 
 /** Points `location` and `history` at a fake page URL and returns what `replaceState` was given. */
@@ -41,6 +42,26 @@ describe("hotspot type in the URL", () => {
     writeUrlState({ ...defaults, hotspots: "all" }, defaults);
     writeUrlState(defaults, defaults);
     expect(page.replaced).toEqual(["/?ht=all"]);
+  });
+});
+
+describe("fire cause in the URL", () => {
+  it("reads a known cause and ignores anything else", () => {
+    fakePage("?cause=wildfire");
+    expect(readUrlState(defaults, () => true, "2002-07-04", "2026-11-14").cause).toBe("wildfire");
+    fakePage("?cause=bogus");
+    expect(readUrlState(defaults, () => true, "2002-07-04", "2026-11-14").cause).toBeNull();
+  });
+
+  it("writes cause only when one is picked", () => {
+    const page = fakePage("");
+    writeUrlState({ ...defaults, cause: "land_clearing" }, defaults);
+    writeUrlState(defaults, defaults);
+    expect(page.replaced).toEqual(["/?cause=land_clearing"]);
+  });
+
+  it("is sent with the events request", () => {
+    expect(apiUrl("events", { area: "idn", cause: "wildfire" })).toBe("/api/events?area=idn&cause=wildfire");
   });
 });
 

@@ -7,6 +7,7 @@ import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
 import { formatRange, parts, toDay } from "./dates";
+import type { Cause } from "./attribution";
 import { EventsView } from "./events-view";
 import { downloadCsv, downloadPng, slug, toCsv } from "./export";
 import { UNIT, UNIT_SHORT, fmtCompact, fmtInt, fmtVal } from "./format";
@@ -58,14 +59,16 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     ramp: "ember",
     daynight: "all",
     hotspots: meta.default_hotspots ?? "vegetation",
+    cause: null,
   };
   const initial = readUrlState(defaults, (id) => regions.byId.has(id), recordStart, recordEnd);
   let filters: Filters = initial.filters;
   let ramp: RampName = initial.ramp;
   let daynight: DayNight = initial.daynight;
   let hotspots: Hotspots = initial.hotspots;
+  let cause: Cause | null = initial.cause;
   const counting = () => ({ daynight, hotspots });
-  const saveUrl = () => writeUrlState({ filters, ramp, daynight, hotspots }, defaults);
+  const saveUrl = () => writeUrlState({ filters, ramp, daynight, hotspots, cause }, defaults);
   /** The selected area's daily record for the current filters; null while it loads or after it failed. */
   let sel: Selection | null = null;
   /** The same record over all its dates, for the cards that do not follow the date picker. */
@@ -243,7 +246,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       renderMapLegend();
       showError("the map cells", err);
     });
-    api.events(filters, hotspots, ctl.signal).then((r) => {
+    api.events(filters, hotspots, ctl.signal, 5, cause).then((r) => {
       if (!current()) return;
       events.render(r.events);
       setLoad(["events"], "ready");
