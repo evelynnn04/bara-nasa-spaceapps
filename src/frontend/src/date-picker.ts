@@ -87,11 +87,6 @@ export class DatePicker {
     if (this.isOpen()) this.render();
   }
 
-  /** Sets the tooltip of the field. */
-  setTitle(title: string): void {
-    this.button.title = title;
-  }
-
   private isOpen(): boolean {
     return this.button.getAttribute("aria-expanded") === "true";
   }

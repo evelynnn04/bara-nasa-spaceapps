@@ -194,19 +194,36 @@ export class Api {
     return getJson("cells", { ...areaParams(f), from: f.start, to: f.end, ...c }, signal);
   }
 
+  /** Value quantiles of one cell over one timeline step, pooled over the whole record of the area. */
+  cellScale(f: Filters, interval: string, c: Counting): Promise<{ quantiles: number[]; values: number[] }> {
+    return getJson("cells/scale", { ...areaParams(f), interval, ...c });
+  }
+
   events(f: Filters, hotspots: Hotspots, signal?: AbortSignal, limit = 5): Promise<{ events: FireEvent[] }> {
     return getJson("events", { ...areaParams(f), from: f.start, to: f.end, hotspots, limit: String(limit) }, signal);
   }
 
-  /** Downloads raw detections as CSV; returns the file, its name and how many rows matched in total. */
-  async detections(f: Filters, c: Counting): Promise<{ blob: Blob; name: string; total: number; limit: number }> {
-    const res = await fetch(apiUrl("detections.csv", { ...areaParams(f), from: f.start, to: f.end, ...c }));
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${res.status}`);
+  /**
+   * Address of the raw detections CSV. The browser downloads it straight from the API, streaming to
+   * disk, because a long period runs to hundreds of megabytes.
+   */
+  detectionsUrl(f: Filters, c: Counting): string {
+    return apiUrl("detections.csv", { ...areaParams(f), from: f.start, to: f.end, ...c });
+  }
+
+  /**
+   * Asks for the raw detections and stops once the response starts, throwing the API's message when it
+   * refuses (a bad area, missing data), so the page can report it before starting the real download.
+   */
+  async checkDetections(f: Filters, c: Counting): Promise<void> {
+    const ctl = new AbortController();
+    const res = await fetch(this.detectionsUrl(f, c), { signal: ctl.signal });
+    if (res.ok) {
+      ctl.abort();
+      return;
     }
-    const name = res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "detections.csv";
-    return { blob: await res.blob(), name, total: Number(res.headers.get("X-Total-Rows") ?? 0), limit: Number(res.headers.get("X-Row-Limit") ?? 0) };
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${res.status}`);
   }
 
   private cached<T>(cache: Map<string, Promise<T>>, params: Record<string, string>, load: () => Promise<T>): Promise<T> {

@@ -145,6 +145,13 @@ def test_cells_agreement_events_and_csv(client):
     assert cells["top"]["region_id"] == ("idn-riau-a" if cells["cells"]["lon"][hottest] > 100 and cells["cells"]["lat"][hottest] > 0
                                          else "idn-bali-a")
     assert cells["total"] == pytest.approx(sum(cells["cells"]["value"]), abs=1e-2)
+    # One scale per interval over the whole record, whatever dates are on the map
+    month = client.get("/api/cells/scale?interval=month").json()
+    day = client.get("/api/cells/scale?interval=day").json()
+    assert len(month["values"]) == len(month["quantiles"]) == 8
+    assert month["values"] == sorted(month["values"]) and day["values"] == sorted(day["values"])
+    assert month["values"][-1] > day["values"][-1]
+    assert client.get("/api/cells/scale?interval=week").status_code == 422
     agreement = client.get("/api/agreement").json()
     assert [m["month"] for m in agreement["months"]] == [8, 9, 10]
     assert agreement["months"][1]["paired_days"] == 29
@@ -156,7 +163,7 @@ def test_cells_agreement_events_and_csv(client):
     assert {e["province_id"] for e in found} == {"idn-bali"}
     csv = client.get("/api/detections.csv?from=2015-09-01&to=2015-09-01&area=idn-riau")
     lines = csv.text.strip().splitlines()
-    assert lines[0].startswith("acq_utc,") and len(lines) == 2 and csv.headers["x-total-rows"] == "1"
+    assert lines[0].startswith("acq_utc,") and len(lines) == 2
     assert lines[1].split(",")[12] == "true"
     bali = client.get("/api/detections.csv?from=2015-09-01&to=2015-09-01&area=idn-bali").text.strip().splitlines()
     assert bali[1].split(",")[12] == "false"
@@ -224,13 +231,17 @@ def test_area_ids_are_checked_against_known_areas(client):
 
 def test_csv_reports_zero_rows_when_nothing_matches(client):
     res = client.get("/api/detections.csv?from=2015-09-02&to=2015-09-02&area=idn-riau")
-    assert res.status_code == 200 and res.headers["x-total-rows"] == "0"
+    assert res.status_code == 200
     assert res.text.strip().splitlines() == [",".join(api.CSV_COLUMNS)]
 
 
 def test_csv_accepts_periods_longer_than_a_year(client):
     res = client.get("/api/detections.csv?from=2014-01-01&to=2016-06-01&area=idn-riau")
-    assert res.status_code == 200 and int(res.headers["x-total-rows"]) > 0
+    lines = res.text.strip().splitlines()
+    assert res.status_code == 200 and len(lines) > 1
+    # Read a month at a time, the rows still come out in time order across month boundaries
+    times = [line.split(",")[0] for line in lines[1:]]
+    assert times == sorted(times)
 
 
 @pytest.mark.parametrize("url", ["/api/series?area=nope", "/api/series?poly=1,2;3,4",

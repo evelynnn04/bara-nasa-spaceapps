@@ -49,7 +49,6 @@ COARSE = 5
 #: Safety bound on the map layer: above this many active cells it is summed onto 0.25° blocks.
 #: The whole record touches under 50,000 cells, so in practice cells always arrive at 0.05°.
 MAX_MAP_CELLS = 100_000
-MAX_CSV_ROWS = 200_000
 AREA_ID = re.compile(r"^idn(-[a-z0-9]+)*$")
 
 _lock = threading.Lock()
@@ -80,6 +79,7 @@ def configure(con: duckdb.DuckDBPyConnection | None, params: dict | None) -> Non
         _daily.cache_clear()
         _flags.cache_clear()
         _parents.cache_clear()
+        _step_scale.cache_clear()
         _outlook_meta.cache_clear()
 
 
@@ -316,6 +316,36 @@ def cells(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Depe
         },
         "top": top,
     }
+
+
+#: Quantiles of the map's colour classes, matching `quantileBreaks` in the frontend's ramps.ts.
+SCALE_QUANTILES = (0.35, 0.55, 0.7, 0.8, 0.88, 0.94, 0.98, 0.995)
+_STEP_SQL = {"day": "c.local_date", "month": "date_trunc('month', c.local_date)",
+             "year": "date_trunc('year', c.local_date)"}
+
+
+@lru_cache(maxsize=128)
+def _step_scale(area: Area, interval: str, daynight: str, hotspots: str) -> list[float]:
+    cur = cursor()
+    w = weights.weight_sql(daynight, hotspots)
+    row = cur.execute(f"""
+        SELECT quantile_disc(value, {list(SCALE_QUANTILES)}) FROM (
+            SELECT sum(CASE WHEN c.platform = c.record_platform THEN {w} ELSE 0 END) AS value
+            FROM ({weights.observations_sql(area.where(cur), hotspots)}) c
+            GROUP BY c.cx, c.cy, {_STEP_SQL[interval]} HAVING value > 0
+        )
+    """).fetchone()
+    return [round(v, 4) for v in row[0]] if row and row[0] else []
+
+
+@router.get("/cells/scale")
+def cells_scale(area: Area = Depends(area_param), interval: Literal["day", "month", "year"] = "month",
+                daynight: DayNight = "all", hotspots: Hotspots = "vegetation") -> dict:
+    """Value quantiles of one map cell over one timeline step, pooled over every step of the
+    record, so each step of an interval is coloured on the same scale whatever dates are
+    selected. `values` follow `quantiles`; empty when the area has no active cell."""
+    return {"interval": interval, "quantiles": list(SCALE_QUANTILES),
+            "values": _step_scale(area, interval, daynight, hotspots)}
 
 
 @router.get("/agreement")
@@ -644,50 +674,51 @@ def detections_csv(area: Area = Depends(area_param), span: tuple[dt.date, dt.dat
     `counted` says whether the hotspot passes the selected hotspot type setting: with `vegetation`,
     a presumed vegetation fire (type 0, or an untyped near-real-time hotspot off the static-source
     mask); with `all`, every hotspot. Whether it enters the harmonised record also depends on its
-    satellite being the record satellite of the day. Any period is accepted; only the first
-    `MAX_CSV_ROWS` rows are sent, and header `X-Total-Rows` gives the number that matched."""
+    satellite being the record satellite of the day. Any period is accepted, and every matching
+    row is sent. Rows are read and sorted one calendar month at a time and streamed as they are
+    written, so memory stays at about one month of detections however long the period is."""
     cur = cursor()
     if not store.has(cur, "detections", "static_mask"):
         raise HTTPException(503, "Normalised detections are missing. Run `python -m app normalise` first.")
     cx, cy = cell_expr()
     half = {"all": "TRUE", "day": "c.daynight = 'D'", "night": "c.daynight = 'N'"}[daynight]
     counted = f"coalesce({qualifying_sql('c')}, FALSE)" if hotspots == "vegetation" else "TRUE"
-    source = f"""
-        FROM (SELECT d.*, {cx} AS cx, {cy} AS cy FROM detections d
-              WHERE d.local_date BETWEEN DATE '{span[0]}' AND DATE '{span[1]}') c
-        LEFT JOIN cells k ON k.cx = c.cx AND k.cy = c.cy
-        LEFT JOIN static_mask m ON m.mx = CAST(floor(c.lon / {MASK_RES}) AS INTEGER)
-                               AND m.my = CAST(floor(c.lat / {MASK_RES}) AS INTEGER)
-        WHERE {half} AND ({area.where(cur)})
-    """
-    res = cur.execute(f"""
-        SELECT strftime(c.acq_utc, '%Y-%m-%dT%H:%MZ'), c.local_date, c.lon, c.lat, c.sensor, c.platform,
-               c.daynight, round(CAST(c.frp AS DOUBLE), 2), c.confidence, c.type, c.version, c.source,
-               CAST({counted} AS VARCHAR), c.cx, c.cy, k.province_id, k.regency_id,
-               count(*) OVER () AS total
-        {source}
-        ORDER BY c.acq_utc, c.platform, c.lon, c.lat
-        LIMIT {MAX_CSV_ROWS}
-    """)
-    first = res.fetchmany(5000)
-    total = first[0][-1] if first else 0
+    where = area.where(cur)
+
+    def month_sql(a: dt.date, b: dt.date) -> str:
+        return f"""
+            SELECT strftime(c.acq_utc, '%Y-%m-%dT%H:%MZ'), c.local_date, c.lon, c.lat, c.sensor, c.platform,
+                   c.daynight, round(CAST(c.frp AS DOUBLE), 2), c.confidence, c.type, c.version, c.source,
+                   CAST({counted} AS VARCHAR), c.cx, c.cy, k.province_id, k.regency_id
+            FROM (SELECT d.*, {cx} AS cx, {cy} AS cy FROM detections d
+                  WHERE d.local_date BETWEEN DATE '{a}' AND DATE '{b}') c
+            LEFT JOIN cells k ON k.cx = c.cx AND k.cy = c.cy
+            LEFT JOIN static_mask m ON m.mx = CAST(floor(c.lon / {MASK_RES}) AS INTEGER)
+                                   AND m.my = CAST(floor(c.lat / {MASK_RES}) AS INTEGER)
+            WHERE {half} AND ({where})
+            ORDER BY c.acq_utc, c.platform, c.lon, c.lat
+        """
+
+    def months() -> Iterator[tuple[dt.date, dt.date]]:
+        a = span[0]
+        while a <= span[1]:
+            nxt = (a.replace(day=1) + dt.timedelta(days=32)).replace(day=1)
+            yield a, min(span[1], nxt - dt.timedelta(days=1))
+            a = nxt
 
     def lines() -> Iterator[str]:
         buf = io.StringIO()
         out = csv.writer(buf)
         out.writerow(CSV_COLUMNS)
-        chunk = first
-        while True:
-            yield buf.getvalue()
-            buf.seek(0)
-            buf.truncate()
-            if not chunk:
-                return
-            out.writerows(row[:-1] for row in chunk)
-            chunk = res.fetchmany(5000)
+        yield buf.getvalue()
+        for a, b in months():
+            res = cur.execute(month_sql(a, b))
+            while chunk := res.fetchmany(5000):
+                buf.seek(0)
+                buf.truncate()
+                out.writerows(chunk)
+                yield buf.getvalue()
 
     name = f"detections_{span[0]}_{span[1]}.csv"
     return StreamingResponse(lines(), media_type="text/csv; charset=utf-8",
-                             headers={"Content-Disposition": f'attachment; filename="{name}"',
-                                      "X-Total-Rows": str(total), "X-Row-Limit": str(MAX_CSV_ROWS),
-                                      "Access-Control-Expose-Headers": "X-Total-Rows, X-Row-Limit"})
+                             headers={"Content-Disposition": f'attachment; filename="{name}"'})

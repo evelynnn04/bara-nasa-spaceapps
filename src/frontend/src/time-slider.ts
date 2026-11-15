@@ -27,13 +27,15 @@ const ICON = {
 /** What the timeline needs from the page. */
 export interface TimelineHost {
   /** Shows one step on the map, or the whole selected period for null; resolves once it is on the map. */
-  show(frame: Frame | null, scale?: number[]): Promise<void>;
-  /** Loads every step of an animation, reporting progress, and returns one colour scale for all of them. */
-  prepare(frames: Frame[], progress: (done: number) => void): Promise<number[]>;
+  show(frame: Frame | null): Promise<void>;
+  /** Loads every step of an animation ahead of playback, reporting progress. */
+  prepare(frames: Frame[], progress: (done: number) => void): Promise<void>;
   /** Dates under the brush while it is dragged; shown, not loaded. */
   preview(start: string, end: string): void;
   /** Dates the user settled on with the brush. */
   pick(start: string, end: string): void;
+  /** Interval the user picked from the menu. */
+  pickInterval(interval: Interval): void;
 }
 
 /**
@@ -43,13 +45,15 @@ export interface TimelineHost {
  */
 export class Timeline {
   private interval: Interval = "month";
+  /** Interval the viewer picked from the menu; kept when the dates change, instead of the default for their length. */
+  private picked: Interval | null = null;
   private frames: Frame[] = [];
   /** Step on the map, or null while the map shows the whole selected period. */
   private current: number | null = null;
   private playing = false;
   private timer = 0;
-  /** Colour scale shared by all steps, once an animation has loaded them. */
-  private scale: number[] | null = null;
+  /** Steps whose loading for playback has started. */
+  private prepared: Frame[] | null = null;
   /** Selected dates as day numbers. */
   private range: [number, number];
   private readonly recA: number;
@@ -111,7 +115,11 @@ export class Timeline {
     this.playBtn = $(".tl-play");
     this.now = $(".tl-now");
     this.nowLabel = $(".tl-now span");
-    this.menu = new SelectMenu($(".tl-interval"), "Step", INTERVALS, this.interval, (value) => this.setInterval(value as Interval));
+    this.menu = new SelectMenu($(".tl-interval"), "Step", INTERVALS, this.interval, (value) => {
+      this.picked = value as Interval;
+      this.setInterval(this.picked);
+      this.host.pickInterval(this.picked);
+    });
     this.status = $(".tl-status");
 
     this.prevBtn.addEventListener("click", () => void this.go(this.current === null ? this.frames.length - 1 : this.current - 1));
@@ -122,12 +130,25 @@ export class Timeline {
     this.sync();
   }
 
-  /** New selected dates: moves the brush, rebuilds the steps and goes back to the whole period. */
+  /**
+   * New selected dates: moves the brush and rebuilds the steps, keeping the interval the viewer picked. A step on
+   * the map that still falls in the new dates stays on the map; otherwise the map goes back to the whole period.
+   */
   setRange(start: string, end: string): void {
     this.pause();
+    const keep = this.current === null ? null : this.frames[this.current];
     this.range = [toDay(start), toDay(end)];
     this.current = null;
-    this.setFrames(defaultInterval(start, end));
+    this.setFrames(this.picked ?? defaultInterval(start, end));
+    if (!keep || keep.to < start || keep.from > end) return;
+    this.current = Math.max(0, this.frames.findIndex((f) => f.to >= keep.from));
+    this.sync();
+    void this.host.show(this.frames[this.current]);
+  }
+
+  /** Keeps this interval for every later range, as if the viewer had picked it (restored from the page URL). */
+  usePicked(interval: Interval | null): void {
+    this.picked = interval;
   }
 
   /** The area's daily record, drawn as monthly bars along the track. */
@@ -159,7 +180,7 @@ export class Timeline {
   private setFrames(interval: Interval): void {
     this.interval = interval;
     this.frames = timeFrames(fromDay(this.range[0]), fromDay(this.range[1]), interval);
-    this.scale = null;
+    this.prepared = null;
     this.status.textContent = "";
     this.sync();
   }
@@ -169,7 +190,7 @@ export class Timeline {
     if (!fromPlayback) this.pause();
     this.current = Math.max(0, Math.min(this.frames.length - 1, index));
     this.sync();
-    return this.host.show(this.frames[this.current], this.scale ?? undefined);
+    return this.host.show(this.frames[this.current]);
   }
 
   /** Back to the whole selected period. */
@@ -189,21 +210,18 @@ export class Timeline {
     this.playing = true;
     this.sync();
     const frames = this.frames;
-    if (!this.scale) {
-      // Playing starts at once, each step on its own colour scale; the remaining steps load meanwhile, and
-      // once all are in they share one scale so the steps compare like with like
+    if (this.prepared !== frames) {
+      // Playing starts at once while the remaining steps load; every step of an interval shares one colour scale
+      this.prepared = frames;
       this.host
         .prepare(frames, (done) => {
           if (this.playing && frames === this.frames) this.status.textContent = done < count ? `Loaded ${done} of ${count} steps` : "";
         })
-        .then(
-          (scale) => {
-            if (frames === this.frames) this.scale = scale;
-          },
-          (err: Error) => {
-            if (err.name !== "AbortError" && frames === this.frames) this.status.textContent = `Could not load every step: ${err.message}`;
-          },
-        );
+        .catch((err: Error) => {
+          if (frames !== this.frames) return;
+          this.prepared = null;
+          if (err.name !== "AbortError") this.status.textContent = `Could not load every step: ${err.message}`;
+        });
     }
     void this.tick(this.current === null || this.current === count - 1 ? 0 : this.current);
   }

@@ -135,14 +135,32 @@ export class MapView {
     });
   }
 
-  /** Places an element of the page among the map controls in the bottom-right corner, left of the zoom buttons. */
-  addCornerControl(el: HTMLElement): void {
-    this.map.addControl({ onAdd: () => el, onRemove: () => el.remove() }, "bottom-right");
+  /**
+   * Places an element of the page among the map controls of a corner: bottom right, left of the zoom
+   * buttons, or bottom left, before the map credits.
+   */
+  addCornerControl(el: HTMLElement, corner: "bottom-right" | "bottom-left" = "bottom-right"): void {
+    this.map.addControl({ onAdd: () => el, onRemove: () => el.remove() }, corner);
+    if (corner === "bottom-left") el.parentElement?.prepend(el);
   }
 
+  /** Colours the cells with the palette, and the area outlines and drawing with its accent. */
   setRamp(ramp: RampName): void {
     this.ramp = ramp;
     this.syncCellPaint();
+    MAP.area = RAMPS[ramp].accent;
+    MAP.outline = RAMPS[ramp].accentInk;
+    MAP.drawPoint = RAMPS[ramp].accentInk;
+    const paint: [string, "fill-color" | "line-color" | "circle-color", string][] = [
+      ["polygon-fill", "fill-color", MAP.area],
+      ["polygon-line", "line-color", MAP.area],
+      ["outline-glow", "line-color", MAP.area],
+      ["outline-line", "line-color", MAP.outline],
+      ["coast-glow", "line-color", MAP.area],
+      ["coast-line", "line-color", MAP.outline],
+      ["draft-points", "circle-color", MAP.drawPoint],
+    ];
+    for (const [id, prop, color] of paint) if (this.map.getLayer(id)) this.map.setPaintProperty(id, prop, color);
   }
 
   /**

@@ -200,7 +200,6 @@ body.is-scrolled .g-top {
 .tile-label,
 .legend-k,
 .crumb-k,
-.verdict-k,
 .chip-level {
   font-size: var(--fs-caption);
   font-weight: 600;
@@ -226,9 +225,9 @@ body.is-scrolled .g-top {
 }
 
 /* Every filter keeps a fixed width so the row does not shift as values change. */
-.hf-area .area-trigger { width: 220px; }
+.hf-area .area-trigger { width: 200px; }
 .hf-date { width: 178px; }
-.hf-palette { width: 320px; flex: none; }
+.hf-palette { width: 250px; flex: none; }
 .hf-palette .sm-button { width: 100%; }
 .hf-mode { width: 176px; }
 .hf-ht { width: 196px; }
@@ -682,6 +681,40 @@ button.dp-title:hover,
   background: var(--page);
 }
 
+/* Map skeleton: while the cells load, the map dims and a soft highlight sweeps across it */
+.map-skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    linear-gradient(100deg, transparent 35%, rgba(255, 240, 225, 0.07) 50%, transparent 65%) 0 0 / 250% 100%,
+    rgba(11, 7, 6, 0.35);
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+
+.g-map.is-loading .map-skeleton {
+  opacity: 1;
+  animation: map-shimmer 1.6s linear infinite;
+}
+
+@keyframes map-shimmer {
+  from {
+    background-position: 125% 0, 0 0;
+  }
+
+  to {
+    background-position: -125% 0, 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .g-map.is-loading .map-skeleton {
+    animation: none;
+  }
+}
+
 .g-shade {
   position: absolute;
   inset: 0;
@@ -748,6 +781,10 @@ button.dp-title:hover,
 
 .gc.is-folded .fold-btn .ico {
   transform: rotate(180deg);
+}
+
+.fold-btn {
+  margin-left: auto;
 }
 
 .icon-btn {
@@ -830,37 +867,6 @@ button.dp-title:hover,
   display: none;
 }
 
-.draw-tip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px 0 12px;
-  color: var(--accent-ink);
-  font-size: var(--fs-small);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.draw-tip::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-glow);
-  animation: beat 1.4s var(--ease-out) infinite;
-}
-
-.draw-tip[hidden] {
-  display: none;
-}
-
-@keyframes beat {
-  50% {
-    box-shadow: 0 0 0 7px var(--ember-clear);
-  }
-}
-
 /* Floating cards */
 
 .g-main {
@@ -869,9 +875,10 @@ button.dp-title:hover,
   --main-bottom: 44px;
   inset: calc(var(--top-h) + 24px) var(--edge) var(--main-bottom);
   display: grid;
-  grid-template-columns: minmax(290px, 330px) minmax(0, 1fr) minmax(340px, 400px);
+  grid-template-columns: minmax(290px, 330px) minmax(0, 1fr) minmax(340px, 400px) var(--rail-w);
   grid-template-rows: minmax(0, 1fr) auto;
-  gap: 14px 18px;
+  gap: 14px 10px;
+  --rail-w: 46px;
   pointer-events: none;
 }
 
@@ -893,8 +900,11 @@ button.dp-title:hover,
   grid-row: 1 / 3;
   gap: 12px;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-2) transparent;
+  scrollbar-width: none;
+}
+
+.g-left::-webkit-scrollbar {
+  display: none;
 }
 
 /* Both columns end above Reset view and the zoom buttons: their height plus the corner gap, less the bottom inset of .g-main */
@@ -929,6 +939,160 @@ button.dp-title:hover,
 
 .g-right .gc .fold-inner > .gc-body {
   padding-top: 10px;
+}
+
+/* Right rail: one button per card. A button opens its card beside the rail, one card at a time. */
+.g-rail {
+  grid-row: 1 / 3;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--glass-line);
+  border-radius: 999px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-hi);
+}
+
+.g-rail-right {
+  grid-column: 4;
+}
+
+.rail-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out),
+    transform var(--dur-2) var(--ease-spring);
+}
+
+.rail-btn .ico {
+  width: 18px;
+  height: 18px;
+}
+
+.rail-btn:hover {
+  background: var(--accent-wash-2);
+  color: var(--ink);
+}
+
+.rail-btn:active {
+  transform: scale(0.92);
+}
+
+.rail-btn[aria-expanded="true"] {
+  background: var(--accent);
+  color: var(--page);
+}
+
+.close-btn {
+  margin-left: auto;
+}
+
+.gc-head .card-actions + .close-btn {
+  margin-left: 0;
+}
+
+@media (min-width: 1100px) {
+  /* Room for the open card's pointer, which sits outside the card towards the rail */
+  .g-right {
+    position: relative;
+    overflow: hidden;
+    padding-right: 8px;
+  }
+
+  .g-right .gc.is-open {
+    display: flex;
+    flex: 0 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .g-right .gc.is-open > .fold {
+    display: block;
+    min-height: 0;
+    margin-right: -10px;
+    padding-right: 10px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-2) transparent;
+  }
+
+  .g-right .gc.is-open > .fold > .fold-inner {
+    overflow: visible;
+  }
+
+  /* An open dropdown may reach past the scrolling body */
+  .g-right .gc.is-open:has(.sm.is-open, .dp.is-open) > .fold {
+    overflow: visible;
+  }
+
+  /* Closed cards keep the column width (so charts draw at the right size) but take no space */
+  .g-right .gc:not(.is-open) {
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    animation: none;
+  }
+
+  /* The caption goes under the card, so the card starts level with the rail's first button */
+  .g-right .col-cap {
+    order: 1;
+  }
+
+  .g-right:not(.has-open) .col-cap {
+    display: none;
+  }
+
+  .g-right .gc.is-open {
+    animation: card-in-right var(--dur-3) var(--ease-out) both;
+  }
+
+  .g-right .gc.is-open::before {
+    content: "";
+    position: absolute;
+    top: var(--arrow-y, 24px);
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--glass-line);
+    background: rgb(46 33 25);
+    transform: translateY(-50%) rotate(45deg);
+  }
+
+  .g-right .gc.is-open::before {
+    right: -7px;
+    border-bottom: 0;
+    border-left: 0;
+  }
+}
+
+@keyframes card-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+
+@media (max-width: 1099px) {
+  .g-rail,
+  .close-btn {
+    display: none;
+  }
 }
 
 /* Says which dates a column's cards use; the left one follows the date picker */
@@ -1063,7 +1227,7 @@ button.dp-title:hover,
 }
 
 .g-foot {
-  bottom: calc(10px + var(--tl-h));
+  bottom: calc(var(--edge) + 10px + var(--tl-h));
 }
 
 .g-map .maplibregl-ctrl-bottom-right {
@@ -1071,7 +1235,7 @@ button.dp-title:hover,
 }
 
 .g-map .maplibregl-ctrl-bottom-left {
-  bottom: calc(2px + var(--tl-h));
+  bottom: calc(var(--edge) - 4px + var(--tl-h));
 }
 
 .tl-dates {
@@ -1344,12 +1508,11 @@ button.dp-title:hover,
 
 /* Card contents */
 
-.gc-head .card-actions + .expand-btn,
-.gc-head .card-actions + .fold-btn {
+.gc-head .card-actions + .expand-btn {
   margin-left: 0;
 }
 
-.gc-head .expand-btn + .fold-btn {
+.gc-head .expand-btn + .close-btn {
   margin-left: -6px;
 }
 
@@ -1394,7 +1557,7 @@ button.dp-title:hover,
   padding-top: 16px;
 }
 
-.gc.is-expanded .fold-btn {
+.gc.is-expanded .close-btn {
   display: none;
 }
 
@@ -1504,13 +1667,6 @@ body:has(.card-dialog[open]) {
   padding: 3px 8px;
 }
 
-.an-bar .verdict {
-  margin-left: auto;
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-size: var(--fs-body);
-}
-
 #anomaly {
   display: grid;
   gap: 8px;
@@ -1552,6 +1708,40 @@ body:has(.card-dialog[open]) {
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums lining-nums;
   color: var(--cream);
+}
+
+/* Total hotspots with the change from the same dates a year earlier beside it */
+.an-total {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.an-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--fs-title);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.an-delta .ico {
+  width: 16px;
+  height: 16px;
+}
+
+.an-delta.is-up {
+  color: var(--critical);
+}
+
+.an-delta.is-down {
+  color: var(--good);
+}
+
+.an-total + .mini-note {
+  margin-top: 4px;
 }
 
 .sub-line {
@@ -1607,6 +1797,11 @@ body:has(.card-dialog[open]) {
 .rank-v {
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
+}
+
+/* The dot fills its own grid column; the default left margin would push it past the card edge */
+.rank .dot {
+  margin-left: 0;
 }
 
 /* Hottest-cell callout */
@@ -1706,28 +1901,22 @@ body:has(.card-dialog[open]) {
   top: calc(100% + 6px);
   right: 0;
   width: max-content;
-  max-width: min(720px, calc(100vw - 2 * var(--edge)));
-  padding: 6px 12px;
-  border: 1px solid var(--glass-line);
-  border-radius: 14px;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow: var(--glass-shadow);
+  max-width: min(520px, calc(100vw - 2 * var(--edge)));
   color: var(--ink-2);
   font-size: var(--fs-small);
   text-align: right;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+  transition: opacity 400ms var(--ease-out);
+}
+
+.dl-note.is-fading {
+  opacity: 0;
 }
 
 .dl-note:empty {
   display: none;
 }
 
-@media (max-width: 1599px) {
-  .g-export-long {
-    display: none;
-  }
-}
 
 /* Smaller screens: the stage stacks */
 
@@ -1747,13 +1936,13 @@ body:has(.card-dialog[open]) {
   }
 
   .g-foot {
-    bottom: 6px;
+    bottom: calc(var(--edge) + 10px + var(--tl-h));
   }
 }
 
 @media (max-width: 1279px) {
   .g-main {
-    grid-template-columns: minmax(270px, 300px) minmax(0, 1fr) minmax(320px, 350px);
+    grid-template-columns: minmax(270px, 300px) minmax(0, 1fr) minmax(320px, 360px) var(--rail-w);
   }
 
 }
@@ -1856,6 +2045,7 @@ body:has(.card-dialog[open]) {
 
   .g-map .maplibregl-ctrl-bottom-left {
     left: 10px;
+    bottom: var(--tl-h);
   }
 
 }
@@ -1945,10 +2135,6 @@ body:has(.card-dialog[open]) {
 
   .callout-box {
     min-width: 0;
-  }
-
-  .an-bar .verdict {
-    margin-left: 0;
   }
 }
 
@@ -2173,23 +2359,6 @@ body:has(.card-dialog[open]) {
   padding: 4px 10px;
 }
 
-.map-caution {
-  max-width: 340px;
-  margin: 0;
-  padding: 6px 12px;
-  border: 1px solid var(--glass-line);
-  border-radius: 12px;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  color: var(--ink-2);
-  font-size: var(--fs-small);
-}
-
-.map-caution[hidden] {
-  display: none;
-}
-
 /* Fields */
 
 .field {
@@ -2255,9 +2424,68 @@ select.input {
   animation: sheen 1.4s linear infinite;
 }
 
-[aria-busy="true"]:not(:empty),
+/* While a card reloads, its earlier content is hidden behind the skeleton, keeping its height so the page does not jump */
+[aria-busy="true"]:not(:empty) {
+  position: relative;
+  min-height: 180px;
+}
+
+[aria-busy="true"]:not(:empty) > * {
+  visibility: hidden;
+}
+
+[aria-busy="true"]:not(:empty)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: linear-gradient(100deg, var(--surface-2) 30%, var(--surface-3) 50%, var(--surface-2) 70%) 0 0 / 300% 100%;
+  animation: sheen 1.4s linear infinite;
+}
+
 [data-stale="true"] {
   opacity: 0.6;
+}
+
+/* Tooltips, in the same glass as the dropdown menus */
+
+.tip {
+  position: fixed;
+  z-index: 1000;
+  top: 0;
+  left: 0;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 7px 11px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--glass-solid);
+  box-shadow: var(--glass-shadow);
+  color: var(--ink);
+  font-size: var(--fs-small);
+  line-height: 1.4;
+  white-space: pre-line;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+  visibility: hidden;
+  transition:
+    opacity var(--dur-2) var(--ease-out),
+    transform var(--dur-3) var(--ease-spring),
+    visibility 0s linear var(--dur-3);
+}
+
+.tip[data-side="below"] {
+  transform: translateY(-4px) scale(0.98);
+}
+
+.tip.is-open {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition:
+    opacity var(--dur-2) var(--ease-out),
+    transform var(--dur-3) var(--ease-spring),
+    visibility 0s;
 }
 
 @keyframes sheen {
@@ -2509,13 +2737,13 @@ select.input {
 }
 
 .hs-popup .maplibregl-popup-content {
-  padding: 8px 10px;
-  border: 1px solid var(--hair);
-  border-radius: 10px;
-  background: var(--surface-2);
+  padding: 8px 11px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--glass-solid);
   color: var(--ink);
   font-size: var(--fs-small);
-  box-shadow: 0 6px 24px var(--shadow);
+  box-shadow: var(--glass-shadow);
 }
 
 .hs-popup .maplibregl-popup-tip {
@@ -2594,10 +2822,6 @@ select.input {
   align-items: center;
   gap: 10px;
   min-height: 34px;
-}
-
-.cal-back[hidden] {
-  display: none;
 }
 
 .cal-crumb ol {
@@ -2785,18 +3009,21 @@ button.cal-month:focus-visible {
   padding-block: 6px;
 }
 
-/* In a card's control bar the popup hangs under its own field but lines up with the bar's left edge,
-   so it stays inside the card wherever the field wraps to */
+/* In a card's control bar a select list hangs under its own button, left-aligned with it; the wider
+   calendar popup lines up with the bar's left edge, so it stays inside the card wherever its field wraps to */
 .an-bar {
   position: relative;
 }
 
-.gc .an-bar .sm,
 .gc .an-bar .dp {
   position: static;
 }
 
-.gc .an-bar .sm-list,
+.gc .an-bar .sm-list {
+  left: 0;
+  min-width: 100%;
+}
+
 .gc .an-bar .dp-pop {
   top: auto;
   left: 0;
@@ -2962,39 +3189,21 @@ button.cal-month:focus-visible {
   }
 }
 
-/* Anomaly */
+/* Historical comparison: a month across the years, then the months of one year */
 
-.verdict {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border: 1px solid currentColor;
-  border-radius: 14px;
-  background: var(--surface);
-  font-weight: 600;
-}
-
-.verdict-k {
-  color: var(--ink-2);
-}
-
-.verdict.is-critical {
-  color: var(--critical);
-}
-
-.verdict.is-warning {
-  color: var(--warning);
-}
-
-.verdict.is-good {
-  color: var(--good);
-}
-
-.an-notes {
+.an-part {
   display: grid;
   gap: 6px;
+}
+
+.an-part + .an-part {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--glass-line);
+}
+
+.an-part .an-bar {
+  justify-content: space-between;
 }
 
 /* Accessibility fallbacks */
@@ -3022,12 +3231,14 @@ button.cal-month:focus-visible {
     animation: none !important;
   }
 
-  .view-body[aria-busy="true"]:empty {
+  .view-body[aria-busy="true"]:empty,
+  [aria-busy="true"]:empty,
+  [aria-busy="true"]:not(:empty)::after {
     animation: none;
   }
 
-  .draw-tip::before {
-    animation: none;
+  .tip {
+    transition: none;
   }
 
   .pill:active,
@@ -3108,7 +3319,7 @@ button.cal-month:focus-visible {
 
 .ev-item {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: start;
   width: 100%;
@@ -3125,11 +3336,6 @@ button.cal-month:focus-visible {
 .ev-item[aria-pressed="true"] {
   border-color: var(--line-2);
   background: var(--surface);
-}
-
-.ev-rank {
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
 }
 
 .ev-main {
@@ -3157,4 +3363,185 @@ button.cal-month:focus-visible {
 
 #dl-detections:disabled {
   opacity: 0.6;
+}
+
+/* Profile chart: a year's value shows while its column is hovered */
+.pf-hover {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+
+.pf-pt:hover .pf-hover {
+  opacity: 1;
+}
+
+/* Unusual chart points: a ring that keeps pulsing outwards */
+.lc-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lc-pulse 1.8s var(--ease-out) infinite;
+  pointer-events: none;
+}
+
+@keyframes lc-pulse {
+  from {
+    transform: scale(0.7);
+    opacity: 0.9;
+  }
+
+  to {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-pulse {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* "How the numbers work": the "?" button before the map credits, and its dialog */
+.g-map .maplibregl-ctrl-bottom-left {
+  display: flex;
+  align-items: flex-end;
+}
+
+.help-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 0 10px 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--glass-bg);
+  box-shadow: inset 0 0 0 1px var(--glass-line);
+  color: var(--ink-2);
+  font: 600 13px var(--sans);
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out);
+}
+
+.help-btn:hover {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--ink);
+}
+
+/* The credits button matches the help button: same circle, same light glyph */
+.g-map .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib.maplibregl-compact {
+  background: var(--glass-bg);
+  box-shadow: inset 0 0 0 1px var(--glass-line);
+}
+
+.g-map .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='7.6' r='1.4' fill='%23cdbba8'/%3E%3Crect x='10.9' y='10.4' width='2.2' height='7' rx='1.1' fill='%23cdbba8'/%3E%3C/svg%3E");
+}
+
+/* Dropdown buttons keep their width; a longer choice is cut with an ellipsis */
+.sm-current {
+  flex: 1;
+  min-width: 0;
+}
+
+.an-month .sm-button {
+  width: 180px;
+}
+
+.an-year .sm-button,
+.cal-year .sm-button,
+.ag-year .sm-button {
+  width: 126px;
+}
+
+.tl-interval .sm-button {
+  width: 128px;
+}
+
+.help-dialog {
+  width: min(760px, calc(100vw - 112px));
+}
+
+.help-dialog .gc {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.help-close {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: -48px;
+  width: 36px;
+  height: 36px;
+  background: var(--glass-solid);
+  color: var(--ink);
+}
+
+@media (max-width: 899px) {
+  .help-dialog {
+    width: calc(100vw - 24px);
+  }
+
+  .help-close {
+    top: 10px;
+    right: 10px;
+  }
+}
+
+.help-body {
+  display: grid;
+  gap: 20px;
+  min-height: 0;
+  margin-right: -14px;
+  padding: 16px 14px 0 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+.help-sec {
+  display: grid;
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: var(--fs-body);
+}
+
+.fx {
+  display: grid;
+  gap: 6px;
+  padding: 12px 16px;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--cream);
+  font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.fx-k {
+  display: inline-block;
+  min-width: 11em;
+  color: var(--ink-3);
+  font-family: var(--sans);
+  font-size: var(--fs-small);
+}
+
+.help-agree {
+  padding-top: 18px;
+  border-top: 1px solid var(--glass-line);
+}
+
+.help-agree .gc-title {
+  font-size: var(--fs-title);
 }

@@ -2,35 +2,35 @@ import "./style.css";
 import { AgreementView } from "./agreement-view";
 import { AnalyticsView } from "./analytics-view";
 import { AnomalyView } from "./anomaly-view";
-import { Api, type CellsResponse, type FireEvent, type Meta } from "./api";
+import { Api, type AgreementResponse, type CellsResponse, type FireEvent, type Meta } from "./api";
+import { setChartPalette } from "./charts";
 import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
-import { formatRange, parts, toDay } from "./dates";
+import { parts, toDay } from "./dates";
 import { EventsView } from "./events-view";
-import { downloadCsv, downloadPng, slug, toCsv } from "./export";
-import { UNIT, UNIT_SHORT, fmtCompact, fmtInt, fmtVal } from "./format";
+import { downloadCsv, slug, toCsv } from "./export";
+import { UNIT_SHORT, fmtCompact, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
+import { initTooltips } from "./tooltip";
 import { MapView } from "./map-view";
-import { RAMPS, type RampName } from "./ramps";
+import { RAMPS, accentVars, breaksFrom, type RampName } from "./ramps";
 import { SelectMenu } from "./select-menu";
 import { RegionIndex, loadBoundaries, regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
 import { initCards, measureInsets } from "./screen";
-import { select, unobserved, type Selection } from "./store";
+import { select, type Selection } from "./store";
 import { Timeline } from "./time-slider";
-import { sharedScale, type Frame } from "./timeline";
+import { stepShare, type Frame, type Interval } from "./timeline";
 import type { DayNight, Filters, Hotspots, SelectionMode } from "./types";
 import { readUrlState, writeUrlState, type ViewState } from "./url-state";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
-const DAYNIGHT_LABEL: Record<DayNight, string> = { all: "Day and night", day: "Daytime only", night: "Night-time only" };
-const HOTSPOTS_LABEL: Record<Hotspots, string> = { vegetation: "Vegetation fires", all: "All hotspot types" };
-const DATASET = "NASA FIRMS MODIS (Aqua) and VIIRS (S-NPP, NOAA-20, NOAA-21), harmonised";
 
 const api = new Api();
 
 initFx();
+initTooltips();
 trackHeaderHeight();
 Promise.all([loadBoundaries(), api.meta()]).then(([b, meta]) => boot(b, meta), (err: Error) => {
   $("#dl-note").textContent = `Could not load the fire data (${err.message}). Check that the backend is running, then reload the page.`;
@@ -51,18 +51,22 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     ramp: "ember",
     daynight: "all",
     hotspots: meta.default_hotspots ?? "vegetation",
+    step: null,
   };
   const initial = readUrlState(defaults, (id) => regions.byId.has(id), recordStart, recordEnd);
   let filters: Filters = initial.filters;
   let ramp: RampName = initial.ramp;
   let daynight: DayNight = initial.daynight;
   let hotspots: Hotspots = initial.hotspots;
+  let step: Interval | null = initial.step;
   const counting = () => ({ daynight, hotspots });
-  const saveUrl = () => writeUrlState({ filters, ramp, daynight, hotspots }, defaults);
+  const saveUrl = () => writeUrlState({ filters, ramp, daynight, hotspots, step }, defaults);
   /** The selected area's daily record for the current filters; null while it loads or after it failed. */
   let sel: Selection | null = null;
   /** The same record over all its dates, for the cards that do not follow the date picker. */
   let record: Selection | null = null;
+  /** The latest sensor comparison, kept so a palette change can redraw it. */
+  let lastAgreement: AgreementResponse | null = null;
   let freshTimer = 0;
   let draw = { drawing: false, corners: 0 };
   let generation = 0;
@@ -73,19 +77,16 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   let wantedFrame: Frame | null = null;
   /** Cells of timeline steps already asked for, for the current filters. */
   const stepCache = new Map<string, Promise<CellsResponse>>();
+  /** Value quantiles of one step of each interval over the whole record, keyed by area, counting and interval. */
+  const scaleCache = new Map<string, Promise<number[]>>();
   let timeRequests: AbortController | null = null;
 
-  /** Updates the polygon tools and the on-map instruction from the drawing state. */
+  /** Updates the polygon tools from the drawing state; how to draw is in the Polygon button's tooltip. */
   function syncDrawUi(): void {
     const { drawing, corners } = draw;
     const polygonMode = filters.mode === "polygon";
-    const tip = corners < 3
-      ? `Click the map to add corners (${corners} of at least 3)`
-      : `${corners} corners. Click the first corner, double-click or press Enter to finish`;
     $("#draw-start").hidden = !polygonMode || drawing;
     $("#draw-start-label").textContent = filters.polygon ? "Redraw polygon" : "Draw polygon";
-    $("#draw-tip").hidden = !drawing;
-    $("#draw-tip").textContent = tip;
     $("#draw-finish").hidden = !drawing;
     $<HTMLButtonElement>("#draw-finish").disabled = corners < 3;
     $("#draw-cancel").hidden = !drawing;
@@ -108,7 +109,13 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     map.setEventBox(e.bbox);
     map.fitBBox(e.bbox);
   });
-  map.setRamp(ramp);
+  /** Carries the palette's accent through the page: CSS variables, chart lines and map outlines. */
+  function applyPalette(): void {
+    for (const [name, value] of Object.entries(accentVars(ramp))) document.documentElement.style.setProperty(name, value);
+    setChartPalette(RAMPS[ramp]);
+    map.setRamp(ramp);
+  }
+  applyPalette();
   if (import.meta.env.DEV) Object.assign(window, { __dash: { map, api } });
   const picker = new AreaPicker($("#area-picker"), regions, (regionIds) => update({ regionIds }, { fit: true }));
   picker.set(filters.regionIds);
@@ -121,10 +128,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   const range = (): [string, string] => [filters.start, filters.end];
   const fromIn = new DatePicker($("#date-from"), "From", range, (start) => onDate({ start }));
   const toIn = new DatePicker($("#date-to"), "To", range, (end) => onDate({ end }));
-  for (const el of [fromIn, toIn]) {
-    el.setTitle(`The harmonised record covers ${recordStart.slice(0, 4)}–${recordEnd.slice(0, 4)}`);
-    el.setBounds(recordStart, recordEnd);
-  }
+  for (const el of [fromIn, toIn]) el.setBounds(recordStart, recordEnd);
 
   function areaLabel(): string {
     if (filters.mode === "polygon") return filters.polygon ? `Drawn polygon (${filters.polygon.length} corners)` : "All areas";
@@ -149,32 +153,59 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   }
 
   /** Writes the footer note; a load error is cleared again by the next filter change. */
-  function setNote(text: string, loadError = false): void {
+  let noteTimer = 0;
+  /**
+   * Shows a status line under the download button. Confirmations fade out after a reading time
+   * (5 s plus 60 ms per character, at most 12 s) that pauses while the pointer is over the note;
+   * notes marked `error` (errors, and "Preparing…" while it is true) stay until the next note.
+   * `loadError` marks a failed data load, cleared on the next update.
+   */
+  function setNote(text: string, opts: { error?: boolean; loadError?: boolean } = {}): void {
     const note = $("#dl-note");
+    window.clearTimeout(noteTimer);
+    note.classList.remove("is-fading");
     note.textContent = text;
-    if (loadError) note.dataset.loadError = "true";
+    note.onmouseenter = null;
+    note.onmouseleave = null;
+    if (opts.loadError) note.dataset.loadError = "true";
     else delete note.dataset.loadError;
+    if (!text || opts.error || opts.loadError) return;
+    const hide = () => {
+      note.classList.add("is-fading");
+      noteTimer = window.setTimeout(() => {
+        note.textContent = "";
+        note.classList.remove("is-fading");
+      }, 400);
+    };
+    const wait = Math.min(12000, 5000 + text.length * 60);
+    noteTimer = window.setTimeout(hide, wait);
+    note.onmouseenter = () => {
+      window.clearTimeout(noteTimer);
+      note.classList.remove("is-fading");
+    };
+    note.onmouseleave = () => {
+      if (note.textContent) noteTimer = window.setTimeout(hide, 2000);
+    };
   }
 
   function syncControls(): void {
     document.querySelectorAll<HTMLButtonElement>(".hf-mode [data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === filters.mode)));
     document.querySelectorAll<HTMLButtonElement>("[data-dn]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.dn === daynight)));
     document.querySelectorAll<HTMLButtonElement>("[data-ht]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.ht === hotspots)));
-    $("#dn-caution").hidden = daynight !== "night";
     picker.setDisabled(filters.mode !== "area", "Drawn on map");
     showDates(filters.start, filters.end);
+    syncDrawUi();
   }
 
-  /** Writes dates into the date fields and the left column caption. */
+  /** Writes dates into the date fields. */
   function showDates(start: string, end: string): void {
     fromIn.set(start);
     toIn.set(end);
-    $("#cap-dates").textContent = formatRange(toDay(start), toDay(end));
   }
 
   function showError(what: string, err: Error): void {
     if (err.name === "AbortError") return;
-    setNote(`Could not load ${what}: ${err.message}`, true);
+    setNote(`Could not load ${what}: ${err.message}`, { loadError: true });
   }
 
   function update(patch: Partial<Filters>, opts: { fit?: boolean } = {}): void {
@@ -214,6 +245,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     setLoad(["agreement"], "busy");
     api.agreement(filters, counting()).then((a) => {
       if (!current()) return;
+      lastAgreement = a;
       agreement.render(a, meta.settings[hotspots], parts(toDay(filters.end)).year);
       setLoad(["agreement"], "ready");
     }, (err) => {
@@ -225,18 +257,27 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     periodRequests?.abort();
     const ctl = (periodRequests = new AbortController());
     setLoad(["events"], "busy");
+    // A shimmer covers the map until its cells arrive (or fail)
+    $(".g-map").classList.add("is-loading");
+    $("#map").setAttribute("aria-busy", "true");
+    const loaded = () => {
+      $(".g-map").classList.remove("is-loading");
+      $("#map").setAttribute("aria-busy", "false");
+    };
     api.cells(filters, counting(), ctl.signal).then((c) => {
       if (!current()) return;
+      loaded();
       fullCells = c;
       if (!timeline.active) showCells(c);
     }, (err) => {
       if (!current()) return;
+      loaded();
       map.setCells(null);
       map.setCallout(null, "");
       renderMapLegend();
       showError("the map cells", err);
     });
-    api.events(filters, hotspots, ctl.signal).then((r) => {
+    api.events(filters, hotspots, ctl.signal, 3).then((r) => {
       if (!current()) return;
       events.render(r.events);
       setLoad(["events"], "ready");
@@ -268,8 +309,24 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     return hit;
   }
 
+  /**
+   * Quantiles of one step of an interval over the area's whole record, so a step gets the same colour scale and
+   * legend whatever dates are selected. Resolves to null when they could not be loaded.
+   */
+  function stepQuantiles(interval: Interval): Promise<number[] | null> {
+    const key = JSON.stringify([filters.mode, filters.regionIds, filters.polygon, daynight, hotspots, interval]);
+    let hit = scaleCache.get(key);
+    if (!hit) {
+      hit = api.cellScale(filters, interval, counting()).then((r) => r.values);
+      hit.catch(() => scaleCache.delete(key));
+      scaleCache.set(key, hit);
+      if (scaleCache.size > 60) scaleCache.delete(scaleCache.keys().next().value!);
+    }
+    return hit.catch(() => null);
+  }
+
   const timeline = new Timeline($("#time-slider"), {
-    async show(frame, scale) {
+    async show(frame) {
       wantedFrame = frame;
       if (!frame) {
         if (fullCells) showCells(fullCells);
@@ -277,30 +334,35 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       }
       const g = generation;
       try {
-        const c = await stepCells(frame);
-        if (g === generation && wantedFrame === frame) showCells(c, frame, scale);
+        const [c, q] = await Promise.all([stepCells(frame), stepQuantiles(frame.interval)]);
+        // Without the record's scale the step falls back to quantiles of its own cells
+        const share = stepShare(frame);
+        const breaks = q?.length ? breaksFrom(q.map((v) => v * share), RAMPS[ramp].steps.length) : undefined;
+        if (g === generation && wantedFrame === frame) showCells(c, frame, breaks);
       } catch (err) {
         if (g !== generation || (err as Error).name === "AbortError") return;
         showError("the map timeline", err as Error);
       }
     },
     async prepare(list, progress) {
-      const out: CellsResponse[] = new Array(list.length);
       let next = 0;
       let done = 0;
       const worker = async () => {
         while (next < list.length) {
-          const i = next++;
-          out[i] = await stepCells(list[i]);
+          await stepCells(list[next++]);
           progress(++done);
         }
       };
       await Promise.all(Array.from({ length: 4 }, worker));
-      return sharedScale(out, RAMPS[ramp].steps.length);
     },
     preview: showDates,
     pick: (start, end) => update({ start, end }),
+    pickInterval: (interval) => {
+      step = interval;
+      saveUrl();
+    },
   }, recordStart, recordEnd);
+  timeline.usePicked(step);
 
   /** Drops the timeline steps loaded for earlier filters and lays the timeline over the new dates. */
   function resetTimeline(): void {
@@ -348,8 +410,9 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   new SelectMenu($("#palette-menu"), "Palette", paletteOptions, ramp, (value) => {
     ramp = value as RampName;
     saveUrl();
-    map.setRamp(ramp);
+    applyPalette();
     renderMapLegend();
+    if (lastAgreement) agreement.render(lastAgreement, meta.settings[hotspots], parts(toDay(filters.end)).year);
     if (!record) return;
     calendar.render(record, ramp);
     anomaly.render(record, ramp, false);
@@ -364,48 +427,23 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       <span class="legend-scale"><span class="legend-end">&lt;${fmtCompact(first)}</span><span class="legend-ramp">${used.map((c, i) => `<span class="sw" style="background:${c}" title="${i ? `${fmtVal(b[i])}+` : `under ${fmtVal(first)}`}"></span>`).join("")}</span><span class="legend-end">${fmtCompact(b[b.length - 1])}+</span></span>`;
   }
 
-  /** `allYears` is for the cards that cover the whole record instead of the picked dates. */
-  function exportMeta(allYears: boolean): [string, string][] {
-    return [
-      ["area", areaLabel()],
-      ["from", allYears ? recordStart : filters.start],
-      ["to", allYears ? recordEnd : filters.end],
-      ["detections", DAYNIGHT_LABEL[daynight]],
-      ["hotspot_types", HOTSPOTS_LABEL[hotspots]],
-      ["unit", UNIT],
-      ["dataset", DATASET],
-      ["unobserved_days_in_range", sel ? String(allYears ? unobserved(record!, record!.from, record!.to) : unobserved(sel, sel.from, sel.to)) : ""],
-    ];
-  }
-
   document.addEventListener("click", async (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>("[data-export]");
     if (!btn) return;
     if (!sel || !record) {
-      setNote("The daily record for these filters is not loaded yet, so there is nothing to save.");
+      setNote("The daily record for these filters is not loaded yet, so there is nothing to save.", { error: true });
       return;
     }
-    const kind = btn.dataset.export as "calendar" | "analytics" | "anomaly";
-    const format = btn.dataset.format as "csv" | "png";
-    const allYears = kind !== "analytics";
-    const period = allYears ? "all-years" : `${filters.start}_${filters.end}`;
-    const name = `${kind}_${slug(areaLabel())}_${period}${daynight === "all" ? "" : `_${daynight}`}${hotspots === "all" ? "_all-types" : ""}.${format}`;
-    const subtitle = `${areaLabel()} · ${allYears ? "All years" : formatRange(sel.from, sel.to)} · ${DAYNIGHT_LABEL[daynight]} · ${HOTSPOTS_LABEL[hotspots]} · ${UNIT}`;
+    // The exportable cards (calendar, comparison) cover every year of the record.
+    const kind = btn.dataset.export as "calendar" | "anomaly";
+    const name = `${kind}_${slug(areaLabel())}_all-years${daynight === "all" ? "" : `_${daynight}`}${hotspots === "all" ? "_all-types" : ""}.csv`;
     pulse(btn);
     try {
-      if (format === "csv") {
-        const meta = exportMeta(allYears);
-        const view = kind === "calendar" ? calendar : kind === "analytics" ? analytics : anomaly;
-        if (kind === "calendar") meta.push(["granularity", calendar.granularity]);
-        const { header, rows } = view.csv();
-        downloadCsv(name, toCsv(meta, header, rows));
-      } else if (kind !== "calendar") {
-        const v = (kind === "analytics" ? analytics : anomaly).svg(subtitle);
-        await downloadPng(name, v.svg, v.width, v.height);
-      }
+      const { header, rows } = (kind === "calendar" ? calendar : anomaly).csv();
+      downloadCsv(name, toCsv(header, rows));
       setNote(`Saved ${name}`);
     } catch (err) {
-      setNote(`Could not save ${name}: ${(err as Error).message}`);
+      setNote(`Could not save ${name}: ${(err as Error).message}`, { error: true });
     }
   });
 
@@ -413,22 +451,19 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     const btn = e.currentTarget as HTMLButtonElement;
     pulse(btn);
     btn.disabled = true;
-    setNote("Preparing the raw detections…");
+    setNote("Preparing the raw detections…", { error: true });
     try {
-      const r = await api.detections(filters, counting());
-      const url = URL.createObjectURL(r.blob);
+      // The browser streams the file to disk itself; this first check only catches a refusal from the API
+      await api.checkDetections(filters, counting());
       const a = document.createElement("a");
-      a.href = url;
-      a.download = r.name;
+      a.href = api.detectionsUrl(filters, counting());
+      a.download = "";
       document.body.append(a);
       a.click();
       a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setNote(r.total > r.limit
-        ? `Saved ${r.name}: the first ${fmtInt(r.limit)} of ${fmtInt(r.total)} detections. Pick a shorter period for all of them.`
-        : `Saved ${r.name} (${fmtInt(r.total)} detections)`);
+      setNote("Downloading the raw detections. A long period takes a moment to start.");
     } catch (err) {
-      setNote(`Could not save the raw detections: ${(err as Error).message}`);
+      setNote(`Could not save the raw detections: ${(err as Error).message}`, { error: true });
     } finally {
       btn.disabled = false;
     }
@@ -447,11 +482,20 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   }
 
   map.addCornerControl($("#reset-view"));
+  // "How the numbers work": the formulas and the MODIS-VIIRS agreement, in a dialog
+  const help = $<HTMLDialogElement>("#help");
+  map.addCornerControl($("#help-open"), "bottom-left");
+  $("#help-open").addEventListener("click", () => help.showModal());
+  $("#help-close").addEventListener("click", () => help.close());
+  help.addEventListener("click", (e) => {
+    if (e.target === help) help.close();
+  });
   $("#reset-view").addEventListener("click", () => {
     map.setEventBox(null);
     fitSelection();
   });
-  initCards(fitSelection);
+  // A card opening or closing changes how much of the map is free; the next fit uses the new framing.
+  initCards(() => map.setInsets(measureInsets()));
   window.addEventListener("resize", () => map.setInsets(measureInsets()));
 
   renderMapLegend();
