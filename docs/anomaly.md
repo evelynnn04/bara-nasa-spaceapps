@@ -149,10 +149,17 @@ is lower at 0.05° and most 0.05° cells burn in only one or two months of the y
 
 ## Endpoint
 
-`GET /api/anomalies?area=...|poly=...&year=YYYY&month=M&reference=other|prior&grids=true|false`
+`GET /api/anomalies?area=...|poly=...&year=YYYY&month=M&reference=other|prior&grids=true|false&daynight=all|day|night`
 
-`year` and `month` default to the last data month. The area selection works as for the other
-endpoints. `grids` defaults to `false`.
+`year` and `month` default to the last data month. The area selection and `daynight` work as for
+the other endpoints. `grids` defaults to `false`.
+
+With `daynight=day` or `night`, both indicators count only that half of the day, in the target and
+the reference years alike: activity as in the dashboard's series (a MODIS cell-day counts only if it
+has pixels in that half), and FRP from the cell-day table's `frp_day` or `frp_night`. The factors
+`k` and `kf` are fitted on day and night together and applied to either half unchanged. Data built
+before these columns existed answers day/night requests with 503 until `python -m app build` and
+`python -m app cache` are run again.
 
 | Field | Content |
 |---|---|

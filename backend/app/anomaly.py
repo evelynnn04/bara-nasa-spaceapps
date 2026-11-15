@@ -74,6 +74,21 @@ class MissingFactors(RuntimeError):
     """The parameters hold no FRP factors (`python -m app fit` predates them)."""
 
 
+class MissingColumns(RuntimeError):
+    """The cell-day table has no day and night FRP (`python -m app build` predates them)."""
+
+
+def check_daynight(con: duckdb.DuckDBPyConnection, daynight: str) -> None:
+    """Raises MissingColumns when a day or night filter needs FRP columns the cell-day table lacks."""
+    if daynight == "all":
+        return
+    cols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns "
+                                      "WHERE table_name = 'celldays'").fetchall()}
+    if weights.FRP_COLUMN[daynight] not in cols:
+        raise MissingColumns("The cell-day table has no day and night fire radiative power. "
+                             "Run `python -m app build` and `python -m app cache` again.")
+
+
 def grid_of(cx: int, cy: int) -> tuple[int, int]:
     """0.25° grid indices of a 0.05° cell."""
     return cx // GRID_CELLS, cy // GRID_CELLS
@@ -266,14 +281,16 @@ def _window_filter(windows: list[Window]) -> str:
 
 
 def totals(con: duckdb.DuckDBPyConnection, windows: list[Window], where: str = "TRUE",
-           group: str | None = None) -> dict:
+           group: str | None = None, daynight: str = "all") -> dict:
     """{unit: {year: (activity, frp)}} over the given windows of the harmonised record.
 
     `where` filters observation rows (aliases `c`, `d`, `k`); `group` is an expression over the
-    record relation `c` naming the unit (one unit, key None, without it)."""
+    record relation `c` naming the unit (one unit, key None, without it). With a day or night
+    filter, both indicators count only that half of the day."""
     gsel = f"{group}" if group else "NULL"
     rows = con.execute(f"""
-        SELECT {gsel} AS g, year(c.local_date) AS y, sum({weights.weight_sql('all')}), sum({weights.frp_sql()})
+        SELECT {gsel} AS g, year(c.local_date) AS y, sum({weights.weight_sql(daynight)}),
+               sum({weights.frp_sql(daynight)})
         FROM ({weights.record_sql(f"({_window_filter(windows)}) AND ({where})")}) c
         GROUP BY ALL
     """).fetchall()
@@ -299,18 +316,20 @@ def area_grids(con: duckdb.DuckDBPyConnection, area_where: str, name: str = "agr
     con.execute(f"CREATE OR REPLACE TEMP TABLE {name} AS SELECT DISTINCT {gx} AS gx, {gy} AS gy FROM {name}_cells c")
 
 
-def grid_totals(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str) -> dict:
+def grid_totals(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str, daynight: str = "all") -> dict:
     """{(gx, gy): {year: (activity, frp)}} for the grid cells in `grids_table(gx, gy)`."""
     gx, gy = grid_sql()
-    return totals(con, b.windows, f"({gx}, {gy}) IN (SELECT gx, gy FROM {grids_table})", f"[{gx}, {gy}]")
+    return totals(con, b.windows, f"({gx}, {gy}) IN (SELECT gx, gy FROM {grids_table})", f"[{gx}, {gy}]",
+                  daynight)
 
 
-def target_details(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str, cells_table: str) -> dict:
+def target_details(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str, cells_table: str,
+                   daynight: str = "all") -> dict:
     """Per grid cell active in the target window: activity inside the selected area, the night share
-    of its pixels, highest pixel FRP, active 0.05° cells and the main island group, province and
-    city/regency."""
+    of its pixels (of all pixels, whatever the filter), highest pixel FRP, active 0.05° cells and the
+    main island group, province and city/regency."""
     gx, gy = grid_sql()
-    w, n = weights.weight_sql("all"), weights.pixels_sql("all")
+    w, n = weights.weight_sql(daynight), weights.pixels_sql("all")
     where = (f"c.local_date BETWEEN DATE '{b.target.start}' AND DATE '{b.target.end}' "
              f"AND ({gx}, {gy}) IN (SELECT gx, gy FROM {grids_table})")
     rows = con.execute(f"""

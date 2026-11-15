@@ -214,7 +214,8 @@ million cell-days over 49,345 cells.
 The same fit also harmonises fire radiative power, for the anomaly scores (see
 [anomaly.md](anomaly.md)). FRP adds up over pixels, so there is no square root: a VIIRS cell-day's
 FRP is divided by `kf[r, m]`, fitted like `k` on paired-day monthly FRP sums, with the shrinkage
-still weighted by MODIS cell-days. Aqua FRP is kept as it is. Base factor 1.881; leave one year out,
+still weighted by MODIS cell-days. Aqua FRP is kept as it is. The cell-day table stores FRP in all
+(`frp_sum`) and by day and night (`frp_day`, `frp_night`); `kf` is fitted on `frp_sum`. Base factor 1.881; leave one year out,
 nationally: `r_log` 0.994, `malr` 0.126, bias 1.09, verdict partial. The factors are written under
 `frp` in `params.json`.
 

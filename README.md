@@ -113,6 +113,10 @@ documented at `http://localhost:8000/docs`; the main endpoints are `/api/meta`, 
 `/api/cells`, `/api/agreement`, `/api/events`, `/api/anomalies` and `/api/detections.csv`. The anomaly
 method is described in [docs/anomaly.md](docs/anomaly.md).
 
+Data unzipped from a zip made before the anomaly endpoint lacks the day and night fire radiative
+power. Run `uv run python -m app build` and `uv run python -m app cache` once (about 20 seconds, no
+FIRMS key needed) to add it; until then the anomaly endpoint answers only for day and night together.
+
 ## Running the dashboard
 The dashboard in `src/frontend/` reads everything from the backend. Start the backend first (with
 the data built), then:

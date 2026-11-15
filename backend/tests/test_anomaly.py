@@ -149,6 +149,37 @@ def test_default_period_is_the_last_data_month(client):
     assert not body["period"]["provisional"]
 
 
+def test_day_night_filter_applies_to_both_indicators(client):
+    full, day, night = (client.get(f"/api/anomalies?year=2015&month=9&daynight={dn}").json()
+                        for dn in ("all", "day", "night"))
+    assert day["daynight"] == "day" and night["daynight"] == "night"
+    for y_all, y_day, y_night in zip(full["area"]["years"], day["area"]["years"], night["area"]["years"]):
+        assert y_day["frp_mw"] + y_night["frp_mw"] == pytest.approx(y_all["frp_mw"], abs=0.2)
+        assert y_day["activity"] <= y_all["activity"] and y_night["activity"] <= y_all["activity"]
+    years = {y["year"]: y for y in night["area"]["years"]}
+    # Aqua's Bali pixels in 2009-2011 are all daytime, so those years have no night activity.
+    assert years[2010]["activity"] == 0 and years[2015]["activity"] == pytest.approx(10 * (1 + 5 ** 0.5), abs=1e-3)
+
+
+def test_day_night_without_split_frp_asks_for_a_rebuild(dataset):
+    path = store.table_path("celldays", dataset)
+    con = store.connect(PARAMS, dataset)
+    con.execute(f"COPY (SELECT * EXCLUDE (frp_day, frp_night) FROM celldays) TO '{dataset}/old.parquet' (FORMAT parquet)")
+    con.close()
+    path.unlink()
+    (dataset / "old.parquet").rename(path)
+    con = store.connect(PARAMS, dataset)
+    con.execute("CREATE TABLE region_daily (x INTEGER)")
+    api.configure(con, PARAMS)
+    try:
+        c = TestClient(app)
+        assert c.get("/api/anomalies?year=2015&month=9").status_code == 200
+        res = c.get("/api/anomalies?year=2015&month=9&daynight=day")
+        assert res.status_code == 503 and "python -m app build" in res.json()["detail"]
+    finally:
+        api.configure(None, None)
+
+
 def test_missing_frp_factors_are_reported(dataset):
     params = {"k_table": PARAMS["k_table"]}
     con = store.connect(params, dataset)

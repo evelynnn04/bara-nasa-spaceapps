@@ -305,7 +305,8 @@ def anomalies(area: Area = Depends(area_param),
               month: int | None = Query(None, ge=1, le=12, description="Month 1-12; default the last data month."),
               reference: Literal["other", "prior"] = Query(
                   "other", description="Reference years: every other year, or only earlier years."),
-              grids: bool = Query(False, description="Also score every active 0.25° grid cell of the area.")) -> dict:
+              grids: bool = Query(False, description="Also score every active 0.25° grid cell of the area."),
+              daynight: DayNight = "all") -> dict:
     """How unusual a month's fire activity is in an area, against the same month in other years.
 
     Both indicators come from the harmonised record (2002 on) in MODIS-equivalent units: `activity`
@@ -319,7 +320,8 @@ def anomalies(area: Area = Depends(area_param),
     charts. With `grids=true`, `grids` lists the 0.25° grid cells touching the area with activity in
     the month; their values cover the whole grid cell, and `in_area_share` is the share of its
     activity inside the area. An unfinished month is compared over the same days of the other years
-    and is marked provisional. See `docs/anomaly.md`."""
+    and is marked provisional. With `daynight=day` or `night`, both indicators count only that half
+    of the day, for the target and the reference years alike. See `docs/anomaly.md`."""
     flags = _flags()
     last = flags[-1][0]
     year = year or last.year
@@ -335,14 +337,15 @@ def anomalies(area: Area = Depends(area_param),
               "historical_sample_size": n, "baseline_granularity": anomaly.GRANULARITY,
               "score_calibration_status": anomaly.CALIBRATION}
     try:
-        whole = anomaly.record(anomaly.totals(cur, b.windows, where).get(None, {}), b, years=True)
-        cells = _anomaly_grids(cur, b, where, common) if grids else None
-    except anomaly.MissingFactors as err:
+        anomaly.check_daynight(cur, daynight)
+        whole = anomaly.record(anomaly.totals(cur, b.windows, where, daynight=daynight).get(None, {}), b, years=True)
+        cells = _anomaly_grids(cur, b, where, common, daynight) if grids else None
+    except (anomaly.MissingFactors, anomaly.MissingColumns) as err:
         raise HTTPException(503, str(err)) from err
     out = {
         "period": {"year": year, "month": month, "start": b.target.start, "end": b.target.end,
                    "provisional": b.provisional},
-        "unit": fit.UNIT, "product": anomaly.PRODUCT, "reference": reference,
+        "unit": fit.UNIT, "product": anomaly.PRODUCT, "reference": reference, "daynight": daynight,
         "baseline": {"granularity": anomaly.GRANULARITY, "years": b.years, "sample_size": n,
                      "excluded_years": b.excluded, "min_coverage": anomaly.MIN_COVERAGE,
                      "max_score": round(anomaly.max_score(n), 4) if n else None,
@@ -360,13 +363,14 @@ def anomalies(area: Area = Depends(area_param),
     return out
 
 
-def _anomaly_grids(cur: duckdb.DuckDBPyConnection, b: anomaly.Baseline, where: str, common: dict) -> list[dict]:
+def _anomaly_grids(cur: duckdb.DuckDBPyConnection, b: anomaly.Baseline, where: str, common: dict,
+                   daynight: str) -> list[dict]:
     """Records of the 0.25° grid cells touching the area with activity in the target window,
     highest label first."""
     anomaly.area_grids(cur, where, "agrid")
-    details = anomaly.target_details(cur, b, "agrid", "agrid_cells")
+    details = anomaly.target_details(cur, b, "agrid", "agrid_cells", daynight)
     out = []
-    for (gx, gy), values in anomaly.grid_totals(cur, b, "agrid").items():
+    for (gx, gy), values in anomaly.grid_totals(cur, b, "agrid", daynight).items():
         if values.get(b.target.year, (0.0, 0.0))[0] <= 0:
             continue
         d = details[(gx, gy)]

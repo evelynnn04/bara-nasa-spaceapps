@@ -42,10 +42,16 @@ def weight_sql(daynight: str = "all", k: str | None = None, c: str = "c") -> str
             f"ELSE sqrt(CAST({n} AS DOUBLE)) / {k} END")
 
 
-def frp_sql(c: str = "c") -> str:
-    """Harmonised fire radiative power of a cell-day (MODIS-equivalent MW): Aqua FRP as it is, VIIRS
-    FRP divided by the FRP factor `kf` of the relation. NULL when no FRP factors were fitted."""
-    return f"CASE WHEN {c}.sensor = 'modis' THEN {c}.frp_sum ELSE {c}.frp_sum / {c}.kf END"
+#: Cell-day FRP column under each day/night filter.
+FRP_COLUMN = {"all": "frp_sum", "day": "frp_day", "night": "frp_night"}
+
+
+def frp_sql(daynight: str = "all", c: str = "c") -> str:
+    """Harmonised fire radiative power of a cell-day (MODIS-equivalent MW) under the day/night
+    filter: Aqua FRP as it is, VIIRS FRP divided by the FRP factor `kf` of the relation. NULL when no
+    FRP factors were fitted. The factors are fitted on day and night together, like `k`."""
+    col = f"{c}.{FRP_COLUMN[daynight]}"
+    return f"CASE WHEN {c}.sensor = 'modis' THEN {col} ELSE {col} / {c}.kf END"
 
 
 def load_params(path: Path | None = None) -> dict:
