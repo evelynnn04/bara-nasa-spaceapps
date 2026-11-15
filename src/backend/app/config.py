@@ -7,8 +7,16 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+
+
+def repo_dir(backend: Path) -> Path:
+    """Repository root for a backend folder: two levels up in a checkout (`src/backend`), or the
+    folder's parent when there is no second level, as in the Docker image where the backend is `/app`."""
+    return backend.parents[1] if len(backend.parents) > 1 else backend.parent
+
+
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-REPO_DIR = BACKEND_DIR.parents[1]
+REPO_DIR = repo_dir(BACKEND_DIR)
 
 #: Side of one harmonisation grid cell, in degrees.
 GRID = 0.05

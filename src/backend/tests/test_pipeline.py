@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import PurePosixPath
 
 import pytest
 
@@ -163,3 +164,8 @@ def test_failed_normalise_leaves_previous_detections(tmp_path, monkeypatch):
     assert [p.name for p in old.parent.iterdir()] == ["modis_2015.parquet"]
     assert old.read_bytes() == b"previous"
     assert not old.parent.with_name("detections.new").exists()
+
+
+def test_repo_dir_in_a_checkout_and_in_the_docker_image():
+    assert config.repo_dir(PurePosixPath("/home/me/spaceapps/src/backend")) == PurePosixPath("/home/me/spaceapps")
+    assert config.repo_dir(PurePosixPath("/app")) == PurePosixPath("/")
