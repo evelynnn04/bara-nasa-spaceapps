@@ -1134,6 +1134,12 @@ body:has(.card-dialog[open]) {
   padding: 2px 9px;
   font-size: var(--fs-small);
   font-weight: 600;
+  gap: 4px;
+}
+
+.pill-xs .ico {
+  width: 13px;
+  height: 13px;
 }
 
 .dev-list {
@@ -1726,6 +1732,10 @@ body:has(.card-dialog[open]) {
   transform: rotate(135deg);
 }
 
+.chev-right {
+  transform: rotate(-45deg);
+}
+
 [aria-expanded="true"] > .chev {
   transform: rotate(225deg) translate(-2px, -1px);
 }
@@ -2207,8 +2217,59 @@ select.input {
   display: none;
 }
 
-.cal-crumb {
+.cal-crumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   color: var(--ink-2);
+}
+
+.cal-crumb li + li::before {
+  content: "/";
+  margin-right: 6px;
+  color: var(--ink-3);
+}
+
+.cal-crumb [aria-current="page"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.crumb-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 3px;
+}
+
+.crumb-link:hover {
+  color: var(--ink);
+  text-decoration-color: var(--accent);
+}
+
+.cal-nav {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.cal-nav[hidden] {
+  display: none;
+}
+
+.cal-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+  border-color: var(--glass-line);
 }
 
 /* Padding holds the hovered cell's scale and ring inside the scroll box; the block margin keeps vertical rhythm */

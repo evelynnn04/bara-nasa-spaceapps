@@ -8,7 +8,7 @@ import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
 import { formatRange, parts, toDay } from "./dates";
 import { EventsView } from "./events-view";
-import { downloadCsv, downloadPng, frame, place, slug, toCsv } from "./export";
+import { downloadCsv, downloadPng, slug, toCsv } from "./export";
 import { UNIT, UNIT_SHORT, fmtCompact, fmtInt, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
 import { MapView } from "./map-view";
@@ -325,11 +325,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
         if (kind === "calendar") meta.push(["granularity", calendar.granularity]);
         const { header, rows } = view.csv();
         downloadCsv(name, toCsv(meta, header, rows));
-      } else if (kind === "calendar") {
-        const c = calendar.svg();
-        const f = frame(`Burning activity calendar, ${calendar.granularity}`, subtitle, place(c.svg, 0, 0, c.width), c.width + 24, c.height);
-        await downloadPng(name, f.svg, c.width + 24, f.height);
-      } else {
+      } else if (kind !== "calendar") {
         const v = (kind === "analytics" ? analytics : anomaly).svg(subtitle);
         await downloadPng(name, v.svg, v.width, v.height);
       }
