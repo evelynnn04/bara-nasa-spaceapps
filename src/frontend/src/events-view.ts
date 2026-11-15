@@ -1,8 +1,9 @@
 import type { FireEvent } from "./api";
-import { badgeText, causeLabel, evidenceRows, groupIndicators, indicatorState, type Attribution, type AttributionInfo, type Cause } from "./attribution";
+import { badgeText, causeLabel, whySummary, type AttributionInfo, type Cause } from "./attribution";
 import { formatDay, toDay } from "./dates";
 import { UNIT_SHORT, escapeXml, fmtVal } from "./format";
 import type { RegionIndex } from "./regions";
+import { openTip } from "./tooltip";
 
 /** What the events card needs besides the events: the disclaimer, source citations and the active cause filter. */
 export interface EventsContext {
@@ -25,10 +26,8 @@ export class EventsView {
     root.addEventListener("click", (ev) => {
       const why = (ev.target as Element).closest<HTMLButtonElement>("[data-why]");
       if (why) {
-        const panel = root.querySelector<HTMLElement>(`#${why.getAttribute("aria-controls")}`);
-        const open = why.getAttribute("aria-expanded") !== "true";
-        why.setAttribute("aria-expanded", String(open));
-        if (panel) panel.hidden = !open;
+        // Touch screens have no hover, so a tap opens the same card
+        openTip(why);
         return;
       }
       const btn = (ev.target as Element).closest<HTMLButtonElement>("[data-event]");
@@ -73,59 +72,11 @@ export class EventsView {
   }
 }
 
-/** The badge under an event, with a "Why" button and its drawer when the event has an attribution. */
+/** The badge under an event, with a "Why" button whose hover card sums up the evidence. */
 function causeRow(e: FireEvent, sources: AttributionInfo["sources"]): string {
   const a = e.attribution;
   if (!a) return `<div class="ev-cause is-none"><span class="ev-dot" aria-hidden="true"></span><span>${badgeText(a)}</span></div>`;
-  const id = `ev-why-${e.event}`;
-  return `<div class="ev-cause" data-cause="${a.category}"><span class="ev-dot" aria-hidden="true"></span>
+  return `<div class="ev-cause" data-cause="${escapeXml(a.category)}"><span class="ev-dot" aria-hidden="true"></span>
       <span class="ev-cause-label">${escapeXml(badgeText(a))}</span>
-      <button type="button" class="pill pill-xs ev-why-btn" data-why aria-expanded="false" aria-controls="${id}">Why<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
-    <div class="ev-why" id="${id}" hidden>${whyPanel(a, sources)}</div>`;
-}
-
-/** Indicators grouped by cause, the evidence figures and the numbered sources they cite. */
-export function whyPanel(a: Attribution, sources: AttributionInfo["sources"]): string {
-  const cited: string[] = [];
-  const cite = (key: string) => {
-    if (!cited.includes(key)) cited.push(key);
-    return cited.indexOf(key) + 1;
-  };
-  const refs = (keys: string[]) => (keys.length ? `<sup class="ev-ref">${keys.map(cite).join(",")}</sup>` : "");
-  const groups = groupIndicators(a.indicators)
-    .map((g) => {
-      const score = a.scores[g.category];
-      const items = g.items
-        .map((ind) => {
-          const st = indicatorState(ind.met);
-          const state = ind.met === null ? "na" : ind.met ? "met" : "no";
-          return `<li class="ev-ind" data-state="${state}"><span class="ev-mark" aria-hidden="true">${st.mark}</span>
-            <span class="ev-ind-text">${escapeXml(ind.text)}${refs(ind.sources)}<span class="visually-hidden"> (${st.word})</span>${ind.met === null ? `<span class="ev-na">data unavailable</span>` : ""}</span>
-            <span class="ev-pts">+${ind.points}</span></li>`;
-        })
-        .join("");
-      return `<li class="ev-group" data-cause="${g.category}"><p class="ev-group-head"><span class="ev-dot" aria-hidden="true"></span>${causeLabel(g.category)}${score != null ? `<span class="ev-score">${score} pt${score === 1 ? "" : "s"}</span>` : ""}</p><ul class="ev-inds">${items}</ul></li>`;
-    })
-    .join("");
-  const ev = a.evidence;
-  const evSources = [ev.forest_cover_2000?.source, ev.forest_loss?.source, ev.landcover?.source, ev.peat?.source, ev.rainfall?.source, ev.climate?.sources];
-  const rows = evidenceRows(ev)
-    .map((r, i) => {
-      const src = evSources[i];
-      const keys = src ? (Array.isArray(src) ? src : [src]) : [];
-      return `<dt>${r.label}</dt><dd${r.value === "unavailable" ? ` class="ev-na"` : ""}>${escapeXml(r.value)}${refs(keys)}</dd>`;
-    })
-    .join("");
-  const list = cited
-    .map((key) => {
-      const s = sources[key];
-      const text = escapeXml(s?.citation ?? key);
-      return `<li>${s?.url ? `<a href="${escapeXml(s.url)}" target="_blank" rel="noopener">${text}</a>` : text}</li>`;
-    })
-    .join("");
-  const unclear =
-    a.category === "unknown" ? `<p class="ev-unclear">No cause has enough support, or two causes tie, so none is named.</p>` : "";
-  return `${unclear}<p class="ev-why-k">Indicators</p><ul class="ev-groups">${groups}</ul>
-    <p class="ev-why-k">Evidence</p><dl class="ev-evidence">${rows}</dl>
-    <details class="ev-src"><summary class="ev-why-k">Sources (${cited.length})</summary><ol class="ev-sources">${list}</ol></details>`;
+      <button type="button" class="pill pill-xs ev-why-btn" data-why title="${escapeXml(whySummary(a, sources))}">Why</button></div>`;
 }

@@ -74,58 +74,95 @@ export function badgeText(a: Attribution | null | undefined): string {
   return `${a.label || LABELS[a.category]} · ${a.confidence} confidence`;
 }
 
-/** How an indicator reads: missing data is its own state, never "not met". */
-export function indicatorState(met: boolean | null): { mark: "✓" | "✗" | "?"; word: "met" | "not met" | "data unavailable" } {
-  if (met === null) return { mark: "?", word: "data unavailable" };
-  return met ? { mark: "✓", word: "met" } : { mark: "✗", word: "not met" };
-}
-
-/** Indicators grouped by the cause they support, keeping the order they come in. */
-export function groupIndicators(list: Indicator[]): { category: Cause; items: Indicator[] }[] {
-  const groups: { category: Cause; items: Indicator[] }[] = [];
-  for (const ind of list) {
-    let g = groups.find((x) => x.category === ind.category);
-    if (!g) groups.push((g = { category: ind.category, items: [] }));
-    g.items.push(ind);
-  }
-  return groups;
-}
-
 const pct1 = (f: number) => `${Math.round(f * 1000) / 10}%`;
 const pct0 = (f: number) => `${Math.round(f * 100)}%`;
-const range = (a: string | number, b: string | number, sep: string) => (a === b ? String(a) : `${a}${sep}${b}`);
-const LANDCOVER: Record<string, string> = { shrub_savanna: "shrub/savanna" };
+const SHORT: Record<Cause, string> = { land_clearing: "clearing", agricultural_burning: "farming", wildfire: "wildfire", unknown: "unclear" };
 
-/** The evidence as label and plain-figure value, one row per dataset, "unavailable" where it is missing. */
-export function evidenceRows(e: Evidence): { label: string; value: string }[] {
-  const na = "unavailable";
-  const fc = e.forest_cover_2000;
-  const fl = e.forest_loss;
-  const lc = e.landcover;
-  const rf = e.rainfall;
-  const cl = e.climate;
-  const lcValue = () => {
-    const parts = Object.entries(lc!.shares)
-      .filter(([, s]) => Math.round(s * 100) > 0)
-      .sort((a, b) => b[1] - a[1])
-      .map(([k, s]) => `${LANDCOVER[k] ?? k} ${pct0(s)}`);
-    return `${parts.join(", ") || "no classified land"} (${lc!.year})`;
-  };
-  const clValue = () => {
-    const parts = [cl!.oni != null ? `ONI ${cl!.oni.toFixed(2)}` : null, cl!.dmi != null ? `DMI ${cl!.dmi.toFixed(2)}` : null].filter(Boolean);
-    return parts.length ? `${parts.join(", ")} (${cl!.month})` : na;
-  };
+/** Dataset an indicator needs, named for the "No data" line. */
+const NEEDS: Record<string, string> = {
+  forest_loss_strong: "forest loss",
+  forest_loss_some: "forest loss",
+  tree_cover_before: "forest loss",
+  no_clearing: "forest loss",
+  cropland_dominant: "land cover",
+  cropland_present: "land cover",
+  natural_vegetation: "land cover",
+  dry_months: "rainfall",
+  rain_deficit: "rainfall",
+  climate_driver: "climate index",
+  peatland: "peat",
+};
+
+/** A met indicator in a few words, with the figure behind it when the evidence has one. */
+function shortIndicator(ind: Indicator, e: Evidence): string {
+  const share = (keys: string[]) => (e.landcover ? keys.reduce((sum, k) => sum + (e.landcover!.shares[k] ?? 0), 0) : null);
+  switch (ind.id) {
+    case "forest_loss_strong":
+    case "forest_loss_some":
+      return e.forest_loss ? `Forest loss ${pct1(e.forest_loss.share)} vs usual ${pct1(e.forest_loss.expected_share)}` : "Forest loss above usual";
+    case "tree_cover_before":
+      return e.forest_cover_2000 ? `Forested in 2000 (${pct0(e.forest_cover_2000.share)})` : "Forested in 2000";
+    case "cropland_dominant":
+    case "cropland_present": {
+      const f = share(["cropland", "mosaic"]);
+      return f !== null ? `Cropland ${pct0(f)} of the area` : "Cropland";
+    }
+    case "small_short":
+      return "Small, short fire";
+    case "no_clearing":
+      return "No sign of forest clearing";
+    case "dry_months":
+      return e.rainfall ? `Dry: ${e.rainfall.mm_per_day.toFixed(1)} mm/day` : "Dry months";
+    case "rain_deficit":
+      return e.rainfall?.share_of_normal != null ? `Rain ${pct0(e.rainfall.share_of_normal)} of normal` : "Rain below normal";
+    case "climate_driver": {
+      const c = e.climate;
+      const v = [c?.oni != null ? `ONI ${c.oni.toFixed(2)}` : "", c?.dmi != null ? `DMI ${c.dmi.toFixed(2)}` : ""].filter(Boolean).join(", ");
+      return `El Niño or positive IOD${v ? ` (${v})` : ""}`;
+    }
+    case "peatland":
+      return e.peat ? `Peat ${pct1(e.peat.share)} of the area` : "Peatland";
+    case "natural_vegetation": {
+      const f = share(["forest", "shrub_savanna", "grassland", "wetland"]);
+      return f !== null ? `Natural vegetation ${pct0(f)}` : "Natural vegetation";
+    }
+    case "large_long":
+      return "Large or long-lasting fire";
+    default:
+      return ind.text;
+  }
+}
+
+/** "Hansen 2013" from "Hansen, M. C. et al. (2013). ...", else the citation's first sentence, else the key. */
+function shortSource(key: string, sources: AttributionInfo["sources"]): string {
+  const c = sources[key]?.citation;
+  if (!c) return key;
+  const m = c.match(/^([^,(]+)[^(]*\((\d{4})\)/);
+  return m ? `${m[1].trim()} ${m[2]}` : c.split(".")[0].trim();
+}
+
+/**
+ * The reason for a cause in a few short lines, for the hover card: the points per cause, the evidence met for the
+ * named cause (for every cause when it is unclear), the datasets that were missing, and the datasets behind them.
+ * Unavailable indicators are listed as missing data, never as not met; indicators that were checked and not met
+ * are left out.
+ */
+export function whySummary(a: Attribution, sources: AttributionInfo["sources"]): string {
+  const unclear = a.category === "unknown";
+  const shown = a.indicators.filter((i) => unclear || i.category === a.category);
+  const met = shown.filter((i) => i.met === true);
+  const missing = [...new Set(shown.filter((i) => i.met === null).map((i) => NEEDS[i.id] ?? i.id))];
+  const order = unclear ? CAUSES.filter((c) => c !== "unknown") : [a.category, ...CAUSES.filter((c) => c !== a.category && c !== "unknown")];
+  const points = order.map((c) => `${SHORT[c]} ${a.scores[c] ?? 0}`).join(" · ");
+  // Each indicator cites its dataset first, then the papers behind its threshold; the card names the datasets only
+  const data = [...new Set(met.map((i) => i.sources[0]).filter(Boolean))].map((k) => shortSource(k, sources));
   return [
-    { label: "Forest cover in 2000", value: fc ? pct1(fc.share) : na },
-    { label: "Forest loss", value: fl ? `${pct1(fl.share)} (expected ${pct1(fl.expected_share)}), ${range(fl.years[0], fl.years[1], "–")}` : na },
-    { label: "Land cover", value: lc ? lcValue() : na },
-    { label: "Peat", value: e.peat ? pct1(e.peat.share) : na },
-    {
-      label: "Rainfall",
-      value: rf
-        ? `${rf.mm_per_day.toFixed(1)} mm/day${rf.share_of_normal != null ? `, ${pct0(rf.share_of_normal)} of normal` : ""} (${range(rf.months[0], rf.months[1], " to ")})`
-        : na,
-    },
-    { label: "Climate", value: cl ? clValue() : na },
-  ];
+    unclear ? "No cause has enough support, or two tie." : "",
+    `Points: ${points}`,
+    ...(met.length ? met.map((i) => `✓ ${shortIndicator(i, a.evidence)}`) : ["No indicator met"]),
+    missing.length ? `? No data: ${missing.join(", ")}` : "",
+    data.length ? `Data: ${data.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
