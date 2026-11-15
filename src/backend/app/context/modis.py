@@ -85,13 +85,13 @@ def run() -> None:
     by_year: dict[int, list[dict]] = {}
     for g in fetch.granules(SHORT_NAME, VERSION, bbox=config.INDONESIA_BBOX):
         by_year.setdefault(int(g["start"][:4]), []).append(g)
-    for year, items in sorted(by_year.items()):
-        if year_path(year).is_file():
-            continue
+    todo = [(year, items) for year, items in sorted(by_year.items()) if not year_path(year).is_file()]
+    files = fetch.download_many(((g["url"], fetch.raw_dir("modis") / Path(g["url"]).name)
+                                 for _, items in todo for g in items), token=token)
+    for year, items in todo:
         acc = grid.Accumulator(CLASSES)
         for g in items:
             hv = re.search(r"\.h(\d\d)v(\d\d)\.", g["url"])
-            path = fetch.download(g["url"], fetch.raw_dir("modis") / Path(g["url"]).name, token=token)
-            add_tile(acc, read_tile(path), int(hv.group(1)), int(hv.group(2)))
+            add_tile(acc, read_tile(next(files)), int(hv.group(1)), int(hv.group(2)))
         n = grid.write_parquet(year_path(year), counts(acc, year))
         log.info("modis land cover %d: %d tiles, %d cells", year, len(items), n)

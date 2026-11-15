@@ -87,10 +87,10 @@ def write_month(dest: Path, month: str, rx: np.ndarray, ry: np.ndarray, rain: np
 def run() -> None:
     """Downloads and reduces each monthly file."""
     token = config.earthdata_token()
-    for g in fetch.granules(SHORT_NAME, VERSION):
+    todo = [g for g in fetch.granules(SHORT_NAME, VERSION) if not month_path(g["start"][:7]).is_file()]
+    files = fetch.download_many(((g["url"], fetch.raw_dir("imerg") / Path(g["url"]).name) for g in todo),
+                                token=token)
+    for g in todo:
         month = g["start"][:7]
-        if month_path(month).is_file():
-            continue
-        path = fetch.download(g["url"], fetch.raw_dir("imerg") / Path(g["url"]).name, token=token)
-        n = write_month(month_path(month), month, *read_month(path))
+        n = write_month(month_path(month), month, *read_month(next(files)))
         log.info("imerg %s: %d cells", month, n)

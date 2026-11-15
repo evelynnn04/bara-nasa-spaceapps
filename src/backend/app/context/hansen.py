@@ -106,13 +106,12 @@ def write_tile(dest: Path, cx: np.ndarray, cy: np.ndarray, forest: np.ndarray, l
 
 def run() -> None:
     """Downloads and reduces each tile pair."""
-    for top, left in tiles():
-        dest = tile_path(top, left)
-        if dest.is_file():
-            continue
-        name = tile_name(top, left)
-        paths = {layer: fetch.download(URL.format(v=VERSION, layer=layer, tile=name),
-                                       fetch.raw_dir("hansen") / f"{layer}_{name}.tif")
-                 for layer in ("treecover2000", "lossyear")}
-        n = write_tile(dest, *reduce_tile(paths["treecover2000"], paths["lossyear"], top, left))
-        log.info("hansen %s: %d cells with forest", name, n)
+    todo = [(top, left) for top, left in tiles() if not tile_path(top, left).is_file()]
+    layers = ("treecover2000", "lossyear")
+    files = fetch.download_many((URL.format(v=VERSION, layer=layer, tile=tile_name(top, left)),
+                                 fetch.raw_dir("hansen") / f"{layer}_{tile_name(top, left)}.tif")
+                                for top, left in todo for layer in layers)
+    for top, left in todo:
+        cover, loss = next(files), next(files)
+        n = write_tile(tile_path(top, left), *reduce_tile(cover, loss, top, left))
+        log.info("hansen %s: %d cells with forest", tile_name(top, left), n)

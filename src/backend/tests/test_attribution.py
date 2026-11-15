@@ -236,3 +236,27 @@ def test_attribution_method_lists_rules_sources_and_layers(client):
     assert body["layers"] == {"forest2000": True, "forest_loss": True, "landcover_year": True, "peat": False,
                               "rain3": True, "oni": True, "dmi": True}
     assert {i["id"] for i in body["indicators"]} == {i.id for i in attribution.INDICATORS}
+
+
+def test_context_downloads_run_in_parallel_and_keep_their_order(monkeypatch):
+    import threading
+    import time
+    from pathlib import Path
+
+    from app.context import fetch
+    running, peak, lock = 0, 0, threading.Lock()
+
+    def fake(url, dest, token=None):
+        nonlocal running, peak
+        with lock:
+            running += 1
+            peak = max(peak, running)
+        time.sleep(0.05)
+        with lock:
+            running -= 1
+        return dest
+
+    monkeypatch.setattr(fetch, "download", fake)
+    jobs = [(f"https://example.org/{i}", Path(f"f{i}")) for i in range(8)]
+    assert list(fetch.download_many(jobs, workers=4)) == [d for _, d in jobs]
+    assert peak == 4

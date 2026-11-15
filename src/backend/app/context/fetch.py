@@ -9,7 +9,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Iterable, Iterator
 
 from .. import config
 from ..pipeline.download import REDACT, USER_AGENT, _get
@@ -18,6 +20,8 @@ from ..pipeline.download import REDACT, USER_AGENT, _get
 EARTHDATA_HOSTS = (".earthdata.nasa.gov", ".earthdatacloud.nasa.gov")
 CMR_GRANULES = "https://cmr.earthdata.nasa.gov/search/granules.json"
 CHUNK = 1 << 20
+#: Files downloaded at once; one connection to these hosts is far slower than the link.
+WORKERS = 4
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -79,6 +83,20 @@ def download(url: str, dest: Path, token: str | None = None, tries: int = 4, tim
     tmp.unlink(missing_ok=True)
     hint = " Check EARTHDATA_TOKEN in .env (tokens expire after 60 days)." if token else ""
     raise RuntimeError(f"{REDACT(url)}: {last} after {tries} tries.{hint}")
+
+
+def download_many(jobs: Iterable[tuple[str, Path]], token: str | None = None,
+                  workers: int = WORKERS) -> Iterator[Path]:
+    """Downloads `(url, dest)` jobs `workers` at a time and yields their paths in job order, so the
+    caller can reduce each file while the next ones are still downloading. Pending downloads are
+    cancelled when the caller stops early or a download fails."""
+    pool = ThreadPoolExecutor(workers)
+    try:
+        futures = [pool.submit(download, url, dest, token) for url, dest in jobs]
+        for f in futures:
+            yield f.result()
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def granules(short_name: str, version: str, bbox: tuple[float, float, float, float] | None = None,
