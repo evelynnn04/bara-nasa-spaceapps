@@ -1,3 +1,4 @@
+import type { Attribution, AttributionInfo, Cause } from "./attribution";
 import { toDay } from "./dates";
 import type { Interval, OutlookLead } from "./timeline";
 import type { DayNight, Filters, Hotspots } from "./types";
@@ -60,6 +61,8 @@ export interface Meta {
   default_hotspots: Hotspots;
   verdict: string;
   settings: Partial<Record<Hotspots, SettingMeta>>;
+  /** When the tables were last replaced by an update and each stream last fetched (UTC); null for data built by hand. */
+  data: { updated: string | null; fetched: Record<string, string> | null } | null;
 }
 
 export interface SeriesResponse {
@@ -111,6 +114,14 @@ export interface FireEvent {
   bbox: [number, number, number, number];
   regency_id: string | null;
   province_id: string | null;
+  /** Likely cause; null when the attribution has not been built, absent from older backends. */
+  attribution?: Attribution | null;
+}
+
+export interface EventsResponse {
+  events: FireEvent[];
+  /** null when the attribution has not been built. */
+  attribution_disclaimer?: string | null;
 }
 
 /** The forecast timeline of one step size: the issue date and, per lead, its target and trust label. */
@@ -208,6 +219,7 @@ export class Api {
   private readonly seriesCache = new Map<string, Promise<DailySeries>>();
   private readonly agreementCache = new Map<string, Promise<AgreementResponse>>();
   private readonly expectedCache = new Map<string, Promise<OutlookExpected>>();
+  private attributionInfo: Promise<AttributionInfo> | null = null;
 
   meta(): Promise<Meta> {
     return getJson("meta", {});
@@ -232,8 +244,28 @@ export class Api {
     return getJson("cells/scale", { ...areaParams(f), interval, ...c });
   }
 
-  events(f: Filters, hotspots: Hotspots, signal?: AbortSignal, limit = 5): Promise<{ events: FireEvent[] }> {
-    return getJson("events", { ...areaParams(f), from: f.start, to: f.end, hotspots, limit: String(limit) }, signal);
+  events(f: Filters, hotspots: Hotspots, signal?: AbortSignal, limit = 5, cause: Cause | null = null): Promise<EventsResponse> {
+    const params: Record<string, string> = { ...areaParams(f), from: f.start, to: f.end, hotspots, limit: String(limit) };
+    if (cause) params.cause = cause;
+    return getJson("events", params, signal);
+  }
+
+  /**
+   * How causes are attributed, with labels and citations. Reads as not available when the request fails or takes
+   * longer than 8 s, so the events never wait on it; a failure is not kept, the next call asks again.
+   */
+  attribution(): Promise<AttributionInfo> {
+    if (!this.attributionInfo) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 8000);
+      this.attributionInfo = getJson<AttributionInfo>("attribution", {}, ctl.signal)
+        .finally(() => clearTimeout(timer))
+        .catch((): AttributionInfo => {
+          this.attributionInfo = null;
+          return { available: false, disclaimer: null, categories: [], sources: {} };
+        });
+    }
+    return this.attributionInfo;
   }
 
   /** The forecast timeline of one step size; it fails with the API's message while the outlook is not built. */

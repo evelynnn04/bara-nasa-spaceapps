@@ -22,12 +22,16 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import json
 import re
 import threading
+import time
 from collections import defaultdict
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Iterator, Literal
+from pathlib import Path
+from typing import AsyncIterator, Iterator, Literal
 
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -36,6 +40,7 @@ from fastapi.responses import StreamingResponse
 from . import anomaly, attribution, config, critical, geo, outlook, queries, store
 from .db import quote
 from .harmonise import fit, weights
+from .pipeline import update
 from .pipeline.celldays import cell_expr, qualifying_sql
 from .pipeline.normalise import MASK_RES
 
@@ -52,7 +57,32 @@ MAX_MAP_CELLS = 100_000
 AREA_ID = re.compile(r"^idn(-[a-z0-9]+)*$")
 
 _lock = threading.Lock()
-_state: dict = {}
+#: Seconds between looks at the release pointer for a change.
+RELOAD_CHECK_SECONDS = 5
+
+
+@dataclass(eq=False)
+class Data:
+    """One opening of the tables: a connection whose views are bound to the files of one release,
+    with the parameters and the release's version record. Never changed once made, so a request
+    keeps a consistent view even while a newer one is opened. Caches are keyed by it."""
+
+    con: duckdb.DuckDBPyConnection
+    params: dict | None
+    problem: str | None
+    #: Opened from disk (and so reopened when an update publishes a release), not set by a test.
+    managed: bool = True
+    #: Modification time of the release pointer when opened (None without one).
+    marker: int | None = None
+    version: dict | None = None
+    #: Folder of the derived tables this opening reads (None for a test connection).
+    derived: Path | None = None
+
+
+_data: Data | None = None
+_checked = 0.0
+#: The opening a request uses, set once per request so all of it reads the same release.
+_pinned: ContextVar[Data | None] = ContextVar("pinned", default=None)
 
 
 REQUIRED = ("celldays", "days", "cells", "region_daily")
@@ -70,44 +100,88 @@ def _problem(con: duckdb.DuckDBPyConnection) -> str | None:
     return None
 
 
+def _clear_caches() -> None:
+    """Drops every cached answer. Answers are keyed by their opening, so this only frees memory:
+    a late answer computed on an older opening can never be served for a newer one."""
+    _daily_for.cache_clear()
+    _flags_for.cache_clear()
+    _parents_for.cache_clear()
+    _outlook_meta_for.cache_clear()
+    _step_scale_for.cache_clear()
+
+
 def configure(con: duckdb.DuckDBPyConnection | None, params: dict | None) -> None:
-    """Sets the connection and parameters the endpoints use (tests pass synthetic ones)."""
+    """Sets the connection and parameters the endpoints use (tests pass synthetic ones). A
+    connection set here is never reloaded."""
+    global _data
     with _lock:
-        _state.clear()
-        if con is not None:
-            _state.update(con=con, params=params, problem=_problem(con))
-        _daily.cache_clear()
-        _flags.cache_clear()
-        _parents.cache_clear()
-        _step_scale.cache_clear()
-        _outlook_meta.cache_clear()
+        _data = None if con is None else Data(con, params, _problem(con), managed=False)
+        _clear_caches()
 
 
-def _ready() -> dict:
-    """The shared connection and parameters, opened on first use.
+def _marker() -> int | None:
+    """Modification time of the release pointer `python -m app update` writes last, or None."""
+    try:
+        return update.pointer_path().stat().st_mtime_ns
+    except OSError:
+        return None
 
-    Whether the derived tables exist with the expected columns is checked once, when the
-    connection is opened; a problem closes it again so the next request retries."""
+
+def _open() -> Data:
+    """Opens the tables of the current release (or of the data folder when no release exists)."""
+    try:
+        params = weights.load_params()
+    except RuntimeError as err:
+        raise HTTPException(503, str(err)) from err
+    marker, version, derived = _marker(), update.load_version(), config.derived_dir()
+    con = store.connect(params)
+    return Data(con, params, _problem(con), marker=marker, version=version, derived=derived)
+
+
+def _current() -> Data:
+    """The latest opening, made on first use. Every `RELOAD_CHECK_SECONDS` the release pointer is
+    looked at; when an update has published a new release a new opening replaces this one, and
+    requests still holding the old one finish on the old release. A problem with the tables is
+    reported as 503 and retried on the next request."""
+    global _data, _checked
     with _lock:
-        if not _state:
-            try:
-                params = weights.load_params()
-            except RuntimeError as err:
-                raise HTTPException(503, str(err)) from err
-            con = store.connect(params)
-            _state.update(con=con, params=params, problem=_problem(con))
-        if _state["problem"]:
-            problem = _state["problem"]
-            con = _state.pop("con")
-            _state.clear()
-            con.close()
-            raise HTTPException(503, problem)
-        return _state
+        now = time.monotonic()
+        if _data is not None and _data.managed and now - _checked >= RELOAD_CHECK_SECONDS:
+            _checked = now
+            if _marker() != _data.marker:
+                _data = None
+        if _data is None:
+            _data = _open()
+            _checked = time.monotonic()
+            _clear_caches()
+        data = _data
+        if data.problem:
+            if data.managed:
+                _data = None
+            raise HTTPException(503, data.problem)
+        return data
+
+
+async def pin() -> AsyncIterator[None]:
+    """Router dependency: fixes the opening every part of one request uses."""
+    token = _pinned.set(_current())
+    try:
+        yield
+    finally:
+        _pinned.reset(token)
+
+
+router.dependencies.append(Depends(pin))
+
+
+def _ready() -> Data:
+    """The opening of the current request (or the latest, outside a request)."""
+    return _pinned.get() or _current()
 
 
 def cursor() -> duckdb.DuckDBPyConnection:
-    """A cursor of the shared connection, safe to use from one request thread."""
-    return _ready()["con"].cursor()
+    """A cursor of the request's connection, safe to use from one request thread."""
+    return _ready().con.cursor()
 
 
 @dataclass(frozen=True)
@@ -156,25 +230,37 @@ def period(
     return start, end
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=2)
+def _parents_for(data: Data) -> dict[str, str | None]:
+    return queries.area_parents(data.con.cursor())
+
+
 def _parents() -> dict[str, str | None]:
-    return queries.area_parents(cursor())
+    return _parents_for(_ready())
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=2)
+def _flags_for(data: Data) -> list[tuple]:
+    return queries.day_flags(data.con.cursor())
+
+
 def _flags() -> list[tuple]:
-    return queries.day_flags(cursor())
+    return _flags_for(_ready())
 
 
 @lru_cache(maxsize=256)
-def _daily(area: Area, daynight: str, hotspots: str = "vegetation") -> dict[dt.date, tuple]:
-    """Daily sums for an area: the region cache for named areas; for a polygon, the cache for the
-    regencies wholly inside it plus the remaining cells."""
-    cur = cursor()
+def _daily_for(data: Data, area: Area, daynight: str, hotspots: str) -> dict[dt.date, tuple]:
+    cur = data.con.cursor()
     if area.ring is None:
         return queries.daily_cached(cur, daynight, list(area.ids), hotspots)
     n = queries.polygon_cells(cur, list(area.ring), "sel")
     return queries.daily_polygon(cur, daynight, "sel", n, hotspots)
+
+
+def _daily(area: Area, daynight: str, hotspots: str = "vegetation") -> dict[dt.date, tuple]:
+    """Daily sums for an area: the region cache for named areas; for a polygon, the cache for the
+    regencies wholly inside it plus the remaining cells."""
+    return _daily_for(_ready(), area, daynight, hotspots)
 
 
 def _fmt(v: float | None, digits: int = 4) -> float | None:
@@ -183,8 +269,12 @@ def _fmt(v: float | None, digits: int = 4) -> float | None:
 
 @router.get("/meta")
 def meta() -> dict:
-    """Record span, unit, the fitted factors and the national evaluation."""
-    p = _ready()["params"]
+    """Record span, unit, the fitted factors and the national evaluation. `data` says when the
+    tables were last replaced by `python -m app update` and when each stream was last fetched
+    (null for data that was built by hand)."""
+    data = _ready()
+    p = data.params
+    version = data.version if data.managed else None
     flags = _flags()
     last = {name: d for name, d in cursor().execute("""
         SELECT 'aqua', max(local_date) FILTER (WHERE aqua) FROM days UNION ALL
@@ -224,6 +314,7 @@ def meta() -> dict:
         "default_hotspots": p.get("default_hotspots", "vegetation"),
         "verdict": p.get("verdict"),
         "settings": settings,
+        "data": None if version is None else {"updated": version.get("updated"), "fetched": version.get("fetched")},
     }
 
 
@@ -325,8 +416,8 @@ _STEP_SQL = {"day": "c.local_date", "month": "date_trunc('month', c.local_date)"
 
 
 @lru_cache(maxsize=128)
-def _step_scale(area: Area, interval: str, daynight: str, hotspots: str) -> list[float]:
-    cur = cursor()
+def _step_scale_for(data: Data, area: Area, interval: str, daynight: str, hotspots: str) -> list[float]:
+    cur = data.con.cursor()
     w = weights.weight_sql(daynight, hotspots)
     row = cur.execute(f"""
         SELECT quantile_disc(value, {list(SCALE_QUANTILES)}) FROM (
@@ -336,6 +427,10 @@ def _step_scale(area: Area, interval: str, daynight: str, hotspots: str) -> list
         )
     """).fetchone()
     return [round(v, 4) for v in row[0]] if row and row[0] else []
+
+
+def _step_scale(area: Area, interval: str, daynight: str, hotspots: str) -> list[float]:
+    return _step_scale_for(_ready(), area, interval, daynight, hotspots)
 
 
 @router.get("/cells/scale")
@@ -612,10 +707,19 @@ OUTLOOK_LEADS = {"day": outlook.DAY_LEADS, "month": outlook.MONTH_LEADS, "year":
 OUTLOOK_UNIT = "chance that a 0.05 degree cell holds at least one vegetation-fire hotspot"
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=2)
+def _outlook_meta_for(data: Data) -> dict | None:
+    if not store.has(data.con.cursor(), "outlook"):
+        return None
+    if data.derived is None:
+        return outlook.load_meta()
+    path = data.derived / outlook.meta_path().name
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
 def _outlook_meta() -> dict:
-    meta = outlook.load_meta()
-    if meta is None or not store.has(cursor(), "outlook"):
+    meta = _outlook_meta_for(_ready())
+    if meta is None:
         raise HTTPException(503, "The fire outlook is missing. Run `python -m app cache` first.")
     return meta
 

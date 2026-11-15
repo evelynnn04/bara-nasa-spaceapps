@@ -82,6 +82,7 @@ export class MapView {
   /** Ids of the coastline layers traced from the basemap's sea, shown while an area is selected. */
   private coastLayers: string[] = [];
   private callout: Marker | null = null;
+  private readonly credits = new Map<string, string>();
   private readonly popup = new Popup({ closeButton: false, closeOnClick: false, className: "hs-popup", offset: 8 });
 
   constructor(el: HTMLElement, private readonly cb: MapCallbacks) {
@@ -334,6 +335,25 @@ export class MapView {
     }
   }
 
+  /**
+   * Adds a line to the map credits (the info icon). MapLibre lists the credit of every source a layer draws from, so
+   * the credit rides on an empty source with an invisible layer, added again whenever the style reloads.
+   */
+  addCredit(id: string, html: string): void {
+    if (!html || this.credits.has(id)) return;
+    this.credits.set(id, html);
+    // The style can be briefly busy after it first loaded, so wait for the map to settle rather than for "load"
+    const install = () => (this.map.isStyleLoaded() ? this.installCredit(id, html) : this.map.once("idle", install));
+    install();
+  }
+
+  private installCredit(id: string, html: string): void {
+    const m = this.map;
+    if (m.getSource(id)) return;
+    m.addSource(id, { type: "geojson", data: EMPTY, attribution: html });
+    m.addLayer({ id, type: "line", source: id, paint: { "line-opacity": 0 } });
+  }
+
   private installLayers(): void {
     const m = this.map;
     this.gradeBasemap();
@@ -397,6 +417,7 @@ export class MapView {
     });
     this.syncPolygon();
     this.syncDraft();
+    for (const [id, html] of this.credits) this.installCredit(id, html);
   }
 
   /**

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 
 
@@ -92,12 +95,52 @@ def raw_dir() -> Path:
     return data_dir() / "raw"
 
 
+#: Folder the processed tables are written to and read from instead of the current release, while set.
+_stage: Path | None = None
+
+
+def releases_dir() -> Path:
+    """Folder of the releases `python -m app update` publishes, one subfolder each."""
+    return data_dir() / "releases"
+
+
+def pointer_path() -> Path:
+    """`current.json`, naming the release being served; written last by every update."""
+    return data_dir() / "current.json"
+
+
+def release_root() -> Path:
+    """Folder holding `parquet/` and `derived/` of the data being served: the current release once
+    an update has published one, else the data folder itself (data built by hand)."""
+    if _stage is not None:
+        return _stage
+    pointer = pointer_path()
+    if pointer.is_file():
+        try:
+            return releases_dir() / json.loads(pointer.read_text(encoding="utf-8"))["release"]
+        except (ValueError, KeyError):
+            pass
+    return data_dir()
+
+
+@contextmanager
+def staged(root: Path) -> Iterator[Path]:
+    """Makes `parquet_dir()` and `derived_dir()` point under `root` for the duration, so a rebuild
+    can run next to the tables being served and be published only once it has succeeded."""
+    global _stage
+    previous, _stage = _stage, root
+    try:
+        yield root
+    finally:
+        _stage = previous
+
+
 def parquet_dir() -> Path:
-    return data_dir() / "parquet"
+    return release_root() / "parquet"
 
 
 def derived_dir() -> Path:
-    return data_dir() / "derived"
+    return release_root() / "derived"
 
 
 def boundaries_path() -> Path:

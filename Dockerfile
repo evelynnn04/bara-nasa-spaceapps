@@ -35,7 +35,8 @@ RUN uv sync --locked --no-dev
 COPY src/backend/app ./app
 COPY --from=frontend /frontend/dist ./static
 
-RUN useradd --system --no-create-home api
+# A fixed user id, so a Cloud Storage volume can be mounted writable for it (mount option uid=10001).
+RUN useradd --system --uid 10001 --no-create-home api
 USER api
 
 # The region outlines ship with the dashboard, so the API reads the same file the browser does.

@@ -28,6 +28,9 @@ def main(argv: list[str] | None = None) -> None:
     every.add_argument("--no-api", action="store_true")
     sub.add_parser("validate-critical", help="check the critical-period definition on the full record")
     sub.add_parser("validate-outlook", help="score the fire outlook per cell on held-out years")
+    up = sub.add_parser("update", help="download recent data, rebuild the tables and swap them in if they pass")
+    up.add_argument("--every", type=float, metavar="MINUTES", help="repeat every so many minutes")
+    up.add_argument("--no-download", action="store_true", help="rebuild from the files on disk (no FIRMS key needed)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s",
@@ -74,4 +77,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "validate-outlook":
         from . import outlook_validation
         outlook_validation.run()
+    if args.cmd == "update":
+        from .pipeline import update
+        update.run(args.every, fetch=not args.no_download)
     logging.getLogger("app").info("done in %.0f s", time.time() - t0)

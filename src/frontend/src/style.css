@@ -41,6 +41,10 @@
   --good: #7fd69a;
   --warning: #ffc04d;
   --critical: #ff6b5e;
+  --cause-clearing: #ffb27a;
+  --cause-agri: #e8c46a;
+  --cause-wild: #ff6b5e;
+  --cause-unclear: #a39383;
   --hatch-a: #1a1310;
   --ember-clear: rgba(255, 122, 46, 0);
   --overlay: rgba(14, 9, 7, 0.82);
@@ -1947,6 +1951,35 @@ body:has(.card-dialog[open]) {
   display: none;
 }
 
+/* Newer data has arrived: its own line, so other notes never replace it */
+.data-notice {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: min(720px, calc(100vw - 2 * var(--edge)));
+  margin: 0;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+  color: var(--ink);
+  font-size: var(--fs-small);
+}
+
+.data-notice[hidden] {
+  display: none;
+}
+
+.data-notice:not([hidden]) ~ .dl-note {
+  top: calc(100% + 52px);
+}
 
 /* Smaller screens: the stage stacks */
 
@@ -2012,6 +2045,12 @@ body:has(.card-dialog[open]) {
 
   .dl-note {
     grid-area: 3 / 1;
+    justify-self: end;
+    position: static;
+  }
+
+  .data-notice {
+    grid-area: 4 / 1;
     justify-self: end;
     position: static;
   }
@@ -3385,6 +3424,70 @@ button.cal-month:focus-visible {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+/* Likely cause of each fire event: badge, "Why" drawer and disclaimer */
+
+[data-cause="land_clearing"] { --cause: var(--cause-clearing); }
+[data-cause="agricultural_burning"] { --cause: var(--cause-agri); }
+[data-cause="wildfire"] { --cause: var(--cause-wild); }
+[data-cause="unknown"] { --cause: var(--cause-unclear); }
+
+.ev-row {
+  position: relative;
+}
+
+/* Cause icon in the bottom-right corner of an event, coloured by the likely cause */
+.ev-why {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  display: grid;
+  place-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cause, transparent) 18%, transparent);
+  color: var(--cause, var(--ink-2));
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  transition: background var(--dur-2) var(--ease-out);
+}
+
+.ev-why:hover,
+.ev-why:focus-visible {
+  background: color-mix(in srgb, var(--cause, transparent) 36%, transparent);
+}
+
+.ev-note {
+  margin-left: auto;
+  color: var(--warning);
+  cursor: help;
+}
+
+.ev-note[hidden] {
+  display: none;
+}
+
+.ev-note + .fold-btn {
+  margin-left: 0;
+}
+
+.ev-body {
+  display: grid;
+  gap: 10px;
+}
+
+.ev-filter[hidden] {
+  display: none;
+}
+
+.gc .ev-filter .sm-list {
+  width: 200px;
 }
 
 #dl-detections {

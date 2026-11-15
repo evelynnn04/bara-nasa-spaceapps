@@ -205,9 +205,9 @@ chances per cell, and the legend gives `expected_cells` for the selected area.
 
 ## Limits
 
-- **Only as fresh as the data.** The day step starts from the last downloaded day. For a live
-  timeline the pipeline must run daily (`download` with a FIRMS key, then `normalise`, `build`,
-  `cache`).
+- **Only as fresh as the data.** The day step starts from the last data day. For a live timeline,
+  keep the data current with `python -m app update --every 60` (see
+  [recent-data.md](recent-data.md)), which rebuilds the outlook with every update.
 - **No weather.** Rain, wind and drought are not inputs, which is why skill fades after a few days
   and after one month.
 - **El Nino is not used.** In earlier tests on monthly totals per area, NOAA's Oceanic Nino Index
