@@ -31,6 +31,12 @@
         <div class="hf-area" id="area-picker"></div>
         <div class="hf-palette" id="palette-menu"></div>
       </div>
+      <div class="g-export">
+        <button type="button" class="pill" id="dl-detections" aria-label="Download raw detections CSV" title="Every satellite detection in the selected area and dates, with its source">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg><span class="g-export-long">Raw detections </span>CSV
+        </button>
+        <p class="dl-note" id="dl-note" role="status" aria-live="polite"></p>
+      </div>
     </header>
 
     <main>
@@ -115,9 +121,6 @@
 
         <div class="g-foot">
           <div class="map-legend" id="map-legend"></div>
-          <p class="g-caption" id="map-count" aria-live="polite"></p>
-          <button type="button" class="pill pill-xs" id="dl-detections" title="Every satellite detection in the selected area and dates, with its source">Raw detections CSV</button>
-          <p class="dl-note" id="dl-note" role="status" aria-live="polite"></p>
         </div>
       </section>
 

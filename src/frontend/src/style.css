@@ -165,7 +165,7 @@ strong {
   inset: 0 0 auto 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
   align-items: center;
   gap: 12px;
   padding: 14px var(--edge);
@@ -962,14 +962,6 @@ button.dp-title:hover,
   transform: translateX(-50%);
 }
 
-.g-caption {
-  color: var(--ink-3);
-  font-size: var(--fs-small);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .map-legend {
   display: flex;
   align-items: center;
@@ -1686,13 +1678,54 @@ body:has(.card-dialog[open]) {
   box-shadow: 0 0 0 4px var(--accent-glow);
 }
 
-/* Detail sheet below the stage */
+/* Raw detections download: the header's right end, with its status floating just below */
+
+.g-export {
+  grid-column: 3;
+  justify-self: end;
+  position: relative;
+}
+
+#dl-detections {
+  min-height: 36px;
+  border-color: var(--glass-line);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  font-weight: 400;
+}
+
+#dl-detections .ico {
+  width: 16px;
+  height: 16px;
+}
 
 .dl-note {
-  grid-column: 1 / -1;
-  min-height: 1.5em;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: max-content;
+  max-width: min(720px, calc(100vw - 2 * var(--edge)));
+  padding: 6px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
   color: var(--ink-2);
   font-size: var(--fs-small);
+  text-align: right;
+}
+
+.dl-note:empty {
+  display: none;
+}
+
+@media (max-width: 1399px) {
+  .g-export-long {
+    display: none;
+  }
 }
 
 /* Smaller screens: the stage stacks */
@@ -1743,6 +1776,26 @@ body:has(.card-dialog[open]) {
     grid-column: 1;
   }
 
+  /* The button joins the brand's row at the right; the note takes its own row under the filters */
+  .g-export {
+    display: contents;
+  }
+
+  .g-brand,
+  #dl-detections {
+    grid-area: 1 / 1;
+  }
+
+  #dl-detections {
+    justify-self: end;
+  }
+
+  .dl-note {
+    grid-area: 3 / 1;
+    justify-self: end;
+    position: static;
+  }
+
   .g-stage {
     height: auto;
     min-height: 0;
@@ -1774,11 +1827,6 @@ body:has(.card-dialog[open]) {
     justify-content: center;
     max-width: none;
     transform: none;
-  }
-
-  .g-caption {
-    white-space: normal;
-    text-align: center;
   }
 
   .g-main {

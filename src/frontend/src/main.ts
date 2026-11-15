@@ -32,7 +32,7 @@ const api = new Api();
 initFx();
 trackHeaderHeight();
 Promise.all([loadBoundaries(), api.meta()]).then(([b, meta]) => boot(b, meta), (err: Error) => {
-  $("#map-count").textContent = `Could not load the fire data (${err.message}). Check that the backend is running, then reload the page.`;
+  $("#dl-note").textContent = `Could not load the fire data (${err.message}). Check that the backend is running, then reload the page.`;
 });
 
 /** Keeps `--top-h` equal to the header height so sticky columns sit under it. */
@@ -66,17 +66,12 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   let sel: Selection | null = null;
   /** The same record over all its dates, for the cards that do not follow the date picker. */
   let record: Selection | null = null;
-  /** Map totals for the current filters; null while they load or after they failed. */
-  let mapTotals: { total: number; cells: number } | null = null;
   let freshTimer = 0;
   let draw = { drawing: false, corners: 0 };
-  let countText = "Loading fire data…";
   let generation = 0;
   let periodRequests: AbortController | null = null;
   /** Cells of the whole selected period, shown while the timeline is on all dates. */
   let fullCells: CellsResponse | null = null;
-  /** Timeline step on the map, or null while the map shows the whole selected period. */
-  let shownFrame: Frame | null = null;
   /** Timeline step last asked for; a slower load for an earlier step is dropped. */
   let wantedFrame: Frame | null = null;
   /** Cells of timeline steps already asked for, for the current filters. */
@@ -98,7 +93,6 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     $<HTMLButtonElement>("#draw-finish").disabled = corners < 3;
     $("#draw-cancel").hidden = !drawing;
     $("#draw-clear").hidden = !polygonMode || drawing || !filters.polygon;
-    $("#map-count").textContent = countText;
   }
 
   const calendar = new CalendarView($("#calendar"));
@@ -184,19 +178,6 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     setNote(`Could not load ${what}: ${err.message}`, true);
   }
 
-  function updateCount(): void {
-    const parts: string[] = [];
-    if (mapTotals) parts.push(`${fmtVal(mapTotals.total)} ${UNIT_SHORT} in ${fmtInt(mapTotals.cells)} cells`);
-    parts.push(areaLabel(), shownFrame ? shownFrame.label : formatRange(toDay(filters.start), toDay(filters.end)));
-    if (daynight !== "all") parts.push(DAYNIGHT_LABEL[daynight]);
-    if (sel) {
-      const missing = unobserved(sel, sel.from, sel.to);
-      if (missing) parts.push(`${missing} day${missing === 1 ? "" : "s"} not observed`);
-    }
-    countText = parts.join(" · ");
-    syncDrawUi();
-  }
-
   function update(patch: Partial<Filters>, opts: { fit?: boolean } = {}): void {
     const areaChanged = ["mode", "regionIds", "polygon"].some((k) => k in patch);
     filters = { ...filters, ...patch };
@@ -211,10 +192,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     const current = () => g === generation;
     sel = null;
     record = null;
-    mapTotals = null;
     resetTimeline();
     if ($("#dl-note").dataset.loadError) setNote("");
-    updateCount();
 
     const seriesCards = ["calendar", "an-summary", "an-patterns", "anomaly"];
     setLoad(seriesCards, "busy");
@@ -227,7 +206,6 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       analytics.render(sel);
       anomaly.render(record, ramp, areaChanged);
       setLoad(seriesCards, "ready");
-      updateCount();
     }, (err) => {
       if (!current()) return;
       setLoad(seriesCards, "stale");
@@ -270,14 +248,11 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     });
   }
 
-  /** Puts cells on the map with their legend and totals; a timeline step has no most-active-cell callout. */
+  /** Puts cells on the map with their legend; a timeline step has no most-active-cell callout. */
   function showCells(c: CellsResponse, step: Frame | null = null, breaks?: number[]): void {
-    shownFrame = step;
     map.setCells(c, breaks);
     map.setCallout(step ? null : c.top, c.top ? (regions.byId.get(c.top.region_id)?.name ?? "") : "");
     renderMapLegend();
-    mapTotals = { total: c.total, cells: c.active_cells };
-    updateCount();
   }
 
   /** Cells of one timeline step, loaded once per filters and kept for stepping back and forth. */
@@ -299,10 +274,6 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       wantedFrame = frame;
       if (!frame) {
         if (fullCells) showCells(fullCells);
-        else {
-          shownFrame = null;
-          updateCount();
-        }
         return;
       }
       const g = generation;
@@ -338,7 +309,6 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     timeRequests = null;
     stepCache.clear();
     fullCells = null;
-    shownFrame = null;
     wantedFrame = null;
     timeline.setRange(filters.start, filters.end);
   }
