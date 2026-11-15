@@ -1,0 +1,11 @@
+*
+!src/backend/pyproject.toml
+!src/backend/uv.lock
+!src/backend/app/
+!src/frontend/
+src/frontend/node_modules/
+src/frontend/dist/
+**/__pycache__/
+**/*.py[cod]
+**/.env
+**/.env.*

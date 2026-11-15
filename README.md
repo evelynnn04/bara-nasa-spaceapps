@@ -8,14 +8,14 @@ By participating in [Discussions](https://github.com/nasa/spaceapps/discussions)
 ## IF YOU SEE SOMETHING, SAY SOMETHING
 If you experience or witness discrimination, harassment, or any form of bullying during the Space Apps Challenge, or have any other concerns, please contact your Local Lead and/or the Space Apps Global Organizing (GO) Team at [conduct@spaceappschallenge.org](mailto:conduct@spaceappschallenge.org)
 
-## Running the backend
+## Running with Docker
 Requires Docker with Compose v2.
 
 ```bash
 docker compose up --build
 ```
 
-The API listens on `http://localhost:8000`. Check it with `curl http://localhost:8000/health`, which returns `{"status":"ok"}`. Interactive API docs are at `http://localhost:8000/docs`. Stop it with `docker compose down`.
+The dashboard and the API run as one service on `http://localhost:8000`: the dashboard at `/`, the API under `/api`. Check it with `curl http://localhost:8000/health`, which returns `{"status":"ok"}`. Interactive API docs are at `http://localhost:8000/docs`. Stop it with `docker compose down`. The data must be in place first (see "Fire data").
 
 ### Local development without Docker
 Dependencies are managed with [uv](https://docs.astral.sh/uv/) and pinned in `src/backend/uv.lock`.
@@ -141,3 +141,31 @@ Run the backend tests with:
 cd src/backend
 uv run pytest
 ```
+
+## Deploying to Cloud Run
+The dashboard and the API deploy as one Cloud Run service from the `Dockerfile` at the repository
+root: it builds the dashboard and serves it at `/`, next to the API under `/api`.
+
+The data is not committed, so the service reads it from a Cloud Storage bucket mounted read-only.
+It needs `data/derived/` and `data/parquet/` (about 220 MB); the region outlines are part of the
+image. Upload them, here into a `data/` folder of the bucket:
+
+```bash
+gcloud storage cp -r data/derived data/parquet gs://BUCKET/data/
+```
+
+Then deploy with the bucket mounted and `DATA_DIR` pointing at that folder:
+
+```bash
+gcloud run deploy SERVICE --source . --region REGION --allow-unauthenticated \
+  --execution-environment gen2 --memory 2Gi \
+  --add-volume name=bucket,type=cloud-storage,bucket=BUCKET,readonly=true \
+  --add-volume-mount volume=bucket,mount-path=/mnt/bucket \
+  --set-env-vars DATA_DIR=/mnt/bucket/data
+```
+
+To deploy on every push instead, connect the service to the repository in the Cloud Run console
+with build type Dockerfile and source location `/Dockerfile`, and set the same volume, mount and
+`DATA_DIR` under the container settings. `https://SERVICE_URL/api/meta` returns the record dates
+once the data is found. After refreshing the data, copy `data/derived/` and `data/parquet/` to the
+bucket again; the service reads the new files on its next start.
