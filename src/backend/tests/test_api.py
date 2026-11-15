@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app import api, config, geo, queries, store
 from app.harmonise import fit, weights
 from app.harmonise.regions import GROUPS
-from app.main import app
+from app.main import app, create_app
 from app.pipeline import aggregate, events
 
 from .conftest import BALI, RIAU, day_row, write_dataset
@@ -281,3 +281,16 @@ def test_map_layer_falls_back_to_blocks_above_the_cell_bound(client, monkeypatch
     coarse = client.get("/api/cells?from=2015-09-01&to=2015-09-30").json()
     assert coarse["res_deg"] == pytest.approx(0.25) and coarse["active_cells"] == 2
     assert sum(coarse["cells"]["value"]) == pytest.approx(full["total"], abs=1e-2)
+
+
+def test_built_dashboard_is_served_next_to_the_api(tmp_path):
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<!doctype html><title>dashboard</title>", encoding="utf-8")
+    (tmp_path / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
+    client = TestClient(create_app(tmp_path))
+    page = client.get("/")
+    assert page.status_code == 200 and "dashboard" in page.text
+    assert client.get("/assets/app.js").text == "console.log(1)"
+    assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/api/series?area=nope").status_code == 400
+    assert TestClient(create_app(tmp_path / "missing")).get("/").status_code == 404

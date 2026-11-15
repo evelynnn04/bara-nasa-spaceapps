@@ -1,29 +1,14 @@
 services:
-  backend:
-    build: ./src/backend
+  app:
+    build: .
     ports:
       - "8000:8000"
-    environment:
-      BOUNDARIES_PATH: /boundaries.geojson
     volumes:
       # Derived tables built on the host with `uv run python -m app all` (read-only here).
       - ./data:/data:ro
-      # The outlines the dashboard uses; they define which area ids the API accepts.
-      - ./src/frontend/public/boundaries.geojson:/boundaries.geojson:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 3s
       retries: 3
-    restart: unless-stopped
-
-  frontend:
-    build: ./src/frontend
-    ports:
-      - "8080:8080"
-    environment:
-      API_UPSTREAM: http://backend:8000
-    depends_on:
-      backend:
-        condition: service_healthy
     restart: unless-stopped
