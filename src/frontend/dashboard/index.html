@@ -86,7 +86,10 @@
               <div class="gc-body" id="an-summary" aria-busy="true"></div>
             </article>
             <article class="gc" data-card="events" id="events-card" aria-labelledby="c-events">
-              <div class="gc-head"><h2 class="gc-title" id="c-events">Largest fire events</h2></div>
+              <div class="gc-head">
+                <h2 class="gc-title" id="c-events">Largest fire events</h2>
+                <button type="button" class="icon-btn ev-note" id="cause-note" hidden><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 2.5 20h19z" /><path d="M12 10v4.5M12 17.2v.1" /></svg><span class="visually-hidden">About the likely causes</span></button>
+              </div>
               <div class="gc-body ev-body">
                 <div class="ev-filter" id="cause-menu" hidden></div>
                 <div id="events" aria-busy="true"></div>

@@ -1,18 +1,16 @@
 import type { FireEvent } from "./api";
-import { badgeText, causeLabel, whySummary, type AttributionInfo, type Cause } from "./attribution";
+import { causeLabel, whySummary, type Cause } from "./attribution";
 import { formatDay, toDay } from "./dates";
 import { UNIT_SHORT, escapeXml, fmtVal } from "./format";
 import type { RegionIndex } from "./regions";
 import { openTip } from "./tooltip";
 
-/** What the events card needs besides the events: the disclaimer, source citations and the active cause filter. */
+/** What the events card needs besides the events: the active cause filter. */
 export interface EventsContext {
-  disclaimer: string | null;
-  sources: AttributionInfo["sources"];
   cause: Cause | null;
 }
 
-const NO_CONTEXT: EventsContext = { disclaimer: null, sources: {}, cause: null };
+const NO_CONTEXT: EventsContext = { cause: null };
 
 /** "Largest fire events": the biggest events active in the selected period (place, hotspots, dates), each one clickable, with its likely cause. */
 export class EventsView {
@@ -63,20 +61,17 @@ export class EventsView {
             ${place.province ? `<span class="mini-note">${escapeXml(place.province)}</span>` : ""}
             <span class="mini-note">${span}</span></span>
           <span class="ev-v">${fmtVal(e.harmonised)}<span class="mini-note">${UNIT_SHORT}</span></span></button>
-          ${causeRow(e, ctx.sources)}</li>`;
+          ${causeIcon(e)}</li>`;
       })
       .join("");
-    const attributed = events.some((e) => e.attribution);
-    const disclaimer = attributed && ctx.disclaimer ? `<p class="ev-disclaimer" role="note">${escapeXml(ctx.disclaimer)}</p>` : "";
-    this.root.innerHTML = `<ol class="ev-list">${items}</ol>${disclaimer}`;
+    this.root.innerHTML = `<ol class="ev-list">${items}</ol>`;
   }
 }
 
-/** The badge under an event, with a "Why" button whose hover card sums up the evidence. */
-function causeRow(e: FireEvent, sources: AttributionInfo["sources"]): string {
+/** A small icon in the corner of an event, coloured by its likely cause, whose hover card says why. */
+function causeIcon(e: FireEvent): string {
   const a = e.attribution;
-  if (!a) return `<div class="ev-cause is-none"><span class="ev-dot" aria-hidden="true"></span><span>${badgeText(a)}</span></div>`;
-  return `<div class="ev-cause" data-cause="${escapeXml(a.category)}"><span class="ev-dot" aria-hidden="true"></span>
-      <span class="ev-cause-label">${escapeXml(badgeText(a))}</span>
-      <button type="button" class="pill pill-xs ev-why-btn" data-why title="${escapeXml(whySummary(a, sources))}">Why</button></div>`;
+  if (!a) return "";
+  return `<button type="button" class="ev-why" data-why data-cause="${escapeXml(a.category)}" title="${escapeXml(whySummary(a))}"><span
+      aria-hidden="true">?</span><span class="visually-hidden">Why this cause</span></button>`;
 }

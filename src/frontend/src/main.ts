@@ -8,13 +8,13 @@ import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
 import { formatDay, parts, toDay } from "./dates";
-import { CAUSES, causeLabel, type Cause } from "./attribution";
+import { CAUSES, causeCredit, causeLabel, type Cause } from "./attribution";
 import { EventsView } from "./events-view";
 import { downloadCsv, slug, toCsv } from "./export";
 import { watchData } from "./freshness";
 import { UNIT_SHORT, fmtCompact, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
-import { initTooltips } from "./tooltip";
+import { initTooltips, openTip } from "./tooltip";
 import { MapView } from "./map-view";
 import { RAMPS, accentVars, breaksFrom, type RampName } from "./ramps";
 import { SelectMenu } from "./select-menu";
@@ -286,7 +286,12 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     info.then((i) => api.events(filters, hotspots, ctl.signal, 3, i.available ? cause : null)).then(async (r) => {
       const i = await info;
       if (!current()) return;
-      events.render(r.events, { disclaimer: r.attribution_disclaimer ?? i.disclaimer, sources: i.sources, cause: i.available ? cause : null });
+      events.render(r.events, { cause: i.available ? cause : null });
+      // The disclaimer sits behind a warning icon in the card header, shown while any listed event has a cause
+      const disclaimer = r.events.some((e) => e.attribution) ? (r.attribution_disclaimer ?? i.disclaimer) : null;
+      const note = $("#cause-note");
+      note.hidden = !disclaimer;
+      note.setAttribute("title", disclaimer ?? "");
       setLoad(["events"], "ready");
     }, (err) => {
       if (!current()) return;
@@ -430,6 +435,9 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     const label = (c: Cause) => (c === "unknown" ? "Unclear" : causeLabel(c));
     const causeOptions = [{ value: "", label: "All causes" }, ...CAUSES.map((c) => ({ value: c, label: label(c) }))];
     $("#cause-menu").hidden = false;
+    map.addCredit("cause-credit", causeCredit(info.sources));
+    // Touch screens have no hover, so a tap opens the disclaimer
+    $("#cause-note").addEventListener("click", (e) => openTip(e.currentTarget as Element));
     new SelectMenu($("#cause-menu"), "Cause", causeOptions, cause ?? "", (value) => {
       cause = (value || null) as Cause | null;
       update({});

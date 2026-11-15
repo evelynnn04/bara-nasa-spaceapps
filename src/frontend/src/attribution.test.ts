@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { badgeText, isCause, whySummary, type Attribution } from "./attribution";
+import { badgeText, causeCredit, isCause, whySummary, type Attribution } from "./attribution";
 
 /** The example of docs/attribution.md, trimmed to two indicators. */
 const example: Attribution = {
@@ -25,11 +25,6 @@ const example: Attribution = {
   },
 };
 
-const sources = {
-  hansen2013: { citation: "Hansen, M. C. et al. (2013). High-resolution global maps.", url: null },
-  gumbricht2017: { citation: "Gumbricht, T. et al. (2017). An expert system model.", url: null },
-  oni: { citation: "NOAA Climate Prediction Center. Oceanic Nino Index (ONI), ERSSTv5.", url: null },
-};
 
 describe("badgeText", () => {
   it("names the cause with its confidence", () => {
@@ -44,42 +39,52 @@ describe("badgeText", () => {
 });
 
 describe("whySummary", () => {
-  it("lists only the evidence met for the named cause, with its figures and the datasets behind it", () => {
-    expect(whySummary(example, sources)).toBe(
+  it("names the cause, then lists only the evidence met for it, with its figures", () => {
+    expect(whySummary(example)).toBe(
       [
+        "Wildfire · medium confidence",
         "Points: wildfire 4 · clearing 3 · farming 0",
         "✓ Peat 47.6% of the area",
         "✓ El Niño or positive IOD (ONI 2.28, DMI 0.48)",
         "? No data: rainfall",
-        "Data: Gumbricht 2017, NOAA Climate Prediction Center",
       ].join("\n"),
     );
   });
 
   it("shows missing data as missing, never as not met", () => {
-    const text = whySummary(example, sources);
+    const text = whySummary(example);
     expect(text).not.toContain("Rain deficit");
     expect(text).toContain("? No data: rainfall");
   });
 
   it("explains an unclear cause and lists what was met for every cause", () => {
-    const text = whySummary({ ...example, category: "unknown", label: "Unknown", confidence: null }, sources);
-    expect(text.split("\n")[0]).toBe("No cause has enough support, or two tie.");
+    const text = whySummary({ ...example, category: "unknown", label: "Unknown", confidence: null });
+    expect(text.split("\n").slice(0, 2)).toEqual(["Cause unclear", "No cause has enough support, or two tie."]);
     expect(text).toContain("✓ Forest loss 19.5% vs usual 5.7%");
     expect(text).toContain("✓ Peat 47.6% of the area");
-    expect(text).toContain("Data: Hansen 2013, Gumbricht 2017, NOAA Climate Prediction Center");
   });
 
   it("does not claim a share of normal rainfall when the normal is unknown", () => {
     const rainfall = { mm_per_day: 0.4, normal_mm_per_day: null, share_of_normal: null, months: ["2015-08", "2015-10"] as [string, string], normal_years: [2001, 2020] as [number, number], source: "imerg" };
     const dry: Attribution = { ...example, indicators: [{ id: "dry_months", category: "wildfire", points: 1, met: true, text: "Dry", sources: ["imerg"] }], evidence: { ...example.evidence, rainfall } };
-    expect(whySummary(dry, {})).toContain("✓ Dry: 0.4 mm/day");
-    expect(whySummary(dry, {})).not.toContain("normal");
+    expect(whySummary(dry)).toContain("✓ Dry: 0.4 mm/day");
+    expect(whySummary(dry)).not.toContain("normal");
   });
 
   it("says so when nothing supports the cause", () => {
     const none: Attribution = { ...example, indicators: [] };
-    expect(whySummary(none, {})).toContain("No indicator met");
+    expect(whySummary(none)).toContain("No indicator met");
+  });
+});
+
+describe("causeCredit", () => {
+  it("credits the datasets behind the causes, linked, for the map credits", () => {
+    const credit = causeCredit({
+      hansen2013: { citation: "Hansen, M. C. et al. (2013). Maps.", url: "https://doi.org/10.1126/science.1244693" },
+      oni: { citation: "NOAA Climate Prediction Center. Oceanic Nino Index.", url: null },
+    });
+    expect(credit).toBe('Fire causes: <a href="https://doi.org/10.1126/science.1244693" target="_blank" rel="noopener">Hansen 2013</a>, NOAA Climate Prediction Center');
+    expect(causeCredit({})).toBe("");
   });
 });
 

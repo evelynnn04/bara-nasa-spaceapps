@@ -1,3 +1,5 @@
+import { escapeXml } from "./format";
+
 /** Likely cause of a fire event, from the environmental evidence the backend gathers (see docs/attribution.md). */
 
 export type Cause = "land_clearing" | "agricultural_burning" | "wildfire" | "unknown";
@@ -141,27 +143,38 @@ function shortSource(key: string, sources: AttributionInfo["sources"]): string {
   return m ? `${m[1].trim()} ${m[2]}` : c.split(".")[0].trim();
 }
 
+/** Datasets the causes are read from, credited on the map. */
+const CAUSE_DATA = ["hansen2013", "mcd12q1", "gumbricht2017", "imerg", "oni"];
+
+/** Credit line for the map's credits: each dataset behind the causes, linked to its source. Empty without sources. */
+export function causeCredit(sources: AttributionInfo["sources"]): string {
+  const items = CAUSE_DATA.filter((k) => sources[k]).map((k) => {
+    const name = escapeXml(shortSource(k, sources));
+    const url = sources[k].url;
+    return url ? `<a href="${escapeXml(url)}" target="_blank" rel="noopener">${name}</a>` : name;
+  });
+  return items.length ? `Fire causes: ${items.join(", ")}` : "";
+}
+
 /**
- * The reason for a cause in a few short lines, for the hover card: the points per cause, the evidence met for the
- * named cause (for every cause when it is unclear), the datasets that were missing, and the datasets behind them.
- * Unavailable indicators are listed as missing data, never as not met; indicators that were checked and not met
- * are left out.
+ * The reason for a cause in a few short lines, for the hover card: the cause and its confidence, the points per
+ * cause, the evidence met for the named cause (for every cause when it is unclear) and the datasets that were
+ * missing. Unavailable indicators are listed as missing data, never as not met; indicators that were checked and
+ * not met are left out.
  */
-export function whySummary(a: Attribution, sources: AttributionInfo["sources"]): string {
+export function whySummary(a: Attribution): string {
   const unclear = a.category === "unknown";
   const shown = a.indicators.filter((i) => unclear || i.category === a.category);
   const met = shown.filter((i) => i.met === true);
   const missing = [...new Set(shown.filter((i) => i.met === null).map((i) => NEEDS[i.id] ?? i.id))];
   const order = unclear ? CAUSES.filter((c) => c !== "unknown") : [a.category, ...CAUSES.filter((c) => c !== a.category && c !== "unknown")];
   const points = order.map((c) => `${SHORT[c]} ${a.scores[c] ?? 0}`).join(" · ");
-  // Each indicator cites its dataset first, then the papers behind its threshold; the card names the datasets only
-  const data = [...new Set(met.map((i) => i.sources[0]).filter(Boolean))].map((k) => shortSource(k, sources));
   return [
+    badgeText(a),
     unclear ? "No cause has enough support, or two tie." : "",
     `Points: ${points}`,
     ...(met.length ? met.map((i) => `✓ ${shortIndicator(i, a.evidence)}`) : ["No indicator met"]),
     missing.length ? `? No data: ${missing.join(", ")}` : "",
-    data.length ? `Data: ${data.join(", ")}` : "",
   ]
     .filter(Boolean)
     .join("\n");

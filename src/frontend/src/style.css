@@ -3398,60 +3398,54 @@ button.cal-month:focus-visible {
 
 /* Likely cause of each fire event: badge, "Why" drawer and disclaimer */
 
-.ev-row {
-  display: grid;
-  gap: 4px;
-}
-
 [data-cause="land_clearing"] { --cause: var(--cause-clearing); }
 [data-cause="agricultural_burning"] { --cause: var(--cause-agri); }
 [data-cause="wildfire"] { --cause: var(--cause-wild); }
 [data-cause="unknown"] { --cause: var(--cause-unclear); }
 
-.ev-cause {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  color: var(--ink-2);
-  font-size: var(--fs-small);
+.ev-row {
+  position: relative;
 }
 
-.ev-cause.is-none {
-  color: var(--ink-3);
-}
-
-.ev-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
+/* Cause icon in the bottom-right corner of an event, coloured by the likely cause */
+.ev-why {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
   border: 1px solid var(--cause, var(--line-2));
   border-radius: 50%;
-  background: var(--cause, transparent);
+  background: color-mix(in srgb, var(--cause, transparent) 18%, transparent);
+  color: var(--cause, var(--ink-2));
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  transition: background var(--dur-2) var(--ease-out);
 }
 
-.ev-cause-label {
-  color: var(--ink);
-  font-weight: 600;
+.ev-why:hover,
+.ev-why:focus-visible {
+  background: color-mix(in srgb, var(--cause, transparent) 36%, transparent);
 }
 
-.ev-cause[data-cause="unknown"] .ev-cause-label {
-  color: var(--ink-2);
-}
-
-.ev-why-btn {
+.ev-note {
   margin-left: auto;
+  color: var(--warning);
+  cursor: help;
 }
 
-.ev-disclaimer {
-  margin: 10px 0 6px;
-  padding: 8px 10px;
-  border-left: 2px solid var(--warning);
-  border-radius: 0 8px 8px 0;
-  background: var(--accent-wash);
-  color: var(--ink-2);
-  font-size: var(--fs-small);
-  line-height: 1.4;
+.ev-note[hidden] {
+  display: none;
+}
+
+.ev-note + .fold-btn {
+  margin-left: 0;
 }
 
 .ev-body {
