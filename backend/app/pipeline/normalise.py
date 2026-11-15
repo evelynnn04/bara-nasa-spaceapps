@@ -24,6 +24,7 @@ type, brightness, scan, track, version, source.
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 
 import duckdb
@@ -113,8 +114,9 @@ def _load_clip(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(f"CREATE OR REPLACE TEMP TABLE clip AS SELECT * FROM read_csv({quote(str(path))}, header=true)")
 
 
-def normalise_stream(con: duckdb.DuckDBPyConnection, stream: config.Stream) -> int:
-    """Writes `{stream}_{year}.parquet` for every acquisition year present; returns the row count."""
+def normalise_stream(con: duckdb.DuckDBPyConnection, stream: config.Stream, out: Path) -> int:
+    """Writes `{stream}_{year}.parquet` into folder `out` for every acquisition year present;
+    returns the row count."""
     inputs = [(p, "archive") for p in sorted((config.raw_dir() / "archive").glob(f"{stream.key}_*.csv"))]
     inputs += _api_files(stream)
     if not inputs:
@@ -165,16 +167,14 @@ def normalise_stream(con: duckdb.DuckDBPyConnection, stream: config.Stream) -> i
     """)
     n_unique = con.execute("SELECT count(*) FROM rows").fetchone()[0]
     years = [r[0] for r in con.execute("SELECT DISTINCT year(acq_date) FROM kept ORDER BY 1").fetchall()]
-    detections_dir().mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
     total = 0
     for year in years:
-        dest = detections_dir() / f"{stream.key}_{year}.parquet"
-        tmp = dest.with_suffix(".tmp")
+        dest = out / f"{stream.key}_{year}.parquet"
         con.execute(f"""
             COPY (SELECT * FROM kept WHERE year(acq_date) = {year} ORDER BY acq_utc, lat, lon)
-            TO {quote(str(tmp))} (FORMAT parquet, COMPRESSION zstd)
+            TO {quote(str(dest))} (FORMAT parquet, COMPRESSION zstd)
         """)
-        tmp.replace(dest)
         n = con.execute(f"SELECT count(*) FROM kept WHERE year(acq_date) = {year}").fetchone()[0]
         log.info("normalised %-13s %d  %9d rows", stream.key, year, n)
         total += n
@@ -184,14 +184,15 @@ def normalise_stream(con: duckdb.DuckDBPyConnection, stream: config.Stream) -> i
     return total
 
 
-def build_static_mask(con: duckdb.DuckDBPyConnection) -> int:
-    """Writes the static-source mask from every typed detection; returns its cell count."""
+def build_static_mask(con: duckdb.DuckDBPyConnection, glob: str | None = None) -> int:
+    """Writes the static-source mask from every typed detection in the Parquet files matching
+    `glob` (default: the normalised detections); returns its cell count."""
     path = static_mask_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     con.execute(f"""
         COPY (
             SELECT CAST(floor(lon / {MASK_RES}) AS INTEGER) AS mx, CAST(floor(lat / {MASK_RES}) AS INTEGER) AS my
-            FROM read_parquet({quote(detections_glob())})
+            FROM read_parquet({quote(glob or detections_glob())})
             WHERE type IS NOT NULL
             GROUP BY ALL
             HAVING count(*) FILTER (WHERE type IN (1, 2, 3)) >= {MASK_MIN_STATIC}
@@ -202,12 +203,25 @@ def build_static_mask(con: duckdb.DuckDBPyConnection) -> int:
 
 
 def run() -> None:
-    """Normalises every product and year found in `data/raw`, then builds the static mask."""
+    """Normalises every product and year found in `data/raw`, then builds the static mask.
+
+    Everything is written to a staging folder first and swapped in only once every product has
+    passed validation, so a failure leaves the previous detections untouched."""
     con = duckdb.connect()
     _load_clip(con)
-    total = 0
-    for old in detections_dir().glob("*.parquet") if detections_dir().is_dir() else []:
-        old.unlink()
-    for stream in config.STREAMS.values():
-        total += normalise_stream(con, stream)
-    log.info("normalised %d detections; static-source mask has %d cells", total, build_static_mask(con))
+    final = detections_dir()
+    staging = final.with_name(final.name + ".new")
+    shutil.rmtree(staging, ignore_errors=True)
+    try:
+        total = sum(normalise_stream(con, stream, staging) for stream in config.STREAMS.values())
+        n_mask = build_static_mask(con, str(staging / "*.parquet"))
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    retired = final.with_name(final.name + ".old")
+    shutil.rmtree(retired, ignore_errors=True)
+    if final.is_dir():
+        final.rename(retired)
+    staging.rename(final)
+    shutil.rmtree(retired, ignore_errors=True)
+    log.info("normalised %d detections; static-source mask has %d cells", total, n_mask)

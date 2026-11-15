@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-#: Island groups in display order. `Other` (cells far from any province) always has factor 1.
+#: Island groups in display order. `Other` (cells far from any province) keeps its region effect at 0,
+#: so its factor is the national one for the month, exp(mu + sigma_m).
 GROUPS = ("Sumatra", "Kalimantan", "Java-Bali-NT", "Sulawesi-Maluku", "Papua", "Other")
 
 #: Province name (as in the boundary file) -> island group.

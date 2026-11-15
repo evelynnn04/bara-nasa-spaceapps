@@ -43,6 +43,12 @@ def load_boundaries(path: Path | None = None) -> list[Boundary]:
     return out
 
 
+def load_areas(path: Path | None = None) -> list[tuple[str, str | None]]:
+    """(id, parent id) of every outline in the boundary file, without reading geometry."""
+    doc = json.loads((path or config.boundaries_path()).read_text(encoding="utf-8"))
+    return [(f["properties"]["id"], f["properties"].get("parentId")) for f in doc["features"]]
+
+
 def point_in_rings(lon: float, lat: float, rings: tuple[Ring, ...] | list[Ring]) -> bool:
     """Even-odd ray casting over all rings, so holes are respected."""
     inside = False
@@ -184,4 +190,7 @@ def parse_polygon(text: str) -> Ring:
         raise ValueError("a polygon needs at least three corners")
     if len(ring) > 500:
         raise ValueError("a polygon may have at most 500 corners")
+    twice_area = sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1]))
+    if twice_area == 0:
+        raise ValueError("the polygon has no area (its corners lie on one line)")
     return ring
