@@ -90,8 +90,8 @@ export function quantileBreaks(values: number[], steps: number): number[] {
   for (const q of qs.slice(1)) {
     const v = sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
     const p = 10 ** (Math.floor(Math.log10(v)) - 1);
-    const nice = Math.round(v / p) * p;
-    if (nice > out[out.length - 1]) out.push(+nice.toPrecision(2));
+    const nice = +(Math.round(v / p) * p).toPrecision(2);
+    if (nice > out[out.length - 1]) out.push(nice);
   }
   return out;
 }

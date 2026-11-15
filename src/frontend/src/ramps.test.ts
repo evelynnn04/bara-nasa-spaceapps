@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RAMPS, SURFACE, contrast, inkOn, luminance, stepFor } from "./ramps";
+import { RAMPS, SURFACE, contrast, inkOn, luminance, quantileBreaks, stepFor } from "./ramps";
 
 describe("sequential ramps", () => {
   for (const [name, ramp] of Object.entries(RAMPS)) {
@@ -27,5 +27,25 @@ describe("stepFor", () => {
   it("puts the maximum on the brightest step", () => {
     expect(stepFor(100, 100, 8)).toBe(7);
     expect(stepFor(1, 100, 8)).toBe(0);
+  });
+});
+
+describe("quantileBreaks", () => {
+  it("never repeats a break, even when many values are equal", () => {
+    for (const v of [0.07, 0.14, 0.3, 0.7, 1.1, 2.3]) {
+      const b = quantileBreaks(Array(100).fill(v), 8);
+      expect(b).toEqual([0, v]);
+    }
+  });
+
+  it("returns strictly increasing breaks for skewed values", () => {
+    const values = Array.from({ length: 1000 }, (_, i) => 0.1 * 1.01 ** i);
+    const b = quantileBreaks(values, 8);
+    expect(b.length).toBe(8);
+    for (let i = 1; i < b.length; i++) expect(b[i]).toBeGreaterThan(b[i - 1]);
+  });
+
+  it("has a single class without positive values", () => {
+    expect(quantileBreaks([0, 0], 8)).toEqual([0]);
   });
 });
