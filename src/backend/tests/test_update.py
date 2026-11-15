@@ -244,11 +244,17 @@ def test_rebuild_runs_the_usual_stages_into_the_staging_folder(tmp_path, monkeyp
 
 
 def synthetic_tables(root, last: dt.date) -> None:
-    """Derived tables under `root` with one S-NPP cell-day in Riau per day from 1 November 2026."""
+    """Derived tables under `root` with one S-NPP cell-day in Riau per day from 1 November 2026, and
+    a fire outlook issued on the last day."""
     days = [dt.date(2026, 11, 1) + dt.timedelta(days=i) for i in range((last - dt.date(2026, 11, 1)).days + 1)]
     rows = [("viirs", "SNPP", d, RIAU[0], RIAU[1], 6, 0, 9.0, 4.0) for d in days]
     write_dataset(root, rows, [day_row(d) for d in days], [RIAU])
     aggregate.build(store.connect(weights.load_params(), root), store.table_path("region_daily", root))
+    duckdb.connect().execute(f"COPY (SELECT 'day' AS step, 1 AS lead, {RIAU[0]} AS cx, {RIAU[1]} AS cy, 0.5 AS chance) "
+                             f"TO '{root}/outlook.parquet' (FORMAT parquet)")
+    labels = {step: {str(k): "seasonal" for k in range(1, 31)} for step in ("day", "month", "year")}
+    (root / "outlook.json").write_text(json.dumps({"years": [2013, 2025], "labels": labels, "issued": {
+        "day": str(last), "month": "2026-10", "year": 2026}}))
 
 
 def test_the_api_reloads_when_an_update_replaces_the_tables(tmp_path, monkeypatch):
@@ -261,6 +267,7 @@ def test_the_api_reloads_when_an_update_replaces_the_tables(tmp_path, monkeypatc
         before = client.get("/api/meta").json()
         assert before["record"]["end"] == "2026-11-14" and before["data"] is None
         n_before = sum(v is not None and v > 0 for v in client.get("/api/series").json()["values"])
+        assert client.get("/api/outlook").json()["issued"] == "2026-11-14"
 
         synthetic_tables(config.derived_dir(), dt.date(2026, 11, 15))
         update.version_path().write_text(json.dumps({"updated": "2026-11-16T13:05:00+00:00", "fetched": {"modis": "x"}}))
@@ -268,5 +275,6 @@ def test_the_api_reloads_when_an_update_replaces_the_tables(tmp_path, monkeypatc
         assert after["record"]["end"] == "2026-11-15"
         assert after["data"] == {"updated": "2026-11-16T13:05:00+00:00", "fetched": {"modis": "x"}}
         assert sum(v is not None and v > 0 for v in client.get("/api/series").json()["values"]) == n_before + 1
+        assert client.get("/api/outlook").json()["issued"] == "2026-11-15"
     finally:
         api.configure(None, None)

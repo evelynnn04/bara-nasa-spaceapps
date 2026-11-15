@@ -124,11 +124,15 @@ zip -r spaceapps-fire-data-YYYY-MM-DD.zip data
 
 With the data in place, `docker compose up --build` mounts `data/` into the backend. The API is
 documented at `http://localhost:8000/docs`; the main endpoints are `/api/meta`, `/api/series`,
-`/api/cells`, `/api/agreement`, `/api/events`, `/api/anomalies`, `/api/critical` and
-`/api/detections.csv`. The anomaly method is described in [docs/anomaly.md](docs/anomaly.md). How
+`/api/cells`, `/api/agreement`, `/api/events`, `/api/anomalies`, `/api/critical`, `/api/outlook`
+and `/api/detections.csv`. The anomaly method is described in [docs/anomaly.md](docs/anomaly.md). How
 `/api/critical` finds historically critical fire periods is described in
 [docs/critical-periods.md](docs/critical-periods.md); `uv run python -m app validate-critical` (in
-`src/backend`) reproduces its validation on the local data.
+`src/backend`) reproduces its validation on the local data. The fire outlook per cell behind the
+forecast timeline (30 days, 12 months, 5 years), how it is counted and its evaluation on held-out
+years are described in [docs/fire-outlook.md](docs/fire-outlook.md); `uv run python -m app
+validate-outlook` reproduces the evaluation. The outlook is built by `cache`, so data cached before
+it needs `uv run python -m app cache` once.
 
 Values are in hotspots (Aqua MODIS-equivalent); every endpoint takes `hotspots=vegetation` (the
 default) or `hotspots=all`. Data unzipped from a zip made before the hotspot unit lacks the counts of

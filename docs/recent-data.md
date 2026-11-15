@@ -17,8 +17,8 @@ on disk, without a key. The code is `src/backend/app/pipeline/update.py`.
 1. **Download.** The FIRMS windows that are new or not settled yet are fetched into `data/raw`.
 2. **Rebuild.** The processed tables are rebuilt in a staging folder (`data/.staging`) by the same
    stages as a first build: `normalise` (cleaning, overlaps, static-source mask), `build`
-   (cell-days, day status, cell lookup) and `cache` (region cache, fire events and whatever else
-   `cache` builds). The factors are not refitted: new data is harmonised with the committed
+   (cell-days, day status, cell lookup) and `cache` (region cache, fire events, the fire outlook and
+   whatever else `cache` builds). The factors are not refitted: new data is harmonised with the committed
    `params.json`.
 3. **Check.** The rebuilt tables must be complete, hold at least 98 % of the detections being
    served and end no more than two days earlier.
@@ -83,8 +83,9 @@ The download keeps the raw folder tidy as well:
 ## What is refreshed
 
 - **Tables:** normalised detections, the static-source mask, cell-days, day status, cell lookup,
-  the region cache and the fire events, and so every figure computed from them: series, map cells,
-  sensor agreement, anomaly scores and critical periods.
+  the region cache, the fire events and the fire outlook (issued from the new last data day and
+  month), and so every figure computed from them: series, map cells, sensor agreement, anomaly
+  scores, critical periods and the forecast timeline.
 - **The running API.** It looks at `_version.json` every 30 seconds. When an update has replaced the
   tables it reopens them and drops its cached answers, without a restart. `GET /api/meta` reports
   the new record end and, under `data`, when the tables were replaced (`updated`) and when each

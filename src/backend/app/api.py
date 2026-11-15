@@ -34,7 +34,7 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from . import anomaly, config, critical, geo, queries, store
+from . import anomaly, config, critical, geo, outlook, queries, store
 from .db import quote
 from .harmonise import fit, weights
 from .pipeline import update
@@ -80,6 +80,7 @@ def _clear_caches() -> None:
     _daily.cache_clear()
     _flags.cache_clear()
     _parents.cache_clear()
+    _outlook_meta.cache_clear()
 
 
 def configure(con: duckdb.DuckDBPyConnection | None, params: dict | None) -> None:
@@ -563,6 +564,60 @@ def events(area: Area = Depends(area_param), span: tuple[dt.date, dt.date] = Dep
         e["pixels"] = int(e["pixels"])
         out.append(e)
     return {"unit": fit.UNIT, "hotspots": hotspots, "events": out}
+
+
+OutlookStep = Literal["day", "month", "year"]
+OUTLOOK_LEADS = {"day": outlook.DAY_LEADS, "month": outlook.MONTH_LEADS, "year": outlook.YEAR_LEADS}
+OUTLOOK_UNIT = "chance that a 0.05 degree cell holds at least one vegetation-fire hotspot"
+
+
+@lru_cache(maxsize=1)
+def _outlook_meta() -> dict:
+    meta = outlook.load_meta()
+    if meta is None or not store.has(cursor(), "outlook"):
+        raise HTTPException(503, "The fire outlook is missing. Run `python -m app cache` first.")
+    return meta
+
+
+@router.get("/outlook")
+def fire_outlook(step: OutlookStep = "day") -> dict:
+    """The forecast timeline of one step size: when it was issued and, per lead, the day, month or
+    year it falls on and its label (`forecast`, `weak forecast`, `seasonal` or `baseline`, from the
+    held-out evaluation in `docs/fire-outlook.md`). Fetch the map of a lead from `/api/outlook/cells`."""
+    meta = _outlook_meta()
+    issued = meta["issued"]
+    return {
+        "step": step, "unit": OUTLOOK_UNIT, "issued": issued[step], "estimated_on": meta["years"],
+        "leads": [{"lead": k, "target": outlook.target(step, issued, k), "label": meta["labels"][step][str(k)]}
+                  for k in range(1, OUTLOOK_LEADS[step] + 1)],
+    }
+
+
+@router.get("/outlook/cells")
+def fire_outlook_cells(area: Area = Depends(area_param), step: OutlookStep = "day",
+                       lead: int = Query(1, ge=1, le=outlook.DAY_LEADS, description="Steps after the issue date."),
+                       min_chance: float = Query(0.01, ge=0, le=1,
+                                                 description="Leave out cells with a smaller chance.")) -> dict:
+    """The fire outlook of one lead for every 0.05° cell of an area: the chance that the cell holds
+    fire on that day, in that month or in that year. `expected_cells` is the sum of the chances over
+    the area (cells with fire expected), counting cells below `min_chance` too."""
+    meta = _outlook_meta()
+    if lead > OUTLOOK_LEADS[step]:
+        raise HTTPException(400, f"lead: at most {OUTLOOK_LEADS[step]} for step {step}")
+    cur = cursor()
+    rows = cur.execute(f"""
+        SELECT c.cx, c.cy, c.chance FROM outlook c JOIN cells k ON k.cx = c.cx AND k.cy = c.cy
+        WHERE c.step = {quote(step)} AND c.lead = {int(lead)} AND ({area.where(cur)})
+    """).fetchall()
+    shown = [r for r in rows if r[2] >= min_chance]
+    g = config.GRID
+    return {
+        "step": step, "lead": lead, "target": outlook.target(step, meta["issued"], lead),
+        "label": meta["labels"][step][str(lead)], "issued": meta["issued"][step], "unit": OUTLOOK_UNIT,
+        "grid_deg": g, "expected_cells": round(sum(r[2] for r in rows), 2), "count": len(shown),
+        "cells": {"lon": [round((r[0] + 0.5) * g, 4) for r in shown], "lat": [round((r[1] + 0.5) * g, 4) for r in shown],
+                  "chance": [round(r[2], 4) for r in shown]},
+    }
 
 
 CSV_COLUMNS = ("acq_utc", "local_date", "lon", "lat", "sensor", "platform", "daynight", "frp", "confidence",

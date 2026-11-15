@@ -12,7 +12,7 @@ from .harmonise import weights
 from .harmonise.regions import GROUPS
 from .pipeline.normalise import detections_dir, detections_glob, static_mask_path
 
-TABLES = ("celldays", "days", "cells", "region_daily", "events")
+TABLES = ("celldays", "days", "cells", "region_daily", "events", "outlook")
 
 
 def table_path(name: str, root: Path | None = None) -> Path:
