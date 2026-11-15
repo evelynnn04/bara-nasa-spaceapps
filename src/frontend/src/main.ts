@@ -2,13 +2,13 @@ import "./style.css";
 import { AgreementView } from "./agreement-view";
 import { AnalyticsView } from "./analytics-view";
 import { AnomalyView } from "./anomaly-view";
-import { Api, type FireEvent, type Meta } from "./api";
+import { Api, type CellsResponse, type FireEvent, type Meta } from "./api";
 import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
 import { formatRange, parts, toDay } from "./dates";
 import { EventsView } from "./events-view";
-import { downloadCsv, downloadPng, frame, place, slug, toCsv } from "./export";
+import { downloadCsv, downloadPng, slug, toCsv } from "./export";
 import { UNIT, UNIT_SHORT, fmtCompact, fmtInt, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
 import { MapView } from "./map-view";
@@ -17,6 +17,8 @@ import { SelectMenu } from "./select-menu";
 import { RegionIndex, regionsFromBoundaries, unionBBox, type Boundaries } from "./regions";
 import { initCards, measureInsets } from "./screen";
 import { select, unobserved, type Selection } from "./store";
+import { Timeline } from "./time-slider";
+import { sharedScale, type Frame } from "./timeline";
 import type { DayNight, Filters, SelectionMode } from "./types";
 import { readUrlState, writeUrlState, type ViewState } from "./url-state";
 
@@ -30,7 +32,7 @@ const api = new Api();
 initFx();
 trackHeaderHeight();
 Promise.all([loadBoundaries(), api.meta()]).then(([b, meta]) => boot(b, meta), (err: Error) => {
-  $("#map-count").textContent = `Could not load the fire data (${err.message}). Check that the backend is running, then reload the page.`;
+  $("#dl-note").textContent = `Could not load the fire data (${err.message}). Check that the backend is running, then reload the page.`;
 });
 
 /** Keeps `--top-h` equal to the header height so sticky columns sit under it. */
@@ -62,13 +64,19 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   const saveUrl = () => writeUrlState({ filters, ramp, daynight }, defaults);
   /** The selected area's daily record for the current filters; null while it loads or after it failed. */
   let sel: Selection | null = null;
-  /** Map totals for the current filters; null while they load or after they failed. */
-  let mapTotals: { total: number; cells: number } | null = null;
+  /** The same record over all its dates, for the cards that do not follow the date picker. */
+  let record: Selection | null = null;
   let freshTimer = 0;
   let draw = { drawing: false, corners: 0 };
-  let countText = "Loading fire data…";
   let generation = 0;
   let periodRequests: AbortController | null = null;
+  /** Cells of the whole selected period, shown while the timeline is on all dates. */
+  let fullCells: CellsResponse | null = null;
+  /** Timeline step last asked for; a slower load for an earlier step is dropped. */
+  let wantedFrame: Frame | null = null;
+  /** Cells of timeline steps already asked for, for the current filters. */
+  const stepCache = new Map<string, Promise<CellsResponse>>();
+  let timeRequests: AbortController | null = null;
 
   /** Updates the polygon tools and the on-map instruction from the drawing state. */
   function syncDrawUi(): void {
@@ -85,12 +93,11 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     $<HTMLButtonElement>("#draw-finish").disabled = corners < 3;
     $("#draw-cancel").hidden = !drawing;
     $("#draw-clear").hidden = !polygonMode || drawing || !filters.polygon;
-    $("#map-count").textContent = countText;
   }
 
   const calendar = new CalendarView($("#calendar"));
-  const analytics = new AnalyticsView({ summary: $("#an-summary"), patterns: $("#an-patterns") });
-  const anomaly = new AnomalyView($("#anomaly"));
+  const analytics = new AnalyticsView($("#an-summary"));
+  const anomaly = new AnomalyView($("#anomaly"), $("#an-patterns"));
   const agreement = new AgreementView($("#agreement"));
   const map = new MapView($("#map"), {
     onPolygon: (polygon) => update({ polygon }),
@@ -156,8 +163,14 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     document.querySelectorAll<HTMLButtonElement>(".hf-mode [data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === filters.mode)));
     document.querySelectorAll<HTMLButtonElement>("[data-dn]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.dn === daynight)));
     picker.setDisabled(filters.mode !== "area", "Drawn on map");
-    fromIn.set(filters.start);
-    toIn.set(filters.end);
+    showDates(filters.start, filters.end);
+  }
+
+  /** Writes dates into the date fields and the left column caption. */
+  function showDates(start: string, end: string): void {
+    fromIn.set(start);
+    toIn.set(end);
+    $("#cap-dates").textContent = formatRange(toDay(start), toDay(end));
   }
 
   function showError(what: string, err: Error): void {
@@ -165,21 +178,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     setNote(`Could not load ${what}: ${err.message}`, true);
   }
 
-  function updateCount(): void {
-    const parts: string[] = [];
-    if (mapTotals) parts.push(`${fmtVal(mapTotals.total)} ${UNIT_SHORT} in ${fmtInt(mapTotals.cells)} cells`);
-    parts.push(areaLabel(), formatRange(toDay(filters.start), toDay(filters.end)));
-    if (daynight !== "all") parts.push(DAYNIGHT_LABEL[daynight]);
-    if (sel) {
-      const missing = unobserved(sel, sel.from, sel.to);
-      if (missing) parts.push(`${missing} day${missing === 1 ? "" : "s"} not observed`);
-    }
-    countText = parts.join(" · ");
-    syncDrawUi();
-  }
-
-  function update(patch: Partial<Filters>, opts: { fit?: boolean; datesChanged?: boolean } = {}): void {
-    const datesChanged = opts.datesChanged || (patch.start && patch.start !== filters.start) || (patch.end && patch.end !== filters.end);
+  function update(patch: Partial<Filters>, opts: { fit?: boolean } = {}): void {
+    const areaChanged = ["mode", "regionIds", "polygon"].some((k) => k in patch);
     filters = { ...filters, ...patch };
     saveUrl();
     setFresh();
@@ -191,20 +191,21 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     const g = ++generation;
     const current = () => g === generation;
     sel = null;
-    mapTotals = null;
+    record = null;
+    resetTimeline();
     if ($("#dl-note").dataset.loadError) setNote("");
-    updateCount();
 
     const seriesCards = ["calendar", "an-summary", "an-patterns", "anomaly"];
     setLoad(seriesCards, "busy");
     api.series(filters, daynight).then((s) => {
       if (!current()) return;
       sel = select(s, filters.start, filters.end);
-      calendar.render(sel, ramp);
-      analytics.render(sel, ramp);
-      anomaly.render(sel, Boolean(datesChanged));
+      record = select(s, recordStart, recordEnd);
+      timeline.setActivity(s.daily, s.firstDay);
+      calendar.render(record, ramp);
+      analytics.render(sel);
+      anomaly.render(record, ramp, areaChanged);
       setLoad(seriesCards, "ready");
-      updateCount();
     }, (err) => {
       if (!current()) return;
       setLoad(seriesCards, "stale");
@@ -227,11 +228,8 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     setLoad(["events"], "busy");
     api.cells(filters, daynight, ctl.signal).then((c) => {
       if (!current()) return;
-      map.setCells(c);
-      map.setCallout(c.top, c.top ? (regions.byId.get(c.top.region_id)?.name ?? "") : "");
-      renderMapLegend();
-      mapTotals = { total: c.total, cells: c.active_cells };
-      updateCount();
+      fullCells = c;
+      if (!timeline.active) showCells(c);
     }, (err) => {
       if (!current()) return;
       map.setCells(null);
@@ -250,6 +248,71 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     });
   }
 
+  /** Puts cells on the map with their legend; a timeline step has no most-active-cell callout. */
+  function showCells(c: CellsResponse, step: Frame | null = null, breaks?: number[]): void {
+    map.setCells(c, breaks);
+    map.setCallout(step ? null : c.top, c.top ? (regions.byId.get(c.top.region_id)?.name ?? "") : "");
+    renderMapLegend();
+  }
+
+  /** Cells of one timeline step, loaded once per filters and kept for stepping back and forth. */
+  function stepCells(f: Frame): Promise<CellsResponse> {
+    const key = `${f.from}|${f.to}`;
+    let hit = stepCache.get(key);
+    if (!hit) {
+      const ctl = (timeRequests ??= new AbortController());
+      hit = api.cells({ ...filters, start: f.from, end: f.to }, daynight, ctl.signal);
+      hit.catch(() => stepCache.delete(key));
+      stepCache.set(key, hit);
+      if (stepCache.size > 400) stepCache.delete(stepCache.keys().next().value!);
+    }
+    return hit;
+  }
+
+  const timeline = new Timeline($("#time-slider"), {
+    async show(frame, scale) {
+      wantedFrame = frame;
+      if (!frame) {
+        if (fullCells) showCells(fullCells);
+        return;
+      }
+      const g = generation;
+      try {
+        const c = await stepCells(frame);
+        if (g === generation && wantedFrame === frame) showCells(c, frame, scale);
+      } catch (err) {
+        if (g !== generation || (err as Error).name === "AbortError") return;
+        showError("the map timeline", err as Error);
+      }
+    },
+    async prepare(list, progress) {
+      const out: CellsResponse[] = new Array(list.length);
+      let next = 0;
+      let done = 0;
+      const worker = async () => {
+        while (next < list.length) {
+          const i = next++;
+          out[i] = await stepCells(list[i]);
+          progress(++done);
+        }
+      };
+      await Promise.all(Array.from({ length: 4 }, worker));
+      return sharedScale(out, RAMPS[ramp].steps.length);
+    },
+    preview: showDates,
+    pick: (start, end) => update({ start, end }),
+  }, recordStart, recordEnd);
+
+  /** Drops the timeline steps loaded for earlier filters and lays the timeline over the new dates. */
+  function resetTimeline(): void {
+    timeRequests?.abort();
+    timeRequests = null;
+    stepCache.clear();
+    fullCells = null;
+    wantedFrame = null;
+    timeline.setRange(filters.start, filters.end);
+  }
+
   document.querySelectorAll<HTMLButtonElement>(".hf-mode [data-mode]").forEach((b) =>
     b.addEventListener("click", () => {
       const mode = b.dataset.mode as SelectionMode;
@@ -264,7 +327,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       const dn = b.dataset.dn as DayNight;
       if (dn === daynight) return;
       daynight = dn;
-      update({}, { datesChanged: true });
+      update({});
     }),
   );
   $("#draw-start").addEventListener("click", () => map.startDrawing());
@@ -280,9 +343,9 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     saveUrl();
     map.setRamp(ramp);
     renderMapLegend();
-    if (!sel) return;
-    calendar.render(sel, ramp);
-    analytics.render(sel, ramp);
+    if (!record) return;
+    calendar.render(record, ramp);
+    anomaly.render(record, ramp, false);
   });
 
   function renderMapLegend(): void {
@@ -294,42 +357,41 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       <span class="legend-scale"><span class="legend-end">&lt;${fmtCompact(first)}</span><span class="legend-ramp">${used.map((c, i) => `<span class="sw" style="background:${c}" title="${i ? `${fmtVal(b[i])}+` : `under ${fmtVal(first)}`}"></span>`).join("")}</span><span class="legend-end">${fmtCompact(b[b.length - 1])}+</span></span>`;
   }
 
-  function exportMeta(): [string, string][] {
+  /** `allYears` is for the cards that cover the whole record instead of the picked dates. */
+  function exportMeta(allYears: boolean): [string, string][] {
     return [
       ["area", areaLabel()],
-      ["from", filters.start],
-      ["to", filters.end],
+      ["from", allYears ? recordStart : filters.start],
+      ["to", allYears ? recordEnd : filters.end],
       ["detections", DAYNIGHT_LABEL[daynight]],
       ["unit", UNIT],
       ["dataset", DATASET],
-      ["unobserved_days_in_range", sel ? String(unobserved(sel, sel.from, sel.to)) : ""],
+      ["unobserved_days_in_range", sel ? String(allYears ? unobserved(record!, record!.from, record!.to) : unobserved(sel, sel.from, sel.to)) : ""],
     ];
   }
 
   document.addEventListener("click", async (e) => {
     const btn = (e.target as Element).closest<HTMLButtonElement>("[data-export]");
     if (!btn) return;
-    if (!sel) {
+    if (!sel || !record) {
       setNote("The daily record for these filters is not loaded yet, so there is nothing to save.");
       return;
     }
     const kind = btn.dataset.export as "calendar" | "analytics" | "anomaly";
     const format = btn.dataset.format as "csv" | "png";
-    const name = `${kind}_${slug(areaLabel())}_${filters.start}_${filters.end}${daynight === "all" ? "" : `_${daynight}`}.${format}`;
-    const subtitle = `${areaLabel()} · ${formatRange(sel.from, sel.to)} · ${DAYNIGHT_LABEL[daynight]} · ${UNIT}`;
+    const allYears = kind !== "analytics";
+    const period = allYears ? "all-years" : `${filters.start}_${filters.end}`;
+    const name = `${kind}_${slug(areaLabel())}_${period}${daynight === "all" ? "" : `_${daynight}`}.${format}`;
+    const subtitle = `${areaLabel()} · ${allYears ? "All years" : formatRange(sel.from, sel.to)} · ${DAYNIGHT_LABEL[daynight]} · ${UNIT}`;
     pulse(btn);
     try {
       if (format === "csv") {
-        const meta = exportMeta();
+        const meta = exportMeta(allYears);
         const view = kind === "calendar" ? calendar : kind === "analytics" ? analytics : anomaly;
         if (kind === "calendar") meta.push(["granularity", calendar.granularity]);
         const { header, rows } = view.csv();
         downloadCsv(name, toCsv(meta, header, rows));
-      } else if (kind === "calendar") {
-        const c = calendar.svg();
-        const f = frame(`Burning activity calendar, ${calendar.granularity}`, subtitle, place(c.svg, 0, 0, c.width), c.width + 24, c.height);
-        await downloadPng(name, f.svg, c.width + 24, f.height);
-      } else {
+      } else if (kind !== "calendar") {
         const v = (kind === "analytics" ? analytics : anomaly).svg(subtitle);
         await downloadPng(name, v.svg, v.width, v.height);
       }

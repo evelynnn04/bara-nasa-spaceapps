@@ -164,10 +164,14 @@ def test_csv_reports_zero_rows_when_nothing_matches(client):
     assert res.text.strip().splitlines() == [",".join(api.CSV_COLUMNS)]
 
 
+def test_csv_accepts_periods_longer_than_a_year(client):
+    res = client.get("/api/detections.csv?from=2014-01-01&to=2016-06-01&area=idn-riau")
+    assert res.status_code == 200 and int(res.headers["x-total-rows"]) > 0
+
+
 @pytest.mark.parametrize("url", ["/api/series?area=nope", "/api/series?poly=1,2;3,4",
                                  "/api/series?poly=100,1;101,1;102,1",
-                                 "/api/cells?from=2015-09-02&to=2015-09-01",
-                                 "/api/detections.csv?from=2015-01-01&to=2016-06-01"])
+                                 "/api/cells?from=2015-09-02&to=2015-09-01"])
 def test_bad_requests_are_rejected(client, url):
     assert client.get(url).status_code == 400
 

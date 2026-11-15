@@ -154,6 +154,10 @@ strong {
   height: 15px;
 }
 
+.ico-fill {
+  fill: currentColor;
+}
+
 /* Header */
 
 .g-top {
@@ -161,7 +165,7 @@ strong {
   inset: 0 0 auto 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
   align-items: center;
   gap: 12px;
   padding: 14px var(--edge);
@@ -309,7 +313,6 @@ body.is-scrolled .g-top {
   top: calc(100% + 8px);
   left: 0;
   width: 340px;
-  padding: 0 12px;
   border: 1px solid var(--glass-line);
   border-radius: 18px;
   background: var(--glass-solid);
@@ -327,8 +330,9 @@ body.is-scrolled .g-top {
     visibility 0s;
 }
 
+/* The padding is inside the clipping box, so the search field's focus ring is not cut off */
 .hf-area .area-pop.is-open .fold-inner {
-  padding: 12px 0;
+  padding: 12px;
 }
 
 .hf-area .chips {
@@ -926,6 +930,16 @@ button.dp-title:hover,
   padding-top: 10px;
 }
 
+/* Says which dates a column's cards use; the left one follows the date picker */
+.col-cap {
+  flex: none;
+  padding: 0 4px;
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.75);
+}
+
 
 .g-left > :nth-child(1) { --i: 1; }
 .g-left > :nth-child(2) { --i: 2; }
@@ -946,14 +960,6 @@ button.dp-title:hover,
   gap: 16px;
   max-width: calc(100% - 2 * (var(--edge) + 230px));
   transform: translateX(-50%);
-}
-
-.g-caption {
-  color: var(--ink-3);
-  font-size: var(--fs-small);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .map-legend {
@@ -1024,6 +1030,312 @@ button.dp-title:hover,
   font-weight: 400;
 }
 
+/* Dates and map timeline: one thin strip along the bottom of the map. The date fields and the brush over the
+   whole record both set the selected dates; the play and step buttons walk the map through them.
+   The cards, the footer and the map controls sit above it. */
+:root {
+  --tl-bar-h: 44px;
+  --tl-h: calc(var(--tl-bar-h) + 10px);
+}
+
+.g-time {
+  position: absolute;
+  z-index: 6;
+  left: var(--edge);
+  right: var(--edge);
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px 10px;
+  min-height: var(--tl-bar-h);
+  padding: 0 10px 0 6px;
+  border: 1px solid var(--glass-line);
+  border-radius: 999px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-hi);
+}
+
+.g-main {
+  bottom: calc(var(--main-bottom) + var(--tl-h));
+}
+
+.g-foot {
+  bottom: calc(10px + var(--tl-h));
+}
+
+.g-map .maplibregl-ctrl-bottom-right {
+  bottom: calc(var(--edge) + var(--tl-h));
+}
+
+.g-map .maplibregl-ctrl-bottom-left {
+  bottom: calc(2px + var(--tl-h));
+}
+
+.tl-dates {
+  display: flex;
+  flex: none;
+}
+
+/* The date fields sit on the strip's own glass, so they drop theirs */
+.tl-dates .hf-date {
+  min-height: 32px;
+  padding-inline: 10px;
+  border-color: transparent;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.tl-dates .hf-date:hover,
+.tl-dates .dp.is-open .hf-date {
+  background: var(--glass-line);
+}
+
+.tl-dates .dp-pop {
+  top: auto;
+  bottom: calc(100% + 12px);
+  transform: translateY(6px) scale(0.98);
+  transform-origin: bottom left;
+}
+
+.tl {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tl-ctl {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.tl-ctl .icon-btn {
+  border-color: transparent;
+}
+
+.tl-ctl .icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tl-ctl .ico {
+  width: 14px;
+  height: 14px;
+}
+
+.tl-ctl .ico-fill {
+  fill: currentColor;
+  stroke: none;
+}
+
+.tl-play {
+  color: var(--accent-ink);
+}
+
+/* Monthly activity over the whole record, year marks below it, and the brush holding the selected dates */
+.tl-track {
+  position: relative;
+  flex: 1;
+  height: 34px;
+  min-width: 80px;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.tl-activity {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  width: 100%;
+  height: calc(100% - 15px);
+  fill: var(--accent);
+  opacity: 0.6;
+}
+
+.tl-years {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tl-years i {
+  position: absolute;
+  bottom: 9px;
+  width: 1px;
+  height: 4px;
+  background: var(--line-2);
+}
+
+.tl-years span {
+  position: absolute;
+  top: 5px;
+  left: 0;
+  color: var(--ink-3);
+  font: var(--fs-caption)/1 var(--sans);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
+}
+
+.tl-brush {
+  position: absolute;
+  top: 0;
+  bottom: 11px;
+  min-width: 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--cream) 16%, transparent);
+  box-shadow: inset 0 0 0 1px var(--cream);
+  cursor: grab;
+}
+
+.tl-track.is-dragging,
+.tl-track.is-dragging .tl-brush {
+  cursor: grabbing;
+}
+
+/* A wide hit area around a thin grip at each end of the brush */
+.tl-handle {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  cursor: ew-resize;
+}
+
+.tl-handle[data-end="a"] {
+  left: -7px;
+}
+
+.tl-handle[data-end="b"] {
+  right: -7px;
+}
+
+.tl-handle::after {
+  content: "";
+  position: absolute;
+  inset: 5px 5px;
+  border-radius: 2px;
+  background: var(--cream);
+}
+
+.tl-handle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.tl-head {
+  position: absolute;
+  top: -2px;
+  bottom: 9px;
+  z-index: 1;
+  min-width: 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  cursor: grab;
+}
+
+.tl-track.is-dragging .tl-head {
+  cursor: grabbing;
+}
+
+.tl-head[hidden],
+.tl-now[hidden] {
+  display: none;
+}
+
+.tl-now {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding-left: 10px;
+  border-radius: 999px;
+  background: var(--glass-line);
+  color: var(--ink);
+  font-size: var(--fs-small);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tl-clear {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.tl-clear:hover {
+  color: var(--ink);
+}
+
+.tl-clear .ico {
+  width: 12px;
+  height: 12px;
+}
+
+.tl-interval {
+  flex: none;
+  margin-left: 6px;
+}
+
+.tl-interval.sm {
+  position: relative;
+}
+
+/* A solid field on the strip, so it reads as a control and not as part of the track; its list opens upward */
+.tl-interval .sm-button {
+  height: 32px;
+  background: var(--glass-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.tl-interval .sm-list {
+  top: auto;
+  bottom: calc(100% + 12px);
+  left: auto;
+  width: 150px;
+  transform: translateY(6px) scale(0.98);
+  transform-origin: bottom right;
+}
+
+.tl-status {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  max-width: min(420px, 100%);
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--glass-solid);
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
+
+.tl-status:empty {
+  display: none;
+}
+
 /* The top tools bar only shows while it has polygon tools in it */
 .g-tools:not(:has(> :not([hidden]))) {
   display: none;
@@ -1031,13 +1343,8 @@ button.dp-title:hover,
 
 /* Card contents */
 
-.gc-head .hint {
-  margin-left: auto;
-}
-
 .gc-head .card-actions + .expand-btn,
-.gc-head .card-actions + .fold-btn,
-.gc-head .hint + .fold-btn {
+.gc-head .card-actions + .fold-btn {
   margin-left: 0;
 }
 
@@ -1134,6 +1441,12 @@ body:has(.card-dialog[open]) {
   padding: 2px 9px;
   font-size: var(--fs-small);
   font-weight: 600;
+  gap: 4px;
+}
+
+.pill-xs .ico {
+  width: 13px;
+  height: 13px;
 }
 
 .dev-list {
@@ -1168,12 +1481,12 @@ body:has(.card-dialog[open]) {
   grid-column: 1 / -1;
 }
 
-#an-patterns {
+.an-patterns {
   display: grid;
   gap: 10px;
 }
 
-#an-patterns .d-label {
+.an-patterns .d-label {
   margin-top: 4px;
 }
 
@@ -1207,18 +1520,6 @@ body:has(.card-dialog[open]) {
   gap: 10px;
 }
 
-.g-right .is-years .cal-grid {
-  grid-template-columns: 30px repeat(12, minmax(0, 1fr));
-  gap: 2px;
-  min-width: 0;
-}
-
-.g-right .is-years .cell {
-  height: 22px;
-  border-radius: 4px;
-  font-size: var(--fs-caption);
-}
-
 .g-right .is-days .cal-grid {
   min-width: 0;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -1229,10 +1530,6 @@ body:has(.card-dialog[open]) {
   padding-bottom: 5px;
 }
 
-.g-right .cal-y {
-  font-size: var(--fs-caption);
-  padding-right: 4px;
-}
 
 .g-right .cal-h {
   font-size: var(--fs-caption);
@@ -1381,13 +1678,54 @@ body:has(.card-dialog[open]) {
   box-shadow: 0 0 0 4px var(--accent-glow);
 }
 
-/* Detail sheet below the stage */
+/* Raw detections download: the header's right end, with its status floating just below */
+
+.g-export {
+  grid-column: 3;
+  justify-self: end;
+  position: relative;
+}
+
+#dl-detections {
+  min-height: 36px;
+  border-color: var(--glass-line);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  font-weight: 400;
+}
+
+#dl-detections .ico {
+  width: 16px;
+  height: 16px;
+}
 
 .dl-note {
-  grid-column: 1 / -1;
-  min-height: 1.5em;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: max-content;
+  max-width: min(720px, calc(100vw - 2 * var(--edge)));
+  padding: 6px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
   color: var(--ink-2);
   font-size: var(--fs-small);
+  text-align: right;
+}
+
+.dl-note:empty {
+  display: none;
+}
+
+@media (max-width: 1399px) {
+  .g-export-long {
+    display: none;
+  }
 }
 
 /* Smaller screens: the stage stacks */
@@ -1420,6 +1758,11 @@ body:has(.card-dialog[open]) {
 }
 
 @media (max-width: 1099px) {
+  .g-time {
+    left: 10px;
+    right: 10px;
+  }
+
   .g-top {
     position: sticky;
     top: 0;
@@ -1431,6 +1774,26 @@ body:has(.card-dialog[open]) {
 
   .g-filters {
     grid-column: 1;
+  }
+
+  /* The button joins the brand's row at the right; the note takes its own row under the filters */
+  .g-export {
+    display: contents;
+  }
+
+  .g-brand,
+  #dl-detections {
+    grid-area: 1 / 1;
+  }
+
+  #dl-detections {
+    justify-self: end;
+  }
+
+  .dl-note {
+    grid-area: 3 / 1;
+    justify-self: end;
+    position: static;
   }
 
   .g-stage {
@@ -1466,11 +1829,6 @@ body:has(.card-dialog[open]) {
     transform: none;
   }
 
-  .g-caption {
-    white-space: normal;
-    text-align: center;
-  }
-
   .g-main {
     position: static;
     display: grid;
@@ -1478,23 +1836,17 @@ body:has(.card-dialog[open]) {
     pointer-events: auto;
   }
 
-  .g-col {
-    display: contents;
+  .g-left,
+  .g-right {
+    grid-column: auto;
+    grid-row: auto;
+    margin-bottom: 0;
+    overflow: visible;
   }
-
-
-  [data-card="calendar"] {
-    order: 1;
-    grid-column: 1 / -1;
-  }
-
-  [data-card="analytics"] { order: 2; }
-  [data-card="anomaly"] { order: 3; }
-  [data-card="patterns"] { order: 4; }
 
   .g-map .maplibregl-ctrl-bottom-left,
   .g-map .maplibregl-ctrl-bottom-right {
-    bottom: 10px;
+    bottom: calc(10px + var(--tl-h));
   }
 
   .g-map .maplibregl-ctrl-bottom-right {
@@ -1510,6 +1862,24 @@ body:has(.card-dialog[open]) {
 @media (max-width: 700px) {
   :root {
     --edge: 16px;
+    --tl-bar-h: 86px;
+  }
+
+  /* The strip wraps into two rows: the date fields, then the play buttons, track and step size */
+  .g-time {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 4px 8px;
+    border-radius: 20px;
+  }
+
+  .tl {
+    flex-basis: 100%;
+    gap: 6px;
+  }
+
+  .tl-years span {
+    display: none;
   }
 
   .g-top {
@@ -1724,6 +2094,10 @@ body:has(.card-dialog[open]) {
 
 .chev-left {
   transform: rotate(135deg);
+}
+
+.chev-right {
+  transform: rotate(-45deg);
 }
 
 [aria-expanded="true"] > .chev {
@@ -2207,8 +2581,59 @@ select.input {
   display: none;
 }
 
-.cal-crumb {
+.cal-crumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   color: var(--ink-2);
+}
+
+.cal-crumb li + li::before {
+  content: "/";
+  margin-right: 6px;
+  color: var(--ink-3);
+}
+
+.cal-crumb [aria-current="page"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.crumb-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 3px;
+}
+
+.crumb-link:hover {
+  color: var(--ink);
+  text-decoration-color: var(--accent);
+}
+
+.cal-nav {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.cal-nav[hidden] {
+  display: none;
+}
+
+.cal-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+  border-color: var(--glass-line);
 }
 
 /* Padding holds the hovered cell's scale and ring inside the scroll box; the block margin keeps vertical rhythm */
@@ -2240,14 +2665,157 @@ select.input {
   align-items: center;
 }
 
-.is-years .cal-grid {
-  grid-template-columns: 36px repeat(12, minmax(28px, 1fr));
-  min-width: 400px;
+/* One picked year: twelve months, each a small grid of its days */
+.cal-months {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
 }
 
-/* Year cells are too narrow for tabular figures; values here are read one by one, not down a column */
-.is-years .cell {
-  font-variant-numeric: proportional-nums;
+.cal-month {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding: 6px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-2);
+  font: var(--fs-caption)/1 var(--sans);
+  text-align: left;
+  transition: background-color var(--dur-2) var(--ease-out);
+}
+
+button.cal-month {
+  cursor: pointer;
+}
+
+button.cal-month:hover {
+  background: var(--glass-line);
+}
+
+button.cal-month:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.cal-month.is-outside {
+  opacity: 0.45;
+}
+
+.cal-month-h {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.cal-month-v {
+  margin: -2px -3px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: var(--ink-3);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dropdowns and date fields inside a card: card size, a short scrolling list, and a focus ring drawn
+   inside the field so the card's clipping does not cut it */
+.gc .sm,
+.gc .dp {
+  position: relative;
+}
+
+.gc .sm[hidden],
+.gc .dp[hidden] {
+  display: none;
+}
+
+.gc .hf {
+  height: 32px;
+}
+
+.gc .hf:focus-within {
+  outline-offset: -2px;
+}
+
+.gc .hf-date {
+  width: auto;
+}
+
+.gc .sm-list {
+  right: auto;
+  width: 150px;
+  max-height: 232px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  transform-origin: top left;
+}
+
+.gc .dp-pop {
+  right: auto;
+  left: 0;
+  max-width: none;
+  margin: 0;
+}
+
+.gc .sm-option,
+.tl-interval .sm-option {
+  grid-template-columns: 1fr 18px;
+  padding-block: 6px;
+}
+
+/* In a card's control bar the popup hangs under its own field but lines up with the bar's left edge,
+   so it stays inside the card wherever the field wraps to */
+.an-bar {
+  position: relative;
+}
+
+.gc .an-bar .sm,
+.gc .an-bar .dp {
+  position: static;
+}
+
+.gc .an-bar .sm-list,
+.gc .an-bar .dp-pop {
+  top: auto;
+  left: 0;
+  max-width: 100%;
+  margin-top: 8px;
+}
+
+/* An open list or calendar may reach past its card, above the cards after it */
+.gc:has(.sm.is-open, .dp.is-open) {
+  z-index: 2;
+}
+
+.gc:has(.sm.is-open, .dp.is-open) .fold-inner {
+  overflow: visible;
+}
+
+.cal-mini {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.mini {
+  aspect-ratio: 1;
+  border-radius: 2px;
+}
+
+.mini.is-zero {
+  background: var(--glass-line);
+}
+
+.mini.is-none {
+  background: repeating-linear-gradient(45deg, var(--hatch-a) 0 2px, var(--line) 2px 4px);
+}
+
+.is-fresh .cal-month {
+  animation: cell-in 360ms var(--ease-out) backwards;
+  animation-delay: calc(var(--d, 0) * 20ms);
 }
 
 .is-days .cal-grid {
@@ -2260,14 +2828,6 @@ select.input {
   color: var(--ink-3);
   font-size: var(--fs-caption);
   text-align: center;
-}
-
-.cal-y {
-  color: var(--ink-2);
-  font-size: var(--fs-small);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  padding-right: 6px;
 }
 
 .cell {
@@ -2310,21 +2870,10 @@ select.input {
   visibility: hidden;
 }
 
-button.cell {
-  cursor: pointer;
-}
-
-button.cell:hover,
-button.cell:focus-visible,
 .is-days .cell.is-data:hover {
   z-index: 1;
   transform: scale(1.12);
   box-shadow: 0 0 0 2px var(--cream), 0 4px 14px var(--shadow);
-}
-
-button.cell:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
 }
 
 .is-fresh .cell {
@@ -2441,6 +2990,7 @@ button.cell:focus-visible {
 
   .gc,
   .chip,
+  .is-fresh .cal-month,
   .is-fresh .cell {
     animation: fade var(--dur-2) linear backwards !important;
     animation-delay: 0ms !important;
@@ -2463,8 +3013,6 @@ button.cell:focus-visible {
 
   .pill:active,
   .btn:active,
-  button.cell:hover,
-  button.cell:focus-visible,
   .is-days .cell.is-data:hover {
     transform: none;
   }
@@ -2507,9 +3055,6 @@ button.cell:focus-visible {
   margin-top: 0;
 }
 
-.ag-year {
-  min-width: 96px;
-}
 
 .ag-verdict {
   font-size: var(--fs-body);

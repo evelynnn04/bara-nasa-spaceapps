@@ -1,4 +1,4 @@
-import { AttributionControl, GeoJSONSource, LngLatBounds, Map as MLMap, Marker, NavigationControl, Popup, setWorkerUrl, type MapMouseEvent, type StyleSpecification } from "maplibre-gl";
+import { AttributionControl, GeoJSONSource, LngLatBounds, Map as MLMap, Marker, NavigationControl, Popup, setWorkerUrl, type ExpressionSpecification, type FilterSpecification, type MapMouseEvent, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import type { CellsResponse } from "./api";
@@ -40,12 +40,20 @@ const FALLBACK: StyleSpecification = {
   layers: [{ id: "bg", type: "background", paint: { "background-color": MAP.background } }],
 };
 
+/** Zoom from which the basemap coastline replaces the simplified area outlines. */
+const COAST_ZOOM = 7;
+
 type GeoFC = GeoJSON.FeatureCollection;
 const EMPTY: GeoFC = { type: "FeatureCollection", features: [] };
 
 export interface MapCallbacks {
   onPolygon: (ring: LngLat[] | null) => void;
   onDrawState: (drawing: boolean, vertices: number) => void;
+}
+
+/** Closed ring of the grid square of half-side `h` degrees centred on `lon`, `lat`. */
+function cellRing(lon: number, lat: number, h: number): GeoJSON.Position[] {
+  return [[lon - h, lat - h], [lon + h, lat - h], [lon + h, lat + h], [lon - h, lat + h], [lon - h, lat - h]];
 }
 
 /** Most active block of the period, from the cells response. */
@@ -67,6 +75,10 @@ export class MapView {
   private drawing = false;
   private ramp: RampName = "ember";
   private insets: Insets = { top: 40, bottom: 40, left: 40, right: 40 };
+  /** Ids of the sea layers drawn over the fire cells, which clip the cells to the coastline. */
+  private seaMasks: string[] = [];
+  /** Ids of the coastline layers traced from the basemap's sea, shown while an area is selected. */
+  private coastLayers: string[] = [];
   private callout: Marker | null = null;
   private readonly popup = new Popup({ closeButton: false, closeOnClick: false, className: "hs-popup", offset: 8 });
 
@@ -133,17 +145,21 @@ export class MapView {
     this.syncCellPaint();
   }
 
-  /** Shows the active cells of the period, coloured by harmonised value with quantile classes. */
-  setCells(c: CellsResponse | null): void {
+  /**
+   * Shows the active cells of the period as filled grid squares, coloured by harmonised value with quantile classes
+   * of these cells, or with the given `breaks` so that several periods share one scale.
+   */
+  setCells(c: CellsResponse | null, breaks?: number[]): void {
     const cells = c?.cells;
     this.resDeg = c?.res_deg ?? 0.05;
-    this.breaks = cells ? quantileBreaks(cells.value, RAMPS[this.ramp].steps.length) : [0];
+    const h = this.resDeg / 2;
+    this.breaks = breaks ?? (cells ? quantileBreaks(cells.value, RAMPS[this.ramp].steps.length) : [0]);
     this.hotspots = {
       type: "FeatureCollection",
       features: cells
         ? cells.value.map((value, i) => ({
             type: "Feature",
-            geometry: { type: "Point", coordinates: [cells.lon[i], cells.lat[i]] },
+            geometry: { type: "Polygon", coordinates: [cellRing(cells.lon[i], cells.lat[i], h)] },
             properties: { value, modis: cells.modis_px[i], viirs: cells.viirs_px[i], frp: cells.frp_max[i] },
           }))
         : [],
@@ -161,14 +177,14 @@ export class MapView {
   }
 
   private syncCellPaint(): void {
-    if (this.map.getLayer("hotspots")) this.map.setPaintProperty("hotspots", "circle-color", this.colorExpr());
-    if (this.map.getLayer("hotspots-glow")) this.map.setPaintProperty("hotspots-glow", "circle-color", this.glowColor());
+    if (this.map.getLayer("hotspots")) this.map.setPaintProperty("hotspots", "fill-color", this.colorExpr());
   }
 
   /** Outlines the selected areas with their real borders. */
   setOutlines(ids: string[]): void {
     this.outlineIds = ids;
     for (const id of ["outline-glow", "outline-line"]) if (this.map.getLayer(id)) this.map.setFilter(id, this.outlineFilter());
+    for (const id of this.coastLayers) this.map.setLayoutProperty(id, "visibility", ids.length ? "visible" : "none");
   }
 
   private outlineFilter(): ["in", ["get", string], ["literal", string[]]] {
@@ -263,11 +279,6 @@ export class MapView {
     return this.map.getSource<GeoJSONSource>(id);
   }
 
-  /** Glow under the fire points, taken from the active ramp so it follows the chosen palette. */
-  private glowColor(): string {
-    return RAMPS[this.ramp].steps[5];
-  }
-
   /** Step expression colouring cells by harmonised value with the active ramp (one colour while there are no classes). */
   private colorExpr(): string | ["step", ["get", string], string, ...(string | number)[]] {
     const steps = RAMPS[this.ramp].steps;
@@ -317,30 +328,17 @@ export class MapView {
       layout: { "line-join": "round" },
       paint: { "line-color": MAP.outline, "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.2, 9, 2] },
     });
-    m.addLayer({
-      id: "hotspots-glow",
-      type: "circle",
-      source: "hotspots",
-      paint: {
-        "circle-color": this.glowColor(),
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 7, 6, 13, 9, 22],
-        "circle-blur": 1,
-        "circle-opacity": ["interpolate", ["linear"], ["zoom"], 3, 0.1, 8, 0.16],
-      },
-    });
+    // Antialiasing off keeps neighbouring cells flush, with no hairline seams between them
     m.addLayer({
       id: "hotspots",
-      type: "circle",
+      type: "fill",
       source: "hotspots",
-      layout: { "circle-sort-key": ["get", "value"] },
-      paint: {
-        "circle-color": this.colorExpr(),
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 1.4, 6, 2.6, 9, 6, 12, 30],
-        "circle-opacity": 0.9,
-        "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 6, 0, 9, 0.6],
-        "circle-stroke-color": MAP.background,
-      },
+      paint: { "fill-color": this.colorExpr(), "fill-opacity": 0.9, "fill-antialias": false },
     });
+    this.addSeaMasks();
+    this.addCoast();
+    for (const id of ["outline-glow", "outline-line", "polygon-line"]) m.moveLayer(id);
+    this.raisePlaceLabels();
     m.addLayer({ id: "event-box", type: "line", source: "event-box", paint: { "line-color": MAP.drawLine, "line-width": 1.5, "line-dasharray": [3, 2] } });
     m.addLayer({ id: "draft-line", type: "line", source: "draft", filter: ["==", ["geometry-type"], "LineString"], paint: { "line-color": MAP.drawLine, "line-width": 1.5, "line-dasharray": [2, 2] } });
     m.addLayer({ id: "draft-points", type: "circle", source: "draft", filter: ["==", ["geometry-type"], "Point"], paint: { "circle-color": MAP.drawPoint, "circle-radius": 4.5, "circle-stroke-color": MAP.background, "circle-stroke-width": 1.5 } });
@@ -349,6 +347,11 @@ export class MapView {
       if (this.drawing) return;
       const f = e.features?.[0];
       if (!f) return;
+      if (this.seaMasks.length && m.queryRenderedFeatures(e.point, { layers: this.seaMasks }).length) {
+        m.getCanvas().style.cursor = "";
+        this.popup.remove();
+        return;
+      }
       const p = f.properties as { value: number; modis: number; viirs: number; frp: number };
       m.getCanvas().style.cursor = "pointer";
       this.popup
@@ -362,6 +365,59 @@ export class MapView {
     });
     this.syncPolygon();
     this.syncDraft();
+  }
+
+  /**
+   * Redraws the basemap's water polygons above the fire cells, so a cell on the coast shows only its land part.
+   * The fallback style has no water layers, and the cells are then drawn whole.
+   */
+  private addSeaMasks(): void {
+    this.seaMasks = [];
+    for (const layer of this.map.getStyle().layers ?? []) {
+      if (layer.type !== "fill" || layer["source-layer"] !== "water" || /shadow/i.test(layer.id)) continue;
+      const id = `sea-mask-${layer.id}`;
+      this.map.addLayer({
+        id,
+        type: "fill",
+        source: layer.source,
+        "source-layer": "water",
+        ...(layer.filter ? { filter: layer.filter } : {}),
+        ...(layer.minzoom !== undefined ? { minzoom: layer.minzoom } : {}),
+        ...(layer.maxzoom !== undefined ? { maxzoom: layer.maxzoom } : {}),
+        paint: { "fill-color": MAP.water, "fill-antialias": true },
+      });
+      this.seaMasks.push(id);
+    }
+  }
+
+  /**
+   * The area outlines are simplified to about 2 km, which shows once zoomed in. At zoom 7 they switch at once
+   * (a fade would show both lines side by side) to the basemap's own coastline (the edge of its sea polygons, so lakes and rivers stay unlined), which follows
+   * the land as closely as the clipped cells do. Borders on land are hidden then too, as the outline cannot tell
+   * them from its coast and a simplified coast would cut across the land beside the precise one.
+   * The coastline is not limited to the selected area, which is why it only appears zoomed in.
+   */
+  private addCoast(): void {
+    this.coastLayers = [];
+    const sea = this.seaMasks.length ? this.map.getLayer(this.seaMasks[0]) : undefined;
+    if (!sea) return;
+    const below = (opacity: number) => ["step", ["zoom"], opacity, COAST_ZOOM, 0] as ExpressionSpecification;
+    const width: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 4, 1.2, 9, 2];
+    const filter: FilterSpecification = ["all", ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]], ["==", ["get", "kind"], "ocean"]];
+    const visibility = this.outlineIds.length ? "visible" : "none";
+    const base = { type: "line", source: sea.source, "source-layer": "water", filter, minzoom: COAST_ZOOM } as const;
+    this.map.addLayer({ ...base, id: "coast-glow", layout: { visibility }, paint: { "line-color": MAP.area, "line-width": 7, "line-blur": 5, "line-opacity": 0.35 } });
+    this.map.addLayer({ ...base, id: "coast-line", layout: { visibility, "line-join": "round" }, paint: { "line-color": MAP.outline, "line-width": width } });
+    this.coastLayers = ["coast-glow", "coast-line"];
+    this.map.setPaintProperty("outline-line", "line-opacity", below(1));
+    this.map.setPaintProperty("outline-glow", "line-opacity", below(0.35));
+  }
+
+  /** Lifts the basemap's place and water names above the fire cells, so region names stay readable over them. */
+  private raisePlaceLabels(): void {
+    for (const layer of this.map.getStyle().layers ?? []) {
+      if (layer.type === "symbol" && (layer["source-layer"] === "places" || layer["source-layer"] === "water")) this.map.moveLayer(layer.id);
+    }
   }
 
   private syncPolygon(): void {

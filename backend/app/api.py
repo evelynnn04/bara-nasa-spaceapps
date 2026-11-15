@@ -46,7 +46,6 @@ COARSE = 5
 #: Safety bound on the map layer: above this many active cells it is summed onto 0.25° blocks.
 #: The whole record touches under 50,000 cells, so in practice cells always arrive at 0.05°.
 MAX_MAP_CELLS = 100_000
-MAX_CSV_DAYS = 366
 MAX_CSV_ROWS = 200_000
 AREA_ID = re.compile(r"^idn(-[a-z0-9]+)*$")
 
@@ -513,14 +512,12 @@ def detections_csv(area: Area = Depends(area_param), span: tuple[dt.date, dt.dat
 
     `source` is where the row came from (archive, standard product or near-real-time), and
     `counted` says whether the pixel qualifies for the harmonised record (a presumed vegetation
-    fire, or an untyped near-real-time pixel off the static-source mask). At most `MAX_CSV_DAYS`
-    days per request. Only the first `MAX_CSV_ROWS` rows are sent; header `X-Total-Rows` gives the
-    number that matched."""
+    fire, or an untyped near-real-time pixel off the static-source mask). Any period is accepted;
+    only the first `MAX_CSV_ROWS` rows are sent, and header `X-Total-Rows` gives the number that
+    matched."""
     cur = cursor()
     if not store.has(cur, "detections", "static_mask"):
         raise HTTPException(503, "Normalised detections are missing. Run `python -m app normalise` first.")
-    if (span[1] - span[0]).days + 1 > MAX_CSV_DAYS:
-        raise HTTPException(400, f"the period may cover at most {MAX_CSV_DAYS} days")
     cx, cy = cell_expr()
     half = {"all": "TRUE", "day": "c.daynight = 'D'", "night": "c.daynight = 'N'"}[daynight]
     source = f"""

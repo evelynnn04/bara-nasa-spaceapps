@@ -29,9 +29,13 @@
           <span class="seg-thumb" aria-hidden="true"></span>
         </div>
         <div class="hf-area" id="area-picker"></div>
-        <div id="date-from"></div>
-        <div id="date-to"></div>
         <div class="hf-palette" id="palette-menu"></div>
+      </div>
+      <div class="g-export">
+        <button type="button" class="pill" id="dl-detections" aria-label="Download raw detections CSV" title="Every satellite detection in the selected area and dates, with its source">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg><span class="g-export-long">Raw detections </span>CSV
+        </button>
+        <p class="dl-note" id="dl-note" role="status" aria-live="polite"></p>
       </div>
     </header>
 
@@ -41,6 +45,10 @@
         <div class="g-map">
           <div id="map" tabindex="0" aria-label="Map of active fire cells for the selected area and dates"></div>
           <div class="g-shade" aria-hidden="true"></div>
+          <div class="g-time" role="group" aria-label="Dates and map timeline">
+            <div class="tl-dates"><div id="date-from"></div><div id="date-to"></div></div>
+            <div class="tl" id="time-slider"></div>
+          </div>
         </div>
 
         <div class="g-tools" role="group" aria-label="Map tools">
@@ -59,6 +67,7 @@
 
         <div class="g-main" id="g-main">
           <div class="g-col g-left">
+            <p class="col-cap" id="cap-dates" aria-live="polite"></p>
             <article class="gc" data-card="analytics" id="analytics-card" aria-labelledby="c-analytics">
               <div class="gc-head">
                 <h2 class="gc-title" id="c-analytics">Historical analytics</h2>
@@ -69,30 +78,32 @@
               </div>
               <div class="gc-body" id="an-summary" aria-busy="true"></div>
             </article>
-            <article class="gc" data-card="patterns" aria-labelledby="c-patterns">
-              <div class="gc-head"><h2 class="gc-title" id="c-patterns">Historical patterns</h2><span class="hint">All years</span></div>
-              <div class="gc-body" id="an-patterns" aria-busy="true"></div>
-            </article>
-            <article class="gc" data-card="agreement" aria-labelledby="c-agreement">
-              <div class="gc-head"><h2 class="gc-title" id="c-agreement">Do MODIS and VIIRS agree here?</h2><span class="hint">Selected area</span></div>
-              <div class="gc-body" id="agreement" aria-busy="true"></div>
+            <article class="gc" data-card="events" aria-labelledby="c-events">
+              <div class="gc-head"><h2 class="gc-title" id="c-events">Largest fire events</h2></div>
+              <div class="gc-body" id="events" aria-busy="true"></div>
             </article>
           </div>
 
           <div class="g-col g-right">
+            <p class="col-cap">All years</p>
             <article class="gc" data-card="calendar" id="calendar-card" aria-labelledby="c-calendar">
               <div class="gc-head">
                 <h2 class="gc-title" id="c-calendar">Burning activity calendar</h2>
                 <div class="card-actions">
-                  <button type="button" class="pill pill-xs" data-export="calendar" data-format="csv">CSV</button>
-                  <button type="button" class="pill pill-xs" data-export="calendar" data-format="png">PNG</button>
+                  <button type="button" class="pill pill-xs" data-export="calendar" data-format="csv">
+                    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>CSV
+                  </button>
                 </div>
               </div>
               <div class="gc-body" id="calendar" aria-busy="true"></div>
             </article>
+            <article class="gc" data-card="patterns" aria-labelledby="c-patterns">
+              <div class="gc-head"><h2 class="gc-title" id="c-patterns">Historical patterns</h2></div>
+              <div class="gc-body an-patterns" id="an-patterns" aria-busy="true"></div>
+            </article>
             <article class="gc" data-card="anomaly" data-expandable id="anomaly-card" aria-labelledby="c-anomaly">
               <div class="gc-head">
-                <h2 class="gc-title" id="c-anomaly">Historical anomaly comparison</h2>
+                <h2 class="gc-title" id="c-anomaly">Historical comparison</h2>
                 <div class="card-actions">
                   <button type="button" class="pill pill-xs" data-export="anomaly" data-format="csv">CSV</button>
                   <button type="button" class="pill pill-xs" data-export="anomaly" data-format="png">PNG</button>
@@ -100,9 +111,9 @@
               </div>
               <div class="gc-body" id="anomaly" aria-busy="true"></div>
             </article>
-            <article class="gc" data-card="events" aria-labelledby="c-events">
-              <div class="gc-head"><h2 class="gc-title" id="c-events">Largest fire events</h2><span class="hint">Selected dates</span></div>
-              <div class="gc-body" id="events" aria-busy="true"></div>
+            <article class="gc" data-card="agreement" aria-labelledby="c-agreement">
+              <div class="gc-head"><h2 class="gc-title" id="c-agreement">Do MODIS and VIIRS agree here?</h2></div>
+              <div class="gc-body" id="agreement" aria-busy="true"></div>
             </article>
           </div>
 
@@ -110,9 +121,6 @@
 
         <div class="g-foot">
           <div class="map-legend" id="map-legend"></div>
-          <p class="g-caption" id="map-count" aria-live="polite"></p>
-          <button type="button" class="pill pill-xs" id="dl-detections" title="Every satellite detection in the selected area and dates, with its source">Raw detections CSV</button>
-          <p class="dl-note" id="dl-note" role="status" aria-live="polite"></p>
         </div>
       </section>
 

@@ -13,6 +13,7 @@ let uid = 0;
 /**
  * A date field in the glass style with its own calendar popup, used instead of a native
  * date input so the open calendar matches the app. Values are YYYY-MM-DD strings.
+ * As a month field it opens on the months of a year and its value is the first day of the picked month.
  */
 export class DatePicker {
   private value = "";
@@ -32,12 +33,14 @@ export class DatePicker {
    * @param label Short label shown inside the field, e.g. "From".
    * @param range Returns the currently selected start and end, used to tint the days between them.
    * @param onChange Called with the new value after the user picks a date.
+   * @param monthOnly Picks a month instead of a day.
    */
   constructor(
     private readonly root: HTMLElement,
     private readonly label: string,
     private readonly range: () => [string, string],
     private readonly onChange: (value: string) => void,
+    private readonly monthOnly = false,
   ) {
     root.classList.add("dp");
     root.innerHTML = `
@@ -78,8 +81,9 @@ export class DatePicker {
   /** Sets the value without notifying. */
   set(value: string): void {
     this.value = value;
-    this.button.querySelector(".dp-value")!.textContent = value ? formatDay(toDay(value)) : "";
-    this.button.setAttribute("aria-label", `${this.label}: ${value ? formatDay(toDay(value)) : "not set"}`);
+    const text = !value ? "" : this.monthOnly ? `${MONTHS_LONG[parts(toDay(value)).month]} ${parts(toDay(value)).year}` : formatDay(toDay(value));
+    this.button.querySelector(".dp-value")!.textContent = text;
+    this.button.setAttribute("aria-label", `${this.label}: ${text || "not set"}`);
     if (this.isOpen()) this.render();
   }
 
@@ -94,11 +98,13 @@ export class DatePicker {
 
   private open(): void {
     this.cursor = this.clamp(toDay(this.value || this.max));
-    this.view = "days";
+    this.view = this.monthOnly ? "months" : "days";
+    this.year = parts(this.cursor).year;
     this.button.setAttribute("aria-expanded", "true");
     this.root.classList.add("is-open");
     this.render();
-    this.focusCursor();
+    if (this.monthOnly) this.pop.querySelector<HTMLButtonElement>(".dp-month[tabindex='0']:not(:disabled), .dp-month:not(:disabled)")?.focus({ preventScroll: true });
+    else this.focusCursor();
   }
 
   private close(returnFocus = true): void {
@@ -207,6 +213,7 @@ export class DatePicker {
       return;
     }
     if (el.dataset.month) {
+      if (this.monthOnly) return this.choose(monthStart(this.year, +el.dataset.month));
       const date = parts(this.cursor).date;
       const m = +el.dataset.month;
       this.cursor = this.clamp(monthStart(this.year, m) + Math.min(date, daysInMonth(this.year, m)) - 1);
@@ -219,7 +226,7 @@ export class DatePicker {
   private onKey(e: KeyboardEvent): void {
     if (e.key === "Escape") {
       e.preventDefault();
-      if (this.view === "months") {
+      if (this.view === "months" && !this.monthOnly) {
         this.view = "days";
         this.render();
         this.focusCursor();
