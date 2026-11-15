@@ -273,6 +273,30 @@ def baseline(flags: list[tuple], year: int, month: int, reference: str = "other"
     return Baseline(target, provisional, ref, excluded)
 
 
+def year_baselines(flags: list[tuple], year: int, reference: str = "other") -> list[tuple[int, Baseline]]:
+    """(month, baseline) for every month of a year inside the record, in calendar order.
+
+    Raises ValueError when no month of the year lies inside the record."""
+    out = []
+    for month in range(1, 13):
+        try:
+            out.append((month, baseline(flags, year, month, reference)))
+        except ValueError:
+            continue
+    if not out:
+        raise ValueError(f"{year} is outside the harmonised record ({flags[0][0]:%Y} to {flags[-1][0]:%Y})")
+    return out
+
+
+def month_totals(con: duckdb.DuckDBPyConnection, baselines: list[tuple[int, Baseline]], where: str = "TRUE",
+                 daynight: str = "all") -> dict[int, dict[int, tuple[float, float]]]:
+    """{month: {year: (activity, frp)}} for the days 1 to D of each baseline's month, in every year,
+    in one query. Years a baseline does not use are returned too and left out by `record`."""
+    days = " OR ".join(f"(month(c.local_date) = {m} AND day(c.local_date) <= {b.target.end.day})"
+                       for m, b in baselines)
+    return totals(con, None, f"({days}) AND ({where})", "month(c.local_date)", daynight)
+
+
 def _window_filter(windows: list[Window]) -> str:
     return " OR ".join(f"c.local_date BETWEEN DATE '{w.start}' AND DATE '{w.end}'" for w in windows)
 
@@ -280,9 +304,10 @@ def _window_filter(windows: list[Window]) -> str:
 # --- queries ---------------------------------------------------------------------------------------
 
 
-def totals(con: duckdb.DuckDBPyConnection, windows: list[Window], where: str = "TRUE",
+def totals(con: duckdb.DuckDBPyConnection, windows: list[Window] | None, where: str = "TRUE",
            group: str | None = None, daynight: str = "all") -> dict:
-    """{unit: {year: (activity, frp)}} over the given windows of the harmonised record.
+    """{unit: {year: (activity, frp)}} over the given windows of the harmonised record (every day
+    `where` allows when `windows` is None).
 
     `where` filters observation rows (aliases `c`, `d`, `k`); `group` is an expression over the
     record relation `c` naming the unit (one unit, key None, without it). With a day or night
@@ -291,7 +316,7 @@ def totals(con: duckdb.DuckDBPyConnection, windows: list[Window], where: str = "
     rows = con.execute(f"""
         SELECT {gsel} AS g, year(c.local_date) AS y, sum({weights.weight_sql(daynight)}),
                sum({weights.frp_sql(daynight)})
-        FROM ({weights.record_sql(f"({_window_filter(windows)}) AND ({where})")}) c
+        FROM ({weights.record_sql(f"({_window_filter(windows) if windows else 'TRUE'}) AND ({where})")}) c
         GROUP BY ALL
     """).fetchall()
     out: dict = defaultdict(dict)

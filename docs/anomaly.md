@@ -180,6 +180,20 @@ Each record carries `period_start`, `period_end`, `product`, `activity` (fire ce
 The `area` record also lists `years`: the window totals of the target year and every reference
 year, oldest first, so a chart can plot the month against its history.
 
+### Year view
+
+`GET /api/anomalies?period=year&year=YYYY&area=...|poly=...&reference=...&daynight=...`
+
+`months` lists every month of the year inside the record. Each is scored against the same month in
+the reference years, exactly as `period=month` would score it: each entry has the fields of the
+`area` record, plus `month`, `provisional`, its own `baseline` and `data_quality`. `summary`
+gives the number of months per label and `alert_months`, the months `elevated` or higher.
+
+The year as a whole gets **no label**. Comparing a year's total with other years' totals has no
+precedent in the reviewed references, which support comparing a month with the same calendar month
+in other years. The Year view therefore stays a set of monthly scores. `period=year` takes neither
+`month` nor `grids`.
+
 A grid record also has `grid_id`, its centre, `bbox`, `in_area_share` (the share of its activity
 inside the selection) and `environmental_context`: the cell's main island group, province and
 city/regency, its active 0.05° cells, the night share of its pixels and its highest pixel FRP. The

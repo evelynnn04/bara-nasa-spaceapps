@@ -149,6 +149,24 @@ def test_default_period_is_the_last_data_month(client):
     assert not body["period"]["provisional"]
 
 
+def test_year_view_scores_each_month_like_the_month_view(client):
+    body = client.get("/api/anomalies?period=year&year=2015").json()
+    assert [m["month"] for m in body["months"]] == list(range(1, 13))
+    assert "label" not in body and "area" not in body
+    # Only Septembers were observed, so every other month has no valid reference year.
+    assert body["summary"] == {"months_scored": 12, "alert_months": [9],
+                               "counts": {"normal": 0, "elevated": 0, "anomalous": 1, "extreme": 0,
+                                          "insufficient_baseline": 11}}
+    sep = body["months"][8]
+    single = client.get("/api/anomalies?year=2015&month=9").json()
+    for key in ("activity", "frp_mw", "activity_score", "frp_score", "label", "years", "history"):
+        assert sep[key] == single["area"][key]
+    assert sep["baseline"] == single["baseline"]
+    assert client.get("/api/anomalies?period=year&year=2015&month=9").status_code == 400
+    assert client.get("/api/anomalies?period=year&year=2015&grids=true").status_code == 400
+    assert client.get("/api/anomalies?period=year&year=2001").status_code == 400
+
+
 def test_day_night_filter_applies_to_both_indicators(client):
     full, day, night = (client.get(f"/api/anomalies?year=2015&month=9&daynight={dn}").json()
                         for dn in ("all", "day", "night"))
