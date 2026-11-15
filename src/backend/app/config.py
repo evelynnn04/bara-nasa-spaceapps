@@ -172,6 +172,12 @@ def _secret(var: str) -> str:
     return value
 
 
+def setting(var: str, default: str = "") -> str:
+    """A setting from the environment or the repository `.env`, or `default` when unset. Secrets
+    read this way are never logged."""
+    return _secret(var) or default
+
+
 def map_key() -> str:
     """FIRMS map key from the environment or the repository `.env`. Never logged."""
     key = _secret("FIRMS_MAP_KEY")
