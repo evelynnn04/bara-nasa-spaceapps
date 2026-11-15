@@ -23,6 +23,7 @@ With `--every N`, the update repeats every N minutes and survives failed rounds.
 from __future__ import annotations
 
 import datetime as dt
+import errno
 import hashlib
 import json
 import logging
@@ -168,8 +169,10 @@ def keep_extra_files(current: Path, release: Path) -> None:
 
 def publish(release: Path, version: dict) -> None:
     """Points `current.json` at `release` in one atomic replace, then removes releases older than
-    the previous one, and the hand-built tables the first release replaces."""
+    the previous one. The hand-built tables the first release replaces are removed one release
+    later, once a running service has had time to switch away from them."""
     pointer = pointer_path()
+    switched = pointer.is_file()
     tmp = pointer.with_suffix(".part")
     tmp.write_text(json.dumps(version, indent=1) + "\n", encoding="utf-8")
     os.replace(tmp, pointer)
@@ -180,7 +183,7 @@ def publish(release: Path, version: dict) -> None:
         if path.name not in keep:
             shutil.rmtree(path, ignore_errors=True)
     for legacy in (config.data_dir() / "derived", config.data_dir() / "parquet"):
-        if legacy.is_dir():
+        if switched and legacy.is_dir():
             shutil.rmtree(legacy, ignore_errors=True)
             log.info("removed %s: the data is now served from %s", legacy, config.releases_dir())
 
@@ -188,10 +191,15 @@ def publish(release: Path, version: dict) -> None:
 class Lock:
     """Keeps two updates from running on the same data folder. The operating system releases the
     lock when the process ends, however it ends, so a crashed run never blocks the next one and a
-    slow run is never mistaken for a crashed one."""
+    slow run is never mistaken for a crashed one.
+
+    The lock file lives in the data folder, or in `UPDATE_LOCK_DIR` when set. A file system without
+    locks (a Cloud Storage mount) cannot hold it: there the lock is skipped with a warning, and the
+    scheduler must keep runs apart (see docs/recent-data.md)."""
 
     def __init__(self) -> None:
-        self.path = config.data_dir() / ".update.lock"
+        folder = Path(os.environ.get("UPDATE_LOCK_DIR") or config.data_dir())
+        self.path = folder / ".update.lock"
         self.fd: int | None = None
 
     def __enter__(self) -> "Lock":
@@ -199,9 +207,13 @@ class Lock:
         self.fd = os.open(self.path, os.O_CREAT | os.O_RDWR)
         try:
             _lock_file(self.fd)
-        except OSError:
+        except OSError as exc:
             os.close(self.fd)
             self.fd = None
+            if exc.errno not in HELD:
+                log.warning("%s cannot be locked (%s); relying on the scheduler to keep updates apart",
+                            self.path, exc.strerror)
+                return self
             raise RuntimeError(f"another update is running on {config.data_dir()}") from None
         os.ftruncate(self.fd, 0)
         os.write(self.fd, str(os.getpid()).encode())
@@ -213,6 +225,9 @@ class Lock:
             os.close(self.fd)
             self.fd = None
 
+
+#: Errors that mean the lock is held by another process (any other error: locks unsupported).
+HELD = {errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES}
 
 try:
     import fcntl

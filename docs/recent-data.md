@@ -34,7 +34,8 @@ on disk, without a key. The code is `src/backend/app/pipeline/update.py`.
 
 Nothing the API serves changes before step 5. Tables built by hand (`data/derived` and
 `data/parquet`, from a zip or from the individual commands) are served until the first update
-publishes a release, which then replaces them.
+publishes a release. They are deleted with the second release, once a running service has
+switched away from them.
 
 ## Which days are in the record
 
@@ -128,9 +129,13 @@ next round tries again.
   `.env` and runs as your own user, so the files it writes stay yours and the commands keep working
   on the host. If `id -u` and `id -g` are not 1000, add `HOST_UID` and `HOST_GID` to `.env`.
 - **Cron:** call `python -m app update` once per run; overlapping runs are refused by the lock.
-- **Cloud Run:** the service reads the bucket read-only, so run the update where the data folder
-  lives and copy the new release to the bucket, `current.json` last (see "Deploying to Cloud Run"
-  in the README).
+- **Google Cloud:** a separate Cloud Run job runs `python -m app update` on the bucket every hour,
+  started by Cloud Scheduler; the website service only reads the bucket. The commands are in
+  "Keeping the data current on Google Cloud" in the README. A Cloud Storage mount has no file
+  locks and keeps the last write, so the lock file goes on the job's own disk
+  (`UPDATE_LOCK_DIR=/tmp`) and runs are kept apart by the schedule instead: one task per run, and a
+  50-minute timeout before the next hourly start. The service sees a new release within about a
+  minute, because the mount caches file details for 60 seconds.
 
 ## What one update costs
 

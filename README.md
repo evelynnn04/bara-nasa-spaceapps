@@ -190,13 +190,71 @@ with build type Dockerfile and source location `/Dockerfile`, and set the same v
 `DATA_DIR` under the container settings. `https://SERVICE_URL/api/meta` returns the record dates
 once the data is found.
 
-After `python -m app update`, send the releases to the bucket, then `current.json`, so the service
-switches only once the new release is complete:
+### Keeping the data current on Google Cloud
+The hourly update runs as a separate **Cloud Run job**, `fire-data-updater`, started every hour by
+**Cloud Scheduler**. It uses the same image, mounts the same bucket writable and publishes each new
+release there; the website service keeps the bucket read-only and switches to a new release
+within about a minute (the bucket mount caches file details for 60 seconds). A failed run leaves
+the release being served in place. How the update decides what to rebuild is described in
+[docs/recent-data.md](docs/recent-data.md).
+
+The job rebuilds from the raw downloads, so the bucket needs `data/raw/` as well (about 700 MB):
+
+```bash
+gcloud storage cp -r data/raw gs://BUCKET/data/
+```
+
+Keep the FIRMS key in Secret Manager, never in the job's settings:
+
+```bash
+printf %s "YOUR_FIRMS_MAP_KEY" | gcloud secrets create firms-map-key --data-file=-
+```
+
+Give the job its own service account, allowed to write the bucket and read the key:
+
+```bash
+gcloud iam service-accounts create fire-data-updater
+gcloud storage buckets add-iam-policy-binding gs://BUCKET \
+  --member serviceAccount:fire-data-updater@PROJECT.iam.gserviceaccount.com --role roles/storage.objectUser
+gcloud secrets add-iam-policy-binding firms-map-key \
+  --member serviceAccount:fire-data-updater@PROJECT.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor
+```
+
+Deploy the job. The bucket is mounted for the image's user (id 10001), and the lock file stays on
+the job's own disk, because a Cloud Storage mount cannot lock files:
+
+```bash
+gcloud run jobs deploy fire-data-updater --source . --region REGION \
+  --service-account fire-data-updater@PROJECT.iam.gserviceaccount.com \
+  --command python --args=-m,app,update \
+  --cpu 2 --memory 4Gi --tasks 1 --max-retries 0 --task-timeout 50m \
+  --set-secrets FIRMS_MAP_KEY=firms-map-key:latest \
+  --set-env-vars DATA_DIR=/mnt/bucket/data,UPDATE_LOCK_DIR=/tmp \
+  --add-volume "name=bucket,type=cloud-storage,bucket=BUCKET,readonly=false,mount-options=uid=10001;gid=10001" \
+  --add-volume-mount volume=bucket,mount-path=/mnt/bucket
+```
+
+Start it every hour, at five past:
+
+```bash
+gcloud iam service-accounts create fire-data-scheduler
+gcloud run jobs add-iam-policy-binding fire-data-updater --region REGION \
+  --member serviceAccount:fire-data-scheduler@PROJECT.iam.gserviceaccount.com --role roles/run.invoker
+gcloud scheduler jobs create http fire-data-updater-hourly --location REGION --schedule "5 * * * *" \
+  --uri "https://run.googleapis.com/v2/projects/PROJECT/locations/REGION/jobs/fire-data-updater:run" \
+  --http-method POST --oauth-service-account-email fire-data-scheduler@PROJECT.iam.gserviceaccount.com
+```
+
+`gcloud run jobs execute fire-data-updater --region REGION --wait` runs it once by hand; its logs
+are in Cloud Logging under the job. Two runs never overlap: the job runs one task, and the 50-minute
+timeout ends a run before the next hourly start. After changing the code, deploy the job again
+with the same command so it uses the new image.
+
+To update by hand instead, run `python -m app update` locally and send the result to the bucket,
+the releases first and `current.json` last, so the service switches only once the new release is
+complete:
 
 ```bash
 gcloud storage rsync -r --delete-unmatched-destination-objects data/releases gs://BUCKET/data/releases
 gcloud storage cp data/current.json gs://BUCKET/data/
 ```
-
-The service looks at `current.json` every few seconds and opens the new release when it has
-changed, so no redeploy is needed (the bucket mount may take a minute or so longer to show it).

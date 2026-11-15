@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import errno
 import json
 import subprocess
 import sys
@@ -213,7 +214,10 @@ def test_update_publishes_a_good_rebuild_as_a_new_release(served, monkeypatch):
     assert update.load_version() == version and config.release_root() == release
     assert (config.derived_dir() / "celldays.parquet").read_bytes() == b"celldays 11"
     assert (config.derived_dir() / "context_layer.parquet").read_bytes() == b"kept"
-    # The hand-built tables the first release replaces are removed; the raw files stay.
+    # The hand-built tables stay until the next release, so a running service can switch first.
+    assert (served / "derived").is_dir()
+    (served / "raw" / "api" / "MODIS_NRT" / "2026-11-10_5.csv").write_text("new")
+    update.run_once()
     assert not (served / "derived").exists() and not (served / "parquet").exists()
     assert (served / "raw" / "api" / "MODIS_NRT" / "2026-11-10_5.csv").is_file()
 
@@ -322,6 +326,21 @@ def test_the_lock_is_released_when_its_process_dies_however_old_it_is(served):
         holder.wait()
     with update.Lock():
         pass
+
+
+def test_the_lock_can_live_elsewhere_and_is_skipped_where_files_cannot_be_locked(served, monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("UPDATE_LOCK_DIR", str(tmp_path / "local"))
+    with update.Lock() as lock:
+        assert lock.path == tmp_path / "local" / ".update.lock"
+        with pytest.raises(RuntimeError, match="another update"):
+            update.Lock().__enter__()
+
+    def unsupported(fd):
+        raise OSError(errno.ENOTSUP, "Operation not supported")
+
+    monkeypatch.setattr(update, "_lock_file", unsupported)
+    with update.Lock():
+        assert "relying on the scheduler" in caplog.text
 
 
 def test_rebuild_runs_the_usual_stages_into_the_release_folder(tmp_path, monkeypatch):
