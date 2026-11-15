@@ -1,16 +1,17 @@
 import { RAMPS, type RampName } from "./ramps";
-import type { DayNight, Filters, LngLat } from "./types";
+import type { DayNight, Filters, Hotspots, LngLat } from "./types";
 
 export interface ViewState {
   filters: Filters;
   ramp: RampName;
   daynight: DayNight;
+  hotspots: Hotspots;
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Reads filters, palette and the day/night filter from the page URL, falling back to `defaults` for anything missing or invalid.
+ * Reads filters, palette, the day/night filter and the hotspot types from the page URL, falling back to `defaults` for anything missing or invalid.
  * Region ids are kept only when `hasRegion` knows them, and dates are clamped to `[minDate, maxDate]`.
  */
 export function readUrlState(
@@ -42,12 +43,14 @@ export function readUrlState(
   const ramp = palette && palette in RAMPS ? (palette as RampName) : defaults.ramp;
   const dn = q.get("dn");
   const daynight = dn === "day" || dn === "night" || dn === "all" ? dn : defaults.daynight;
-  return { filters: f, ramp, daynight };
+  const ht = q.get("ht");
+  const hotspots = ht === "all" || ht === "vegetation" ? ht : defaults.hotspots;
+  return { filters: f, ramp, daynight, hotspots };
 }
 
 /** Writes the state into the URL query, leaving out values equal to `defaults`, without adding a history entry. */
 export function writeUrlState(state: ViewState, defaults: ViewState): void {
-  const { filters: f, ramp, daynight } = state;
+  const { filters: f, ramp, daynight, hotspots } = state;
   const d = defaults.filters;
   const q = new URLSearchParams();
   if (f.mode !== d.mode) q.set("mode", f.mode);
@@ -57,6 +60,7 @@ export function writeUrlState(state: ViewState, defaults: ViewState): void {
   if (f.polygon) q.set("poly", f.polygon.map(([lon, lat]) => `${+lon.toFixed(4)},${+lat.toFixed(4)}`).join(";"));
   if (ramp !== defaults.ramp) q.set("palette", ramp);
   if (daynight !== defaults.daynight) q.set("dn", daynight);
+  if (hotspots !== defaults.hotspots) q.set("ht", hotspots);
   const search = q.toString();
   const url = `${location.pathname}${search ? `?${search.replace(/%2C/g, ",").replace(/%3B/g, ";")}` : ""}${location.hash}`;
   if (url !== `${location.pathname}${location.search}${location.hash}`) history.replaceState(null, "", url);

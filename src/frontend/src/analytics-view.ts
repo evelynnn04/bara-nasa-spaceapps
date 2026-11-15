@@ -18,7 +18,7 @@ export class AnalyticsView {
     const row = (label: string, value: string, note: string) =>
       `<li><span class="dev-k">${label}</span><span class="dev-v">${value}</span><span class="mini-note">${note}</span></li>`;
     this.root.innerHTML = `
-      <p class="tile-label">Total fire cell-days</p>
+      <p class="tile-label">Total hotspots</p>
       <p class="big" data-count></p>
       <ul class="dev-list">
         ${row("vs previous period", fmtPct(c.vsPrevious), c.previous === null ? "Before the record starts" : `${fmtVal(c.previous)} in ${escapeXml(formatRange(c.previousFrom, c.previousTo))}`)}
@@ -49,7 +49,7 @@ export class AnalyticsView {
     const c = comparePeriod(sel, sel.from, sel.to);
     const width = 720;
     const tiles = [
-      ["TOTAL FIRE CELL-DAYS", fmtVal(c.total)],
+      ["TOTAL HOTSPOTS", fmtVal(c.total)],
       ["VS PREVIOUS PERIOD", fmtPct(c.vsPrevious)],
       ["VS HISTORICAL AVERAGE", fmtPct(c.vsMean)],
       ["VS HISTORICAL MEDIAN", fmtPct(c.vsMedian)],

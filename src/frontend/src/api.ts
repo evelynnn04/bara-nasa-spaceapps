@@ -1,5 +1,5 @@
 import { toDay } from "./dates";
-import type { DayNight, Filters } from "./types";
+import type { DayNight, Filters, Hotspots } from "./types";
 
 /** Base URL of the backend; empty means the same origin (the dev server proxies `/api`). */
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
@@ -17,25 +17,48 @@ export interface Metrics {
   verdict: string;
 }
 
+/** Fitted factors of one half of the day. */
+export interface Factors {
+  base_factor: number;
+  region_factor: Record<string, number>;
+  month_factor: Record<string, number>;
+  iterations: number;
+}
+
+/** A year in which MODIS and harmonised VIIRS name a different peak month. */
+export interface PeakMiss {
+  year: number;
+  modis_peak: number;
+  viirs_peak: number;
+  modis_margin: number;
+  viirs_margin: number;
+  /** Share of resamples of MODIS's own days in which MODIS names the VIIRS month. */
+  modis_resampled_share: number;
+}
+
+/** Factors and national evaluation of one hotspot type setting. */
+export interface SettingMeta {
+  factors: Record<"day" | "night", Factors>;
+  verdict: string;
+  evaluation: {
+    leave_one_year_out: Metrics;
+    day_only: Metrics;
+    night_only: Metrics;
+    peak_misses: PeakMiss[];
+    story_2015: Record<string, number>;
+    control_snpp_vs_noaa20: Metrics;
+  };
+}
+
 export interface Meta {
   record: { start: string; end: string; splice: string; unobserved_days: number };
   last_observed: Record<string, string | null>;
   unit: string;
   grid_deg: number;
-  method: {
-    summary: string;
-    base_factor: number;
-    region_factor: Record<string, number>;
-    month_factor: Record<string, number>;
-    fit_window: [string, string];
-    fitted: string;
-  };
+  method: { summary: string; fit_window: [string, string]; fitted: string; n0: number };
+  default_hotspots: Hotspots;
   verdict: string;
-  evaluation: {
-    leave_one_year_out: Metrics;
-    story_2015: Record<string, number>;
-    control_snpp_vs_noaa20: Metrics;
-  };
+  settings: Partial<Record<Hotspots, SettingMeta>>;
 }
 
 export interface SeriesResponse {
@@ -79,6 +102,7 @@ export interface FireEvent {
   cells: number;
   cell_days: number;
   harmonised: number;
+  /** Raw hotspots in the event. */
   pixels: number;
   frp_max: number;
   lon: number;
@@ -141,7 +165,13 @@ async function getJson<T>(path: string, params: Record<string, string>, signal?:
   return res.json() as Promise<T>;
 }
 
-/** Fetchers for the backend endpoints. Responses that depend only on area and day/night are cached. */
+/** Which detections and hotspot types count, sent with every data request. */
+export interface Counting {
+  daynight: DayNight;
+  hotspots: Hotspots;
+}
+
+/** Fetchers for the backend endpoints. Responses that depend only on area and counting are cached. */
 export class Api {
   private readonly seriesCache = new Map<string, Promise<DailySeries>>();
   private readonly agreementCache = new Map<string, Promise<AgreementResponse>>();
@@ -150,27 +180,27 @@ export class Api {
     return getJson("meta", {});
   }
 
-  series(f: Filters, daynight: DayNight): Promise<DailySeries> {
-    const params = { ...areaParams(f), daynight };
+  series(f: Filters, c: Counting): Promise<DailySeries> {
+    const params = { ...areaParams(f), ...c };
     return this.cached(this.seriesCache, params, () => getJson<SeriesResponse>("series", params).then(parseSeries));
   }
 
-  agreement(f: Filters, daynight: DayNight): Promise<AgreementResponse> {
-    const params = { ...areaParams(f), daynight };
+  agreement(f: Filters, c: Counting): Promise<AgreementResponse> {
+    const params = { ...areaParams(f), ...c };
     return this.cached(this.agreementCache, params, () => getJson<AgreementResponse>("agreement", params));
   }
 
-  cells(f: Filters, daynight: DayNight, signal?: AbortSignal): Promise<CellsResponse> {
-    return getJson("cells", { ...areaParams(f), from: f.start, to: f.end, daynight }, signal);
+  cells(f: Filters, c: Counting, signal?: AbortSignal): Promise<CellsResponse> {
+    return getJson("cells", { ...areaParams(f), from: f.start, to: f.end, ...c }, signal);
   }
 
-  events(f: Filters, signal?: AbortSignal, limit = 5): Promise<{ events: FireEvent[] }> {
-    return getJson("events", { ...areaParams(f), from: f.start, to: f.end, limit: String(limit) }, signal);
+  events(f: Filters, hotspots: Hotspots, signal?: AbortSignal, limit = 5): Promise<{ events: FireEvent[] }> {
+    return getJson("events", { ...areaParams(f), from: f.start, to: f.end, hotspots, limit: String(limit) }, signal);
   }
 
   /** Downloads raw detections as CSV; returns the file, its name and how many rows matched in total. */
-  async detections(f: Filters, daynight: DayNight): Promise<{ blob: Blob; name: string; total: number; limit: number }> {
-    const res = await fetch(apiUrl("detections.csv", { ...areaParams(f), from: f.start, to: f.end, daynight }));
+  async detections(f: Filters, c: Counting): Promise<{ blob: Blob; name: string; total: number; limit: number }> {
+    const res = await fetch(apiUrl("detections.csv", { ...areaParams(f), from: f.start, to: f.end, ...c }));
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${res.status}`);

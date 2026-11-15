@@ -5,8 +5,8 @@ export function fmtInt(n: number): string {
 }
 
 /** Unit of every harmonised value, in full and short. */
-export const UNIT = "MODIS-equivalent active fire cell-days";
-export const UNIT_SHORT = "fire cell-days";
+export const UNIT = "hotspots (Aqua MODIS-equivalent)";
+export const UNIT_SHORT = "hotspots";
 
 /** A harmonised value: whole numbers from 100 up, otherwise one decimal (0.4, 12.5). */
 export function fmtVal(n: number): string {

@@ -37,7 +37,7 @@ RECURRENCE_MIN = 0.5
 MIN_YEARS = 3
 #: Weeks in the centred window a week's intensity is measured over.
 WEEK_WINDOW = 3
-#: Mean annual activity (fire cell-days over complete years) from which the result is of moderate,
+#: Mean annual activity (hotspots over complete years) from which the result is of moderate,
 #: then high confidence. Below the first, even and odd years agree on under half the flags.
 CONFIDENCE_FROM = {"moderate": 2.0, "high": 20.0}
 

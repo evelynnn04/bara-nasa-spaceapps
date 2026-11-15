@@ -1,8 +1,8 @@
 """Region cache: daily statistics for the country, every province and every city/regency.
 
-`region_daily.parquet` holds, for each area and day/night filter, the daily sums described in
-`app.queries` (only days with activity are stored). The API sums these rows for any selection of
-named areas; a drawn polygon goes through the general path instead.
+`region_daily.parquet` holds, for each hotspot type setting, day/night filter and area, the daily
+sums described in `app.queries` (only days with hotspots are stored). The API sums these rows for
+any selection of named areas; a drawn polygon reuses them for the regencies wholly inside it.
 """
 
 from __future__ import annotations
@@ -28,15 +28,17 @@ def region_daily_path() -> Path:
 def build(con, dest: Path) -> int:
     """Writes the cache using connection `con` (with factors registered); returns its row count."""
     parts = []
-    for daynight in weights.DAYNIGHT:
-        for level, col in LEVELS.items():
-            where = f"k.{col} IS NOT NULL" if col else "TRUE"
-            expr = f"c.{col}" if col else "'idn'"
-            parts.append(f"SELECT '{daynight}' AS daynight, '{level}' AS level, region_id, local_date, "
-                         f"{', '.join(COLUMNS)} FROM ({daily_sql(daynight, where, expr)})")
+    for hotspots in weights.HOTSPOTS:
+        for daynight in weights.DAYNIGHT:
+            for level, col in LEVELS.items():
+                where = f"k.{col} IS NOT NULL" if col else "TRUE"
+                expr = f"c.{col}" if col else "'idn'"
+                parts.append(f"SELECT '{hotspots}' AS hotspots, '{daynight}' AS daynight, '{level}' AS level, "
+                             f"region_id, local_date, {', '.join(COLUMNS)} "
+                             f"FROM ({daily_sql(daynight, where, expr, hotspots)})")
     dest.parent.mkdir(parents=True, exist_ok=True)
     con.execute(f"""
-        COPY ({' UNION ALL '.join(parts)} ORDER BY daynight, region_id, local_date)
+        COPY ({' UNION ALL '.join(parts)} ORDER BY hotspots, daynight, region_id, local_date)
         TO {quote(str(dest))} (FORMAT parquet, COMPRESSION zstd)
     """)
     return con.execute(f"SELECT count(*) FROM read_parquet({quote(str(dest))})").fetchone()[0]

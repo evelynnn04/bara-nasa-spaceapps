@@ -15,9 +15,17 @@ from app.main import app
 from .conftest import BALI, RIAU, day_row, write_dataset
 from .test_api import real
 
-#: VIIRS cell-days count sqrt(pixels) (k = 1); VIIRS FRP is halved (kf = 2).
-PARAMS = {"k_table": [{"region": g, "month": m, "k": 1.0} for g in GROUPS for m in range(1, 13)],
-          "frp": {"k_table": [{"region": g, "month": m, "k": 2.0} for g in GROUPS for m in range(1, 13)]}}
+def make_params(kf: float | None = 2.0) -> dict:
+    """Factors with every VIIRS hotspot counting 1 (k = 1) and VIIRS FRP halved (kf = 2), or no FRP
+    factors at all (kf None)."""
+    return {"k_table": [{"hotspots": h, "region": g, "month": m, "k_day": 1.0, "k_night": 1.0,
+                         "kf_day": kf, "kf_night": kf}
+                        for h in weights.HOTSPOTS for g in GROUPS for m in range(1, 13)]}
+
+
+PARAMS = make_params()
+#: Stand-in for the region cache, which the anomaly endpoint does not read.
+FAKE_CACHE = "CREATE TABLE region_daily (hotspots VARCHAR, aqua DOUBLE)"
 
 
 def test_upper_tail_score_matches_the_formula():
@@ -99,7 +107,7 @@ def dataset(tmp_path):
 @pytest.fixture
 def client(dataset):
     con = store.connect(PARAMS, dataset)
-    con.execute("CREATE TABLE region_daily (x INTEGER)")
+    con.execute(FAKE_CACHE)
     api.configure(con, PARAMS)
     yield TestClient(app)
     api.configure(None, None)
@@ -110,10 +118,10 @@ def test_area_record_uses_the_harmonised_record(client):
     assert body["baseline"]["years"] == [2009, 2010, 2011, 2012, 2013, 2014, 2016, 2017, 2018]
     assert "grids" not in body
     years = {y["year"]: y for y in body["area"]["years"]}
-    # Aqua years count one per active cell-day and keep their FRP; S-NPP years count sqrt(pixels)
+    # Aqua years count their hotspots and keep their FRP; S-NPP years count their hotspots (k = 1)
     # and halve their FRP. Riau's Aqua rows in 2015 are not part of the record.
     assert years[2010]["activity"] == 10 and years[2010]["frp_mw"] == pytest.approx(10 * 30.0)
-    assert years[2015]["activity"] == pytest.approx(10 * (5 ** 0.5 + 25 ** 0.5), abs=1e-3)
+    assert years[2015]["activity"] == pytest.approx(10 * (5 + 25), abs=1e-3)
     assert years[2015]["frp_mw"] == pytest.approx(10 * (8.0 + 200.0) / 2)
     assert [y["target"] for y in body["area"]["years"]].count(True) == 1
     assert body["area"]["label"] == "anomalous" and body["area"]["activity_at_ceiling"]
@@ -124,9 +132,9 @@ def test_grids_are_opt_in_and_flag_the_unusual_cell(client):
     grids = {g["grid_id"]: g for g in body["grids"]}
     riau = grids[anomaly.grid_id(*anomaly.grid_of(RIAU[0], RIAU[1]))]
     bali = grids[anomaly.grid_id(*anomaly.grid_of(BALI[0], BALI[1]))]
-    assert riau["activity"] == pytest.approx(50.0) and riau["frp_mw"] == pytest.approx(1000.0)
+    assert riau["activity"] == pytest.approx(250.0) and riau["frp_mw"] == pytest.approx(1000.0)
     assert riau["label"] == "anomalous" and riau["activity_at_ceiling"] and riau["sparse_history"]
-    assert "usually has no fire" in riau["disclaimer"] and "50.00 fire cell-days" in riau["disclaimer"]
+    assert "usually has no fire" in riau["disclaimer"] and "250.00 hotspots" in riau["disclaimer"]
     assert riau["environmental_context"]["province_id"] == "idn-riau" and riau["in_area_share"] == 1.0
     assert bali["label"] == "normal" and not bali["sparse_history"] and bali["disclaimer"] is None
     assert body["counts"]["anomalous"] == 1 and body["counts"]["normal"] == 1
@@ -175,33 +183,71 @@ def test_day_night_filter_applies_to_both_indicators(client):
         assert y_day["frp_mw"] + y_night["frp_mw"] == pytest.approx(y_all["frp_mw"], abs=0.2)
         assert y_day["activity"] <= y_all["activity"] and y_night["activity"] <= y_all["activity"]
     years = {y["year"]: y for y in night["area"]["years"]}
-    # Aqua's Bali pixels in 2009-2011 are all daytime, so those years have no night activity.
-    assert years[2010]["activity"] == 0 and years[2015]["activity"] == pytest.approx(10 * (1 + 5 ** 0.5), abs=1e-3)
+    # Aqua's Bali hotspots in 2009-2011 are all daytime, so those years have no night activity.
+    assert years[2010]["activity"] == 0 and years[2015]["activity"] == pytest.approx(10 * (1 + 5), abs=1e-3)
 
 
-def test_day_night_without_split_frp_asks_for_a_rebuild(dataset):
+def test_all_types_setting_counts_other_hotspots(tmp_path):
+    d = dt.date(2015, 9, 4)
+    celldays = [("viirs", "SNPP", d, BALI[0], BALI[1], 2, 1, 6.0, 3.0, 3, 0)]
+    root = write_dataset(tmp_path, celldays, september_days(range(2009, 2019)), [BALI])
+    con = store.connect(PARAMS, root)
+    b = anomaly.baseline(queries.day_flags(con), 2015, 9)
+    veg = anomaly.totals(con, b.windows)[None][2015]
+    every = anomaly.totals(con, b.windows, hotspots="all")[None][2015]
+    assert veg == (3.0, pytest.approx(3.0)) and every == (6.0, pytest.approx(4.5))
+
+
+def test_cells_with_only_other_hotspot_types_are_not_active_under_vegetation(tmp_path):
+    # Bali burns; a neighbouring cell of the same grid cell holds only a static source.
+    d = dt.date(2015, 9, 4)
+    flare = (BALI[0] + 1, BALI[1], "Java-Bali-NT", "idn-bali", "idn-bali-a")
+    celldays = [("viirs", "SNPP", d, BALI[0], BALI[1], 2, 1, 6.0, 3.0),
+                ("viirs", "SNPP", d, flare[0], flare[1], 0, 0, 0.0, 0.0, 5, 2)]
+    root = write_dataset(tmp_path, celldays, september_days(range(2009, 2019)), [BALI, flare])
+    con = store.connect(PARAMS, root)
+    flags = queries.day_flags(con)
+    b = anomaly.baseline(flags, 2015, 9)
+    anomaly.area_grids(con, "TRUE", "g")
+    grid = anomaly.grid_of(BALI[0], BALI[1])
+    assert anomaly.target_details(con, b, "g", "g_cells")[grid]["cells"] == 1
+    assert anomaly.target_details(con, b, "g", "g_cells", hotspots="all")[grid]["cells"] == 2
+
+
+def test_units_with_only_other_hotspot_types_are_left_out_of_the_evaluation(tmp_path):
+    d = dt.date(2015, 9, 4)
+    flare = (2400, -100, "Java-Bali-NT", "idn-bali", "idn-bali-b")
+    celldays = [("viirs", "SNPP", d, BALI[0], BALI[1], 2, 1, 6.0, 3.0),
+                ("viirs", "SNPP", d, flare[0], flare[1], 0, 0, 0.0, 0.0, 5, 2)]
+    root = write_dataset(tmp_path, celldays, september_days(range(2009, 2019)), [BALI, flare])
+    con = store.connect(PARAMS, root)
+    flags = queries.day_flags(con)
+    veg, every = (anomaly.evaluate(con, flags, "regency", h) for h in ("vegetation", "all"))
+    assert every["unit_months"] == 2 * veg["unit_months"]
+
+
+def test_cell_days_built_before_the_hotspot_unit_ask_for_a_rebuild(dataset):
     path = store.table_path("celldays", dataset)
     con = store.connect(PARAMS, dataset)
-    con.execute(f"COPY (SELECT * EXCLUDE (frp_day, frp_night) FROM celldays) TO '{dataset}/old.parquet' (FORMAT parquet)")
+    old = "EXCLUDE (n_day_all, n_night_all, frp_day_all, frp_night_all, frp_max_all)"
+    con.execute(f"COPY (SELECT * {old} FROM celldays) TO '{dataset}/old.parquet' (FORMAT parquet)")
     con.close()
     path.unlink()
     (dataset / "old.parquet").rename(path)
     con = store.connect(PARAMS, dataset)
-    con.execute("CREATE TABLE region_daily (x INTEGER)")
+    con.execute(FAKE_CACHE)
     api.configure(con, PARAMS)
     try:
-        c = TestClient(app)
-        assert c.get("/api/anomalies?year=2015&month=9").status_code == 200
-        res = c.get("/api/anomalies?year=2015&month=9&daynight=day")
+        res = TestClient(app).get("/api/anomalies?year=2015&month=9")
         assert res.status_code == 503 and "python -m app build" in res.json()["detail"]
     finally:
         api.configure(None, None)
 
 
 def test_missing_frp_factors_are_reported(dataset):
-    params = {"k_table": PARAMS["k_table"]}
+    params = make_params(kf=None)
     con = store.connect(params, dataset)
-    con.execute("CREATE TABLE region_daily (x INTEGER)")
+    con.execute(FAKE_CACHE)
     api.configure(con, params)
     try:
         res = TestClient(app).get("/api/anomalies?year=2015&month=9")

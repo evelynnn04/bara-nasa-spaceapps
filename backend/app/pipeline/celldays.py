@@ -1,10 +1,17 @@
 """Cell-day table and day-status table.
 
-`celldays.parquet`: one row per (sensor, platform, local day, 0.05° cell) holding the number of
-qualifying pixels by day and by night, and their fire radiative power (in all, by day and by night,
-and the highest pixel). A pixel qualifies when it is
-a presumed vegetation fire (`type = 0`), or has no type yet (near-real-time) and does not fall on
-the static-source mask. All confidence classes count; exact duplicates were removed earlier.
+`celldays.parquet`: one row per (sensor, platform, local day, 0.05° cell) with at least one
+hotspot, holding hotspot counts and fire radiative power by day and by night for both hotspot type
+settings:
+
+- `n_day`, `n_night`, `frp_day`, `frp_night`, `frp_max`: presumed vegetation fires. A hotspot
+  counts when it is typed as a vegetation fire (`type = 0`), or has no type yet (near-real-time)
+  and does not fall on the static-source mask;
+- `n_day_all`, `n_night_all`, `frp_day_all`, `frp_night_all`, `frp_max_all`: every hotspot,
+  whatever its type.
+
+`frp_max` is the highest hotspot fire radiative power. All confidence classes count; exact
+duplicates were removed earlier.
 
 `days.parquet`: one row per local day saying which satellites observed Indonesia.
 
@@ -58,27 +65,30 @@ def cell_expr(grid: float = config.GRID) -> tuple[str, str]:
 
 
 def qualifying_sql(alias: str = "d") -> str:
-    """Condition for a qualifying pixel, given a LEFT JOIN of the static mask as `m`."""
+    """Condition for a presumed vegetation fire, given a LEFT JOIN of the static mask as `m`."""
     return f"({alias}.type = 0 OR ({alias}.type IS NULL AND m.mx IS NULL))"
 
 
 def build_celldays(con: duckdb.DuckDBPyConnection, detections: str, mask: str, dest: Path) -> int:
-    """Aggregates qualifying detections into cell-days; returns the row count."""
+    """Aggregates detections into cell-days with counts and FRP for both hotspot type settings;
+    returns the row count."""
     cx, cy = cell_expr()
+    frp = "CASE WHEN d.frp > 0 THEN CAST(d.frp AS DOUBLE) ELSE 0 END"
+    cols = []
+    for sfx, only in (("", qualifying_sql()), ("_all", "TRUE")):
+        for half, flag in (("day", "D"), ("night", "N")):
+            cols.append(f"CAST(count(*) FILTER (WHERE d.daynight = '{flag}' AND {only}) AS INTEGER) AS n_{half}{sfx}")
+        for half, flag in (("day", "D"), ("night", "N")):
+            cols.append(f"coalesce(sum({frp}) FILTER (WHERE d.daynight = '{flag}' AND {only}), 0) AS frp_{half}{sfx}")
+        cols.append(f"coalesce(max({frp}) FILTER (WHERE {only}), 0) AS frp_max{sfx}")
     dest.parent.mkdir(parents=True, exist_ok=True)
     con.execute(f"""
         COPY (
             SELECT d.sensor, d.platform, d.local_date, {cx} AS cx, {cy} AS cy,
-                   CAST(count(*) FILTER (WHERE d.daynight = 'D') AS INTEGER) AS n_day,
-                   CAST(count(*) FILTER (WHERE d.daynight = 'N') AS INTEGER) AS n_night,
-                   sum(CASE WHEN d.frp > 0 THEN CAST(d.frp AS DOUBLE) ELSE 0 END) AS frp_sum,
-                   max(CASE WHEN d.frp > 0 THEN CAST(d.frp AS DOUBLE) ELSE 0 END) AS frp_max,
-                   sum(CASE WHEN d.frp > 0 AND d.daynight = 'D' THEN CAST(d.frp AS DOUBLE) ELSE 0 END) AS frp_day,
-                   sum(CASE WHEN d.frp > 0 AND d.daynight = 'N' THEN CAST(d.frp AS DOUBLE) ELSE 0 END) AS frp_night
+                   {", ".join(cols)}
             FROM read_parquet({quote(detections)}) d
             LEFT JOIN read_parquet({quote(mask)}) m
               ON m.mx = CAST(floor(d.lon / {MASK_RES}) AS INTEGER) AND m.my = CAST(floor(d.lat / {MASK_RES}) AS INTEGER)
-            WHERE {qualifying_sql()}
             GROUP BY ALL
             ORDER BY local_date, platform, cx, cy
         ) TO {quote(str(dest))} (FORMAT parquet, COMPRESSION zstd)

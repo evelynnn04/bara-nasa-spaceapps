@@ -5,12 +5,13 @@ The method (see `docs/anomaly.md`):
 
 1. **Record.** The harmonised MODIS-VIIRS record: Aqua MODIS from 4 July 2002, the day's VIIRS
    reference satellite from 1 February 2012. Two indicators, both MODIS-equivalent:
-   - **activity**, in fire cell-days (`weights.weight_sql`): a MODIS cell-day counts 1, a VIIRS
-     cell-day `sqrt(pixels) / k[island group, month]`;
+   - **activity**, in hotspots (`weights.weight_sql`): an Aqua hotspot counts 1, a VIIRS hotspot
+     `1 / k_d[island group, month]` for its half of the day `d`;
    - **FRP**, summed fire radiative power in MW (`weights.frp_sql`): Aqua FRP as it is, VIIRS FRP
-     divided by `kf[island group, month]`.
-   Pixels qualify as everywhere else (presumed vegetation fires, static thermal sources removed). A
-   day the record's satellite did not observe Indonesia is missing, never zero.
+     of each half divided by `kf_d[island group, month]`.
+   Hotspots follow the hotspot type setting as everywhere else (`vegetation`: presumed vegetation
+   fires, static thermal sources removed; `all`: every hotspot). A day the record's satellite did
+   not observe Indonesia is missing, never zero.
 2. **Units.** A selected area (summed over its own 0.05° cells), or on request 0.25° grid cells
    (`gx = floor(lon / 0.25)`, `gy = floor(lat / 0.25)`).
 3. **Baseline.** The month is summed over days 1 to D, where D is the month's length, or the last
@@ -66,27 +67,15 @@ PRODUCT = ("Harmonised MODIS-VIIRS record: Aqua MODIS from 4 July 2002, the VIIR
            "(S-NPP, else NOAA-20, else NOAA-21) from 1 February 2012, in MODIS-equivalent units")
 GRANULARITY = "calendar_month"
 CALIBRATION = "uncalibrated"
-SCREENING = ("Presumed vegetation fires only (FIRMS type 0); untyped near-real-time pixels on the static-source "
-             "mask (volcanoes, gas flares, industry) removed.")
+SCREENING = {
+    "vegetation": ("Presumed vegetation fires only (FIRMS type 0); untyped near-real-time hotspots on the "
+                   "static-source mask (volcanoes, gas flares, industry) removed."),
+    "all": "Every hotspot type, including volcanoes, gas flares and other static sources.",
+}
 
 
 class MissingFactors(RuntimeError):
     """The parameters hold no FRP factors (`python -m app fit` predates them)."""
-
-
-class MissingColumns(RuntimeError):
-    """The cell-day table has no day and night FRP (`python -m app build` predates them)."""
-
-
-def check_daynight(con: duckdb.DuckDBPyConnection, daynight: str) -> None:
-    """Raises MissingColumns when a day or night filter needs FRP columns the cell-day table lacks."""
-    if daynight == "all":
-        return
-    cols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns "
-                                      "WHERE table_name = 'celldays'").fetchall()}
-    if weights.FRP_COLUMN[daynight] not in cols:
-        raise MissingColumns("The cell-day table has no day and night fire radiative power. "
-                             "Run `python -m app build` and `python -m app cache` again.")
 
 
 def grid_of(cx: int, cy: int) -> tuple[int, int]:
@@ -289,12 +278,12 @@ def year_baselines(flags: list[tuple], year: int, reference: str = "other") -> l
 
 
 def month_totals(con: duckdb.DuckDBPyConnection, baselines: list[tuple[int, Baseline]], where: str = "TRUE",
-                 daynight: str = "all") -> dict[int, dict[int, tuple[float, float]]]:
+                 daynight: str = "all", hotspots: str = "vegetation") -> dict[int, dict[int, tuple[float, float]]]:
     """{month: {year: (activity, frp)}} for the days 1 to D of each baseline's month, in every year,
     in one query. Years a baseline does not use are returned too and left out by `record`."""
     days = " OR ".join(f"(month(c.local_date) = {m} AND day(c.local_date) <= {b.target.end.day})"
                        for m, b in baselines)
-    return totals(con, None, f"({days}) AND ({where})", "month(c.local_date)", daynight)
+    return totals(con, None, f"({days}) AND ({where})", "month(c.local_date)", daynight, hotspots)
 
 
 def _window_filter(windows: list[Window]) -> str:
@@ -305,7 +294,7 @@ def _window_filter(windows: list[Window]) -> str:
 
 
 def totals(con: duckdb.DuckDBPyConnection, windows: list[Window] | None, where: str = "TRUE",
-           group: str | None = None, daynight: str = "all") -> dict:
+           group: str | None = None, daynight: str = "all", hotspots: str = "vegetation") -> dict:
     """{unit: {year: (activity, frp)}} over the given windows of the harmonised record (every day
     `where` allows when `windows` is None).
 
@@ -314,9 +303,9 @@ def totals(con: duckdb.DuckDBPyConnection, windows: list[Window] | None, where: 
     filter, both indicators count only that half of the day."""
     gsel = f"{group}" if group else "NULL"
     rows = con.execute(f"""
-        SELECT {gsel} AS g, year(c.local_date) AS y, sum({weights.weight_sql(daynight)}),
-               sum({weights.frp_sql(daynight)})
-        FROM ({weights.record_sql(f"({_window_filter(windows) if windows else 'TRUE'}) AND ({where})")}) c
+        SELECT {gsel} AS g, year(c.local_date) AS y, sum({weights.weight_sql(daynight, hotspots)}),
+               sum({weights.frp_sql(daynight, hotspots)})
+        FROM ({weights.record_sql(f"({_window_filter(windows) if windows else 'TRUE'}) AND ({where})", hotspots)}) c
         GROUP BY ALL
     """).fetchall()
     out: dict = defaultdict(dict)
@@ -341,31 +330,33 @@ def area_grids(con: duckdb.DuckDBPyConnection, area_where: str, name: str = "agr
     con.execute(f"CREATE OR REPLACE TEMP TABLE {name} AS SELECT DISTINCT {gx} AS gx, {gy} AS gy FROM {name}_cells c")
 
 
-def grid_totals(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str, daynight: str = "all") -> dict:
+def grid_totals(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str, daynight: str = "all",
+                hotspots: str = "vegetation") -> dict:
     """{(gx, gy): {year: (activity, frp)}} for the grid cells in `grids_table(gx, gy)`."""
     gx, gy = grid_sql()
     return totals(con, b.windows, f"({gx}, {gy}) IN (SELECT gx, gy FROM {grids_table})", f"[{gx}, {gy}]",
-                  daynight)
+                  daynight, hotspots)
 
 
 def target_details(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str, cells_table: str,
-                   daynight: str = "all") -> dict:
+                   daynight: str = "all", hotspots: str = "vegetation") -> dict:
     """Per grid cell active in the target window: activity inside the selected area, the night share
-    of its pixels (of all pixels, whatever the filter), highest pixel FRP, active 0.05° cells and the
-    main island group, province and city/regency."""
+    of its hotspots (of all hotspots, whatever the filter), highest hotspot FRP, active 0.05° cells
+    and the main island group, province and city/regency."""
     gx, gy = grid_sql()
-    w, n = weights.weight_sql(daynight), weights.pixels_sql("all")
+    w, n = weights.weight_sql(daynight, hotspots), weights.hotspots_sql("all", hotspots)
+    night, frp_max = weights.hotspots_sql("night", hotspots), f"c.frp_max{weights.HOTSPOTS[hotspots]}"
     where = (f"c.local_date BETWEEN DATE '{b.target.start}' AND DATE '{b.target.end}' "
              f"AND ({gx}, {gy}) IN (SELECT gx, gy FROM {grids_table})")
     rows = con.execute(f"""
         SELECT {gx} AS gx, {gy} AS gy,
                sum({w}) FILTER (WHERE (c.cx, c.cy) IN (SELECT cx, cy FROM {cells_table})) AS in_area,
-               sum(c.n_night) / sum({n}) AS night_share, max(c.frp_max) AS frp_max,
+               sum({night}) / sum({n}) AS night_share, max({frp_max}) AS frp_max,
                count(DISTINCT (c.cx, c.cy)) AS cells,
                arg_max(c.island_group, {w}) AS island_group,
                arg_max(c.province_id, {w}) AS province_id,
                arg_max(c.regency_id, {w}) AS regency_id
-        FROM ({weights.record_sql(where)}) c
+        FROM ({weights.record_sql(where, hotspots)}) c
         GROUP BY ALL
     """).fetchall()
     return {(r[0], r[1]): {"in_area": float(r[2] or 0), "night_share": r[3], "frp_max": float(r[4] or 0),
@@ -376,10 +367,10 @@ def target_details(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str
 # --- records ---------------------------------------------------------------------------------------
 
 
-def sparse_disclaimer(n: int, activity: float) -> str:
+def sparse_disclaimer(n: int, activity: float, unit: str = "hotspots") -> str:
     """Caution shown with an alert in a unit that usually has no fire in the month."""
     return (f"This place usually has no fire in this month (none in at least half of the {n} reference years). "
-            f"Only {activity:.2f} fire cell-days already rank above most of those years, so the label reflects a few "
+            f"Only {activity:.2f} {unit} already rank above most of those years, so the label reflects a few "
             "detections in a normally empty place, not a large fire.")
 
 
@@ -421,7 +412,7 @@ def _rounded(d: dict) -> dict:
     return {k: (v if k == "n" else _r(v, 3)) for k, v in d.items()}
 
 
-def data_quality(b: Baseline) -> dict:
+def data_quality(b: Baseline, hotspots: str = "vegetation") -> dict:
     """Observation completeness of the target window, shared by every record of a response."""
     t = b.target
     flags = []
@@ -435,7 +426,7 @@ def data_quality(b: Baseline) -> dict:
         flags.append("limited_resolution")
     return {"observed_days": t.observed, "window_days": t.days, "coverage": round(t.coverage, 3),
             "platform_days": t.platforms, "provisional": b.provisional, "flags": flags,
-            "screening": SCREENING,
+            "screening": SCREENING[hotspots],
             "coverage_note": "Coverage counts days the satellite observed Indonesia; cloud cover over a single place "
                              "is not known and can hide fires."}
 
@@ -450,7 +441,8 @@ EVAL_UNITS = {
 }
 
 
-def evaluate(con: duckdb.DuckDBPyConnection, flags: list[tuple], unit: str = "province") -> dict:
+def evaluate(con: duckdb.DuckDBPyConnection, flags: list[tuple], unit: str = "province",
+             hotspots: str = "vegetation") -> dict:
     """Leave-one-year-out alert rates over complete months, for one kind of unit.
 
     Every complete calendar month of every year is scored against the same month of all other
@@ -471,7 +463,7 @@ def evaluate(con: duckdb.DuckDBPyConnection, flags: list[tuple], unit: str = "pr
         b = baseline(flags, last.year if month_end <= last else last.year - 1, month)
         windows = b.windows if b.target.coverage >= MIN_COVERAGE else b.reference
         years = [w.year for w in windows]
-        units = totals(con, windows, where, group)
+        units = totals(con, windows, where, group, hotspots=hotspots)
         month_counts: dict[str, int] = defaultdict(int)
         for values in units.values():
             for y in years:
@@ -494,7 +486,7 @@ def evaluate(con: duckdb.DuckDBPyConnection, flags: list[tuple], unit: str = "pr
         return {k: round(c[k] / n, 4) if n else None for k in (*LABELS, INSUFFICIENT)}
 
     return {
-        "unit": unit, "unit_months": total,
+        "unit": unit, "hotspots": hotspots, "unit_months": total,
         "nominal_at_or_above": {name: round(1 - lower, 2) for name, lower in THRESHOLDS},
         "indicators": {ix: {"all": shares(counts[ix], total),
                             "active": shares(active[ix], sum(active[ix].values())),
