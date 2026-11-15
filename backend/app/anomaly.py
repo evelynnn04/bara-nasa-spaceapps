@@ -1,28 +1,29 @@
-"""Fire activity anomalies: how unusual a month's fire activity is in a 0.25° grid cell, compared
-with the same calendar month in other years.
+"""Fire activity anomalies: how unusual a month's fire activity is in an area, compared with the
+same calendar month in other years of the harmonised record.
 
 The method (see `docs/anomaly.md`):
 
-1. **Product.** One consistent product: qualifying VIIRS 375 m pixels of the day's reference
-   satellite (S-NPP, else NOAA-20, else NOAA-21) from the splice (1 February 2012) on. The
-   qualifying rule is the cell-day table's: presumed vegetation fires, static thermal sources
-   removed. A day the reference satellite did not observe Indonesia is missing, never zero.
-2. **Grid.** Fixed 0.25° cells (`gx = floor(lon / 0.25)`, `gy = floor(lat / 0.25)`), each the sum
-   of 5 x 5 cells of the 0.05° cell-day table. Per grid cell and local day: the hotspot count (FC,
-   qualifying pixels) and summed fire radiative power (FRP, MW).
+1. **Record.** The harmonised MODIS-VIIRS record: Aqua MODIS from 4 July 2002, the day's VIIRS
+   reference satellite from 1 February 2012. Two indicators, both MODIS-equivalent:
+   - **activity**, in fire cell-days (`weights.weight_sql`): a MODIS cell-day counts 1, a VIIRS
+     cell-day `sqrt(pixels) / k[island group, month]`;
+   - **FRP**, summed fire radiative power in MW (`weights.frp_sql`): Aqua FRP as it is, VIIRS FRP
+     divided by `kf[island group, month]`.
+   Pixels qualify as everywhere else (presumed vegetation fires, static thermal sources removed). A
+   day the record's satellite did not observe Indonesia is missing, never zero.
+2. **Units.** A selected area (summed over its own 0.05° cells), or on request 0.25° grid cells
+   (`gx = floor(lon / 0.25)`, `gy = floor(lat / 0.25)`).
 3. **Baseline.** The month is summed over days 1 to D, where D is the month's length, or the last
    data day for the unfinished current month. Every other year (or, with `reference=prior`, every
    earlier year) contributes the same days of the same calendar month when its satellite observed at
    least `MIN_COVERAGE` of them.
 4. **Score.** For observation x and the n reference values X_j of one indicator,
-   `p_upper = (1 + #{X_j >= x}) / (n + 1)` and `A = 1 - p_upper`, computed for FC and FRP
-   independently.
+   `p_upper = (1 + #{X_j >= x}) / (n + 1)` and `A = 1 - p_upper`, per indicator.
 5. **Label.** `A` below 0.80 is normal, from 0.80 elevated, from 0.90 anomalous, from 0.97 extreme.
    The highest attainable score is n / (n + 1), so with too few reference years some labels cannot
    be reached; the response says which, and a score at that ceiling is a lower bound. Below
    `MIN_REFERENCE` years no label is given at all. A unit whose reference median is zero is flagged
-   `sparse_history`, and an alert there carries a `disclaimer`: a few hotspots already rank above
-   every reference year.
+   `sparse_history`, and an alert there carries a `disclaimer`.
 
 The thresholds are provisional and uncalibrated; `evaluate` measures how often each label fires
 when every year is held out in turn.
@@ -49,7 +50,7 @@ GRID_CELLS = round(GRID_DEG / config.GRID)
 MIN_COVERAGE = 0.9
 
 #: Lower score bound of each label, highest first. Adapted from the 80th, 90th and 97th percentile
-#: classes of the Severe Fire Danger Index; not validated for hotspot counts or FRP.
+#: classes of the Severe Fire Danger Index; not validated for fire activity or FRP.
 THRESHOLDS = (("extreme", 0.97), ("anomalous", 0.90), ("elevated", 0.80))
 LABELS = ("normal", "elevated", "anomalous", "extreme")
 RANK = {name: i for i, name in enumerate(LABELS)}
@@ -58,13 +59,19 @@ INSUFFICIENT = "insufficient_baseline"
 #: Fewest reference values with which the lowest alert label (0.80) can be reached: n / (n + 1) >= 0.80.
 MIN_REFERENCE = 4
 
-PRODUCT = "VIIRS 375 m active fire, reference satellite of the day (S-NPP, else NOAA-20, else NOAA-21)"
+#: Indicator names, in the order of the value tuples.
+INDICATORS = ("activity", "frp")
+
+PRODUCT = ("Harmonised MODIS-VIIRS record: Aqua MODIS from 4 July 2002, the VIIRS reference satellite "
+           "(S-NPP, else NOAA-20, else NOAA-21) from 1 February 2012, in MODIS-equivalent units")
 GRANULARITY = "calendar_month"
 CALIBRATION = "uncalibrated"
 SCREENING = ("Presumed vegetation fires only (FIRMS type 0); untyped near-real-time pixels on the static-source "
              "mask (volcanoes, gas flares, industry) removed.")
 
-INDICATORS = ("hotspot", "frp")
+
+class MissingFactors(RuntimeError):
+    """The parameters hold no FRP factors (`python -m app fit` predates them)."""
 
 
 def grid_of(cx: int, cy: int) -> tuple[int, int]:
@@ -86,29 +93,6 @@ def grid_sql(c: str = "c") -> tuple[str, str]:
     """SQL for the grid indices of a 0.05° cell relation `c`."""
     return (f"CAST(floor({c}.cx / {GRID_CELLS}.0) AS INTEGER)",
             f"CAST(floor({c}.cy / {GRID_CELLS}.0) AS INTEGER)")
-
-
-def grid_daily_sql(where: str = "TRUE") -> str:
-    """Daily hotspot count and summed FRP per 0.25° grid cell over the VIIRS reference record.
-
-    Columns: `gx`, `gy`, `local_date`, `platform`, `fc`, `fc_night`, `frp`, `frp_max`, `cells`
-    (active 0.05° cells). `where` filters observation rows (aliases `c`, `d`, `k`)."""
-    gx, gy = grid_sql()
-    n = weights.pixels_sql("all")
-    return f"""
-        SELECT {gx} AS gx, {gy} AS gy, c.local_date, c.platform,
-               sum({n}) AS fc, sum(c.n_night) AS fc_night, sum(c.frp_sum) AS frp, max(c.frp_max) AS frp_max,
-               count(*) AS cells
-        FROM ({record_sql(where)}) c
-        GROUP BY ALL
-    """
-
-
-def record_sql(where: str = "TRUE") -> str:
-    """Observation rows of the VIIRS reference record from the splice on."""
-    return weights.observations_sql(
-        f"c.platform = d.record_platform AND c.sensor = 'viirs' AND c.local_date >= DATE '{config.SPLICE}' "
-        f"AND ({where})")
 
 
 # --- scoring ---------------------------------------------------------------------------------------
@@ -178,16 +162,16 @@ def assess(x: float, reference: list[float]) -> dict:
     return {"score": score, "label": label_of(score), "at_ceiling": capped}
 
 
-def combine(hotspot: dict, frp: dict) -> tuple[str, str]:
+def combine(activity: dict, frp: dict) -> tuple[str, str]:
     """Headline label (the higher of the two) and the indicator that sets it (`both` on a tie)."""
-    if hotspot["label"] == INSUFFICIENT:
+    if activity["label"] == INSUFFICIENT:
         return INSUFFICIENT, "both"
-    rh, rf = RANK[hotspot["label"]], RANK[frp["label"]]
-    if rh != rf:
-        return (hotspot["label"], "hotspot") if rh > rf else (frp["label"], "frp")
-    if hotspot["score"] == frp["score"]:
-        return hotspot["label"], "both"
-    return hotspot["label"], "hotspot" if hotspot["score"] > frp["score"] else "frp"
+    ra, rf = RANK[activity["label"]], RANK[frp["label"]]
+    if ra != rf:
+        return (activity["label"], "activity") if ra > rf else (frp["label"], "frp")
+    if activity["score"] == frp["score"]:
+        return activity["label"], "both"
+    return activity["label"], "activity" if activity["score"] > frp["score"] else "frp"
 
 
 # --- windows and reference years ------------------------------------------------------------------
@@ -225,6 +209,10 @@ class Baseline:
     def years(self) -> list[int]:
         return [w.year for w in self.reference]
 
+    @property
+    def windows(self) -> list[Window]:
+        return [self.target, *self.reference]
+
 
 def window(platform_of: dict[dt.date, str | None], year: int, month: int, last_dom: int) -> Window:
     """Days 1 to `last_dom` (clipped to the month) of a month and how many of them were observed."""
@@ -245,22 +233,20 @@ def window(platform_of: dict[dt.date, str | None], year: int, month: int, last_d
 def baseline(flags: list[tuple], year: int, month: int, reference: str = "other") -> Baseline:
     """Target and reference windows of a month, from the day flags of `queries.day_flags`.
 
-    Raises ValueError when the month lies outside the VIIRS reference record."""
-    platform_of = {d: p for d, p, _ in flags if d >= config.SPLICE}
+    Raises ValueError when the month lies outside the harmonised record."""
+    platform_of = {d: p for d, p, _ in flags}
+    start = max(config.AQUA_START, flags[0][0])
+    first = dt.date(start.year, start.month, 1)
     last = flags[-1][0]
-    start = dt.date(year, month, 1)
-    if start < config.SPLICE or start > last:
-        raise ValueError(f"{year}-{month:02d} is outside the VIIRS record "
-                         f"({config.SPLICE:%Y-%m} to {last:%Y-%m})")
+    if dt.date(year, month, 1) < first or dt.date(year, month, 1) > last:
+        raise ValueError(f"{year}-{month:02d} is outside the harmonised record ({first:%Y-%m} to {last:%Y-%m})")
     month_end = dt.date(year, month, calendar.monthrange(year, month)[1])
     provisional = month_end > last
     last_dom = last.day if provisional else month_end.day
     target = window(platform_of, year, month, last_dom)
     ref, excluded = [], []
-    for y in range(config.SPLICE.year, last.year + 1):
-        if y == year or (reference == "prior" and y > year):
-            continue
-        if dt.date(y, month, 1) < config.SPLICE:
+    for y in range(first.year, last.year + 1):
+        if y == year or (reference == "prior" and y > year) or dt.date(y, month, 1) < first:
             continue
         w = window(platform_of, y, month, last_dom)
         if w.end > last:
@@ -279,43 +265,24 @@ def _window_filter(windows: list[Window]) -> str:
 # --- queries ---------------------------------------------------------------------------------------
 
 
-def monthly_grids(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str) -> dict:
-    """Per grid cell in `grids_table(gx, gy)`: {year: (fc, frp)} over the target and reference windows."""
-    windows = [b.target, *b.reference]
-    gx, gy = grid_sql()
-    where = f"({_window_filter(windows)}) AND ({gx}, {gy}) IN (SELECT gx, gy FROM {grids_table})"
+def totals(con: duckdb.DuckDBPyConnection, windows: list[Window], where: str = "TRUE",
+           group: str | None = None) -> dict:
+    """{unit: {year: (activity, frp)}} over the given windows of the harmonised record.
+
+    `where` filters observation rows (aliases `c`, `d`, `k`); `group` is an expression over the
+    record relation `c` naming the unit (one unit, key None, without it)."""
+    gsel = f"{group}" if group else "NULL"
     rows = con.execute(f"""
-        SELECT gx, gy, year(local_date) AS y, sum(fc), sum(frp) FROM ({grid_daily_sql(where)})
+        SELECT {gsel} AS g, year(c.local_date) AS y, sum({weights.weight_sql('all')}), sum({weights.frp_sql()})
+        FROM ({weights.record_sql(f"({_window_filter(windows)}) AND ({where})")}) c
         GROUP BY ALL
     """).fetchall()
-    out: dict[tuple[int, int], dict[int, tuple[float, float]]] = defaultdict(dict)
-    for x, y, yr, fc, frp in rows:
-        out[(x, y)][yr] = (float(fc), float(frp))
+    out: dict = defaultdict(dict)
+    for g, y, activity, frp in rows:
+        if frp is None:
+            raise MissingFactors("The FRP factors are missing. Run `python -m app fit` first.")
+        out[tuple(g) if isinstance(g, list) else g][y] = (float(activity), float(frp))
     return out
-
-
-def target_details(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str, cells_table: str) -> dict:
-    """Per grid cell active in the target window: hotspots and FRP inside the selected area, night
-    hotspots, highest pixel FRP, active 0.05° cells and the main island group, province and
-    city/regency."""
-    gx, gy = grid_sql()
-    where = (f"c.local_date BETWEEN DATE '{b.target.start}' AND DATE '{b.target.end}' "
-             f"AND ({gx}, {gy}) IN (SELECT gx, gy FROM {grids_table})")
-    n = weights.pixels_sql("all")
-    rows = con.execute(f"""
-        SELECT {gx} AS gx, {gy} AS gy,
-               sum({n}) FILTER (WHERE (c.cx, c.cy) IN (SELECT cx, cy FROM {cells_table})) AS fc_in,
-               sum(c.n_night) AS fc_night, max(c.frp_max) AS frp_max,
-               count(DISTINCT (c.cx, c.cy)) AS cells,
-               arg_max(c.island_group, {n}) AS island_group,
-               arg_max(c.province_id, {n}) AS province_id,
-               arg_max(c.regency_id, {n}) AS regency_id
-        FROM ({record_sql(where)}) c
-        GROUP BY ALL
-    """).fetchall()
-    return {(r[0], r[1]): {"fc_in": float(r[2] or 0), "fc_night": float(r[3] or 0), "frp_max": float(r[4] or 0),
-                           "cells": int(r[5]), "island_group": r[6], "province_id": r[7], "regency_id": r[8]}
-            for r in rows}
 
 
 def area_grids(con: duckdb.DuckDBPyConnection, area_where: str, name: str = "agrid") -> None:
@@ -332,51 +299,72 @@ def area_grids(con: duckdb.DuckDBPyConnection, area_where: str, name: str = "agr
     con.execute(f"CREATE OR REPLACE TEMP TABLE {name} AS SELECT DISTINCT {gx} AS gx, {gy} AS gy FROM {name}_cells c")
 
 
-def area_totals(con: duckdb.DuckDBPyConnection, b: Baseline, cells_table: str) -> dict[int, tuple[float, float]]:
-    """{year: (fc, frp)} for the cells in `cells_table(cx, cy)` over the target and reference windows."""
-    n = weights.pixels_sql("all")
-    where = f"({_window_filter([b.target, *b.reference])}) AND (c.cx, c.cy) IN (SELECT cx, cy FROM {cells_table})"
+def grid_totals(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str) -> dict:
+    """{(gx, gy): {year: (activity, frp)}} for the grid cells in `grids_table(gx, gy)`."""
+    gx, gy = grid_sql()
+    return totals(con, b.windows, f"({gx}, {gy}) IN (SELECT gx, gy FROM {grids_table})", f"[{gx}, {gy}]")
+
+
+def target_details(con: duckdb.DuckDBPyConnection, b: Baseline, grids_table: str, cells_table: str) -> dict:
+    """Per grid cell active in the target window: activity inside the selected area, the night share
+    of its pixels, highest pixel FRP, active 0.05° cells and the main island group, province and
+    city/regency."""
+    gx, gy = grid_sql()
+    w, n = weights.weight_sql("all"), weights.pixels_sql("all")
+    where = (f"c.local_date BETWEEN DATE '{b.target.start}' AND DATE '{b.target.end}' "
+             f"AND ({gx}, {gy}) IN (SELECT gx, gy FROM {grids_table})")
     rows = con.execute(f"""
-        SELECT year(c.local_date), sum({n}), sum(c.frp_sum) FROM ({record_sql(where)}) c GROUP BY 1
+        SELECT {gx} AS gx, {gy} AS gy,
+               sum({w}) FILTER (WHERE (c.cx, c.cy) IN (SELECT cx, cy FROM {cells_table})) AS in_area,
+               sum(c.n_night) / sum({n}) AS night_share, max(c.frp_max) AS frp_max,
+               count(DISTINCT (c.cx, c.cy)) AS cells,
+               arg_max(c.island_group, {w}) AS island_group,
+               arg_max(c.province_id, {w}) AS province_id,
+               arg_max(c.regency_id, {w}) AS regency_id
+        FROM ({weights.record_sql(where)}) c
+        GROUP BY ALL
     """).fetchall()
-    return {r[0]: (float(r[1]), float(r[2])) for r in rows}
+    return {(r[0], r[1]): {"in_area": float(r[2] or 0), "night_share": r[3], "frp_max": float(r[4] or 0),
+                           "cells": int(r[5]), "island_group": r[6], "province_id": r[7], "regency_id": r[8]}
+            for r in rows}
 
 
 # --- records ---------------------------------------------------------------------------------------
 
 
-def sparse_disclaimer(n: int, hotspots: int) -> str:
+def sparse_disclaimer(n: int, activity: float) -> str:
     """Caution shown with an alert in a unit that usually has no fire in the month."""
-    return (f"This place usually has no fire in this month (no hotspots in at least half of the {n} reference "
-            f"years). Only {hotspots} hotspot{'s' if hotspots != 1 else ''} already rank above most of those years, "
-            "so the label reflects a few detections in a normally empty place, not a large fire.")
+    return (f"This place usually has no fire in this month (none in at least half of the {n} reference years). "
+            f"Only {activity:.2f} fire cell-days already rank above most of those years, so the label reflects a few "
+            "detections in a normally empty place, not a large fire.")
 
 
 def record(values: dict[int, tuple[float, float]], b: Baseline, years: bool = False) -> dict:
-    """The anomaly record of one unit (grid cell or area) from its yearly window totals.
+    """The anomaly record of one unit (area or grid cell) from its yearly window totals.
 
     `disclaimer` is set when an alert comes from a unit whose reference median is zero. With
     `years`, `years` lists the window totals of the target and every reference year, oldest first,
     for charts."""
-    fc, frp = values.get(b.target.year, (0.0, 0.0))
-    ref_fc = [values.get(y, (0.0, 0.0))[0] for y in b.years]
-    ref_frp = [values.get(y, (0.0, 0.0))[1] for y in b.years]
-    h, f = assess(fc, ref_fc), assess(frp, ref_frp)
-    label, dominant = combine(h, f)
-    sparse = bool(ref_fc) and quantile(sorted(ref_fc), 0.5) == 0
+    zero = (0.0, 0.0)
+    activity, frp = values.get(b.target.year, zero)
+    ref = [values.get(y, zero) for y in b.years]
+    ref_a, ref_f = [v[0] for v in ref], [v[1] for v in ref]
+    a, f = assess(activity, ref_a), assess(frp, ref_f)
+    label, dominant = combine(a, f)
+    sparse = bool(ref_a) and quantile(sorted(ref_a), 0.5) == 0
     out = {
-        "hotspot_count": int(round(fc)), "summed_frp_mw": round(frp, 1),
-        "hotspot_score": _r(h["score"]), "frp_score": _r(f["score"]),
-        "hotspot_label": h["label"], "frp_label": f["label"],
-        "hotspot_at_ceiling": h["at_ceiling"], "frp_at_ceiling": f["at_ceiling"],
+        "activity": round(activity, 3), "frp_mw": round(frp, 1),
+        "activity_score": _r(a["score"]), "frp_score": _r(f["score"]),
+        "activity_label": a["label"], "frp_label": f["label"],
+        "activity_at_ceiling": a["at_ceiling"], "frp_at_ceiling": f["at_ceiling"],
         "label": label, "dominant_indicator": dominant,
         "sparse_history": sparse,
-        "disclaimer": sparse_disclaimer(len(ref_fc), int(round(fc))) if sparse and RANK.get(label, 0) > 0 else None,
-        "history": {"hotspot": _rounded(summary(ref_fc)), "frp": _rounded(summary(ref_frp))},
+        "disclaimer": sparse_disclaimer(len(ref_a), activity) if sparse and RANK.get(label, 0) > 0 else None,
+        "history": {"activity": _rounded(summary(ref_a)), "frp": _rounded(summary(ref_f))},
     }
     if years:
-        out["years"] = [{"year": y, "hotspot_count": int(round(values.get(y, (0.0, 0.0))[0])),
-                         "summed_frp_mw": round(values.get(y, (0.0, 0.0))[1], 1), "target": y == b.target.year}
+        out["years"] = [{"year": y, "activity": round(values.get(y, zero)[0], 3),
+                         "frp_mw": round(values.get(y, zero)[1], 1), "target": y == b.target.year}
                         for y in sorted([b.target.year, *b.years])]
     return out
 
@@ -404,67 +392,69 @@ def data_quality(b: Baseline) -> dict:
     return {"observed_days": t.observed, "window_days": t.days, "coverage": round(t.coverage, 3),
             "platform_days": t.platforms, "provisional": b.provisional, "flags": flags,
             "screening": SCREENING,
-            "coverage_note": "Coverage counts days the satellite observed Indonesia; cloud cover over a single grid "
-                             "cell is not known and can hide fires."}
+            "coverage_note": "Coverage counts days the satellite observed Indonesia; cloud cover over a single place "
+                             "is not known and can hide fires."}
 
 
 # --- evaluation ------------------------------------------------------------------------------------
 
+#: Units `evaluate` can score: (group expression over the record relation, observation filter).
+EVAL_UNITS = {
+    "province": ("c.province_id", "k.province_id IS NOT NULL"),
+    "regency": ("c.regency_id", "k.regency_id IS NOT NULL"),
+    "grid": ("[{}, {}]".format(*grid_sql()), "TRUE"),
+}
 
-def evaluate(con: duckdb.DuckDBPyConnection, flags: list[tuple]) -> dict:
-    """Leave-one-year-out alert rates over complete months.
+
+def evaluate(con: duckdb.DuckDBPyConnection, flags: list[tuple], unit: str = "province") -> dict:
+    """Leave-one-year-out alert rates over complete months, for one kind of unit.
 
     Every complete calendar month of every year is scored against the same month of all other
-    valid years, for every grid cell active in that calendar month in any valid year (so a quiet
-    year of an active cell counts as a normal outcome). Returns, per indicator, the share of
-    grid-months given each label overall and among months with activity, and the share whose score
-    sat at the sample-size ceiling. Under exchangeable years the share at or above a threshold t is
-    at most 1 - t."""
+    valid years, for every unit active in that calendar month in any valid year (so a quiet year of
+    an active unit counts as a normal outcome). Returns, per indicator, the share of unit-months
+    given each label, overall and among months with activity, the share at the sample-size ceiling,
+    and the activity rates per calendar month. Under exchangeable years the share at or above a
+    threshold t is at most 1 - t, less the discreteness of n / (n + 1) steps."""
+    group, where = EVAL_UNITS[unit]
     last = flags[-1][0]
     counts = {i: defaultdict(int) for i in INDICATORS}
     active = {i: defaultdict(int) for i in INDICATORS}
     ceiling = {i: 0 for i in INDICATORS}
-    totals = {"grid_months": 0, "active_grid_months": 0}
+    total = 0
     by_month = {}
     for month in range(1, 13):
-        last_complete = last.year if dt.date(last.year, month, calendar.monthrange(last.year, month)[1]) <= last \
-            else last.year - 1
-        b = baseline(flags, last_complete, month)
-        windows = [b.target, *b.reference] if b.target.coverage >= MIN_COVERAGE else b.reference
+        month_end = dt.date(last.year, month, calendar.monthrange(last.year, month)[1])
+        b = baseline(flags, last.year if month_end <= last else last.year - 1, month)
+        windows = b.windows if b.target.coverage >= MIN_COVERAGE else b.reference
         years = [w.year for w in windows]
-        con.execute(f"CREATE OR REPLACE TEMP TABLE evalg AS SELECT DISTINCT {grid_sql()[0]} AS gx, "
-                    f"{grid_sql()[1]} AS gy FROM cells c")
-        full = Baseline(b.target, False, windows, [])
-        grids = monthly_grids(con, full, "evalg")
-        month_counts = defaultdict(int)
-        for values in grids.values():
+        units = totals(con, windows, where, group)
+        month_counts: dict[str, int] = defaultdict(int)
+        for values in units.values():
             for y in years:
-                others = [values.get(o, (0.0, 0.0)) for o in years if o != y]
                 x = values.get(y, (0.0, 0.0))
-                totals["grid_months"] += 1
-                if x[0] > 0:
-                    totals["active_grid_months"] += 1
+                others = [values.get(o, (0.0, 0.0)) for o in years if o != y]
+                total += 1
                 for i, ix in enumerate(INDICATORS):
                     a = assess(x[i], [o[i] for o in others])
                     counts[ix][a["label"]] += 1
                     if x[i] > 0:
                         active[ix][a["label"]] += 1
                     ceiling[ix] += a["at_ceiling"]
-                    if ix == "hotspot":
+                    if ix == "activity":
                         month_counts[a["label"]] += 1
         n = sum(month_counts.values())
-        by_month[month] = {"years": len(years), "grid_months": n,
+        by_month[month] = {"years": len(years), "unit_months": n,
                            **{k: round(month_counts[k] / n, 4) if n else None for k in LABELS}}
 
     def shares(c: dict, n: int) -> dict:
         return {k: round(c[k] / n, 4) if n else None for k in (*LABELS, INSUFFICIENT)}
 
     return {
-        **totals,
+        "unit": unit, "unit_months": total,
         "nominal_at_or_above": {name: round(1 - lower, 2) for name, lower in THRESHOLDS},
-        "indicators": {ix: {"all": shares(counts[ix], totals["grid_months"]),
+        "indicators": {ix: {"all": shares(counts[ix], total),
                             "active": shares(active[ix], sum(active[ix].values())),
-                            "at_ceiling": round(ceiling[ix] / totals["grid_months"], 4) if totals["grid_months"] else None}
+                            "at_ceiling": round(ceiling[ix] / total, 4) if total else None}
                        for ix in INDICATORS},
-        "hotspot_by_month": by_month,
+        "activity_by_month": by_month,
     }

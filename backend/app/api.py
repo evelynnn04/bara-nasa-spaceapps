@@ -304,19 +304,22 @@ def anomalies(area: Area = Depends(area_param),
               year: int | None = Query(None, ge=1, le=9999, description="Year; default the last data month's."),
               month: int | None = Query(None, ge=1, le=12, description="Month 1-12; default the last data month."),
               reference: Literal["other", "prior"] = Query(
-                  "other", description="Reference years: every other year, or only earlier years.")) -> dict:
-    """How unusual a month's fire activity is, per 0.25° grid cell and for the whole area.
+                  "other", description="Reference years: every other year, or only earlier years."),
+              grids: bool = Query(False, description="Also score every active 0.25° grid cell of the area.")) -> dict:
+    """How unusual a month's fire activity is in an area, against the same month in other years.
 
-    Hotspot count and summed fire radiative power of the VIIRS reference record are compared with
-    the same calendar month in the reference years and scored independently with the empirical
-    upper-tail rank `A = 1 - (1 + #{X_j >= x}) / (n + 1)`. Labels: normal below 0.80, elevated from
-    0.80, anomalous from 0.90, extreme from 0.97. The thresholds are provisional and uncalibrated;
-    with n reference years the highest score is n / (n + 1), listed in `baseline.max_score`.
+    Both indicators come from the harmonised record (2002 on) in MODIS-equivalent units: `activity`
+    in fire cell-days and `frp_mw`, summed fire radiative power. Each is scored independently with
+    the empirical upper-tail rank `A = 1 - (1 + #{X_j >= x}) / (n + 1)` against the reference years.
+    Labels: normal below 0.80, elevated from 0.80, anomalous from 0.90, extreme from 0.97. The
+    thresholds are provisional and uncalibrated; with n reference years the highest score is
+    n / (n + 1), listed in `baseline.max_score`.
 
-    `grids` lists the grid cells touching the area with at least one hotspot in the month; their
-    values cover the whole grid cell, and `in_area_share` is the share of its hotspots inside the
-    area. An unfinished month is compared over the same days of the other years and is marked
-    provisional. See `docs/anomaly.md`."""
+    `area` is the record of the whole selection, summed over its own 0.05° cells, with `years` for
+    charts. With `grids=true`, `grids` lists the 0.25° grid cells touching the area with activity in
+    the month; their values cover the whole grid cell, and `in_area_share` is the share of its
+    activity inside the area. An unfinished month is compared over the same days of the other years
+    and is marked provisional. See `docs/anomaly.md`."""
     flags = _flags()
     last = flags[-1][0]
     year = year or last.year
@@ -326,17 +329,44 @@ def anomalies(area: Area = Depends(area_param),
     except ValueError as err:
         raise HTTPException(400, str(err)) from err
     cur = cursor()
-    anomaly.area_grids(cur, area.where(cur), "agrid")
-    grids = anomaly.monthly_grids(cur, b, "agrid")
-    details = anomaly.target_details(cur, b, "agrid", "agrid_cells")
-    quality = anomaly.data_quality(b)
+    where = area.where(cur)
     n = len(b.reference)
     common = {"period_start": b.target.start, "period_end": b.target.end, "product": anomaly.PRODUCT,
               "historical_sample_size": n, "baseline_granularity": anomaly.GRANULARITY,
               "score_calibration_status": anomaly.CALIBRATION}
+    try:
+        whole = anomaly.record(anomaly.totals(cur, b.windows, where).get(None, {}), b, years=True)
+        cells = _anomaly_grids(cur, b, where, common) if grids else None
+    except anomaly.MissingFactors as err:
+        raise HTTPException(503, str(err)) from err
+    out = {
+        "period": {"year": year, "month": month, "start": b.target.start, "end": b.target.end,
+                   "provisional": b.provisional},
+        "unit": fit.UNIT, "product": anomaly.PRODUCT, "reference": reference,
+        "baseline": {"granularity": anomaly.GRANULARITY, "years": b.years, "sample_size": n,
+                     "excluded_years": b.excluded, "min_coverage": anomaly.MIN_COVERAGE,
+                     "max_score": round(anomaly.max_score(n), 4) if n else None,
+                     "reachable_labels": anomaly.reachable_labels(n) if n >= anomaly.MIN_REFERENCE else [],
+                     "calibration_status": anomaly.CALIBRATION},
+        "thresholds": {name: lower for name, lower in anomaly.THRESHOLDS},
+        "data_quality": anomaly.data_quality(b),
+        "area": {**common, **whole},
+    }
+    if cells is not None:
+        labels = {k: 0 for k in (*anomaly.LABELS, anomaly.INSUFFICIENT)}
+        for r in cells:
+            labels[r["label"]] += 1
+        out.update(grid_deg=anomaly.GRID_DEG, counts=labels, grids=cells)
+    return out
 
+
+def _anomaly_grids(cur: duckdb.DuckDBPyConnection, b: anomaly.Baseline, where: str, common: dict) -> list[dict]:
+    """Records of the 0.25° grid cells touching the area with activity in the target window,
+    highest label first."""
+    anomaly.area_grids(cur, where, "agrid")
+    details = anomaly.target_details(cur, b, "agrid", "agrid_cells")
     out = []
-    for (gx, gy), values in grids.items():
+    for (gx, gy), values in anomaly.grid_totals(cur, b, "agrid").items():
         if values.get(b.target.year, (0.0, 0.0))[0] <= 0:
             continue
         d = details[(gx, gy)]
@@ -345,41 +375,18 @@ def anomalies(area: Area = Depends(area_param),
         out.append({
             "grid_id": anomaly.grid_id(gx, gy), "lon": west + anomaly.GRID_DEG / 2, "lat": south + anomaly.GRID_DEG / 2,
             "bbox": [west, south, east, north], **common, **rec,
-            "in_area_share": round(d["fc_in"] / rec["hotspot_count"], 3) if rec["hotspot_count"] else None,
-            "environmental_context": _context(d, rec["hotspot_count"]),
+            "in_area_share": round(min(1.0, d["in_area"] / values[b.target.year][0]), 3),
+            "environmental_context": {
+                "island_group": d["island_group"], "province_id": d["province_id"], "regency_id": d["regency_id"],
+                "active_cells_005": d["cells"],
+                "night_share": None if d["night_share"] is None else round(float(d["night_share"]), 3),
+                "frp_max_mw": round(d["frp_max"], 1),
+                "forest_cover": None, "wind": None, "unavailable": ["forest_cover", "wind"],
+            },
         })
-    out.sort(key=lambda r: (-anomaly.RANK.get(r["label"], -1), -max(r["hotspot_score"] or 0, r["frp_score"] or 0),
-                            -r["hotspot_count"]))
-    labels = {k: 0 for k in (*anomaly.LABELS, anomaly.INSUFFICIENT)}
-    for r in out:
-        labels[r["label"]] += 1
-    whole = anomaly.record(anomaly.area_totals(cur, b, "agrid_cells"), b, years=True)
-    return {
-        "period": {"year": year, "month": month, "start": b.target.start, "end": b.target.end,
-                   "provisional": b.provisional},
-        "product": anomaly.PRODUCT, "grid_deg": anomaly.GRID_DEG, "reference": reference,
-        "baseline": {"granularity": anomaly.GRANULARITY, "years": b.years, "sample_size": n,
-                     "excluded_years": b.excluded, "min_coverage": anomaly.MIN_COVERAGE,
-                     "max_score": round(anomaly.max_score(n), 4) if n else None,
-                     "reachable_labels": anomaly.reachable_labels(n) if n >= anomaly.MIN_REFERENCE else [],
-                     "calibration_status": anomaly.CALIBRATION},
-        "thresholds": {name: lower for name, lower in anomaly.THRESHOLDS},
-        "data_quality": quality,
-        "area": {**common, **whole},
-        "counts": labels,
-        "grids": out,
-    }
-
-
-def _context(d: dict, hotspots: int) -> dict:
-    """Context of a grid cell, reported beside the score and never folded into it."""
-    return {
-        "island_group": d["island_group"], "province_id": d["province_id"], "regency_id": d["regency_id"],
-        "active_cells_005": d["cells"], "night_share": round(d["fc_night"] / hotspots, 3) if hotspots else None,
-        "frp_max_mw": round(d["frp_max"], 1),
-        "forest_cover": None, "wind": None,
-        "unavailable": ["forest_cover", "wind"],
-    }
+    out.sort(key=lambda r: (-anomaly.RANK.get(r["label"], -1),
+                            -max(r["activity_score"] or 0, r["frp_score"] or 0), -r["activity"]))
+    return out
 
 
 EVENT_COLUMNS = ("event", "start", "end", "duration_days", "peak_day", "cells", "cell_days", "harmonised",

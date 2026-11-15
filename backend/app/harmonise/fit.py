@@ -6,6 +6,10 @@ Indonesia) by iterative proportional fitting, each effect shrunk towards 0 by `N
 N the stratum's MODIS cell-days. The exponent 0.5 is fixed, not fitted. The island group `Other`
 keeps effect 0.
 
+Fire radiative power is harmonised the same way without the square root (FRP is additive): a VIIRS
+cell-day's FRP is divided by `kf[r, m]`, fitted on the paired-day FRP sums with the shrinkage still
+weighted by MODIS cell-days. Aqua FRP is kept as it is.
+
 Evaluation, all on paired days:
 
 - leave-one-year-out: each year of the overlap is predicted with factors fitted on the others,
@@ -66,6 +70,52 @@ def stratum_table(con: duckdb.DuckDBPyConnection, start: dt.date = config.FIT_ST
     return dict(out)
 
 
+def frp_table(con: duckdb.DuckDBPyConnection, start: dt.date = config.FIT_START,
+              end: dt.date = config.FIT_END) -> dict[Key, dict[str, float]]:
+    """Paired-day sums per (year, month, island group): Aqua FRP `A`, VIIRS-reference FRP `B` (MW)
+    and MODIS cell-days `N`, the shrinkage weight."""
+    w = weights.weight_sql("all", k="1.0")
+    rows = con.execute(f"""
+        SELECT year(c.local_date), month(c.local_date), c.island_group, c.side, sum(c.frp_sum), sum({w})
+        FROM ({weights.paired_sql(start, end)}) c
+        GROUP BY ALL
+    """).fetchall()
+    out: dict[Key, dict[str, float]] = defaultdict(lambda: {"A": 0.0, "B": 0.0, "N": 0.0})
+    for y, m, r, side, frp, wsum in rows:
+        cell = out[(y, m, r)]
+        if side == "a":
+            cell["A"] += frp
+            cell["N"] += wsum
+        else:
+            cell["B"] += frp
+    return dict(out)
+
+
+def fit_frp(table: dict[Key, dict[str, float]]) -> dict:
+    """FRP factors and their leave-one-year-out evaluation, nationally and per island group."""
+    full = ipf(table)
+    years = sorted({y for y, _, _ in table})
+    national: list[tuple] = []
+    regional: dict[str, list[tuple]] = defaultdict(list)
+    for y in years:
+        model = ipf(table, set(years) - {y})
+        national += series(table, model, months_in([y]))
+        for g in GROUPS:
+            regional[g] += series(table, model, months_in([y]), region=g)
+    loyo = scored(national)
+    return {
+        "mu": round(full["mu"], 6),
+        "base_factor": round(math.exp(full["mu"]), 6),
+        "region_factor": {g: round(math.exp(full["rho"].get(g, 0.0)), 6) for g in GROUPS},
+        "month_factor": {str(m): round(math.exp(full["sigma"].get(m, 0.0)), 6) for m in range(1, 13)},
+        "k_table": [{"region": g, "month": m, "k": k_of(full, g, m)} for g in GROUPS for m in range(1, 13)],
+        "evaluation": {"leave_one_year_out": {
+            "national": loyo,
+            "island_groups": {g: scored(v) for g, v in regional.items() if any(a for *_, a, _ in v)}}},
+        "verdict": loyo["verdict"],
+    }
+
+
 def control_table(con: duckdb.DuckDBPyConnection, start: dt.date = CONTROL_START,
                   end: dt.date = config.FIT_END) -> dict[Key, dict[str, float]]:
     """Sums of sqrt(n) for S-NPP (`S`) and NOAA-20 (`N`) on days both observed."""
@@ -86,13 +136,17 @@ def control_table(con: duckdb.DuckDBPyConnection, start: dt.date = CONTROL_START
 
 def ipf(table: dict[Key, dict[str, float]], years: set[int] | None = None,
         n0: float = N0, iterations: int = ITERATIONS) -> dict:
-    """Shrunk iterative proportional fit of ln k = mu + rho_r + sigma_m on the given years."""
+    """Shrunk iterative proportional fit of ln k = mu + rho_r + sigma_m on the given years.
+
+    A stratum's shrinkage weight is its `N` (default: its `A`, the MODIS cell-days)."""
     A: dict[tuple[str, int], float] = defaultdict(float)
     B: dict[tuple[str, int], float] = defaultdict(float)
+    N: dict[tuple[str, int], float] = defaultdict(float)
     for (y, m, r), v in table.items():
         if years is None or y in years:
             A[(r, m)] += v["A"]
             B[(r, m)] += v["B"]
+            N[(r, m)] += v.get("N", v["A"])
     mu = math.log(sum(B.values()) / sum(A.values()))
     every_region = sorted({r for r, _ in A})
     regions = [r for r in every_region if r != "Other"]
@@ -103,13 +157,13 @@ def ipf(table: dict[Key, dict[str, float]], years: set[int] | None = None,
         for r in regions:
             pa = sum(A[(r, m)] * math.exp(mu + sigma.get(m, 0.0)) for m in months)
             pb = sum(B[(r, m)] for m in months)
-            na = sum(A[(r, m)] for m in months)
+            na = sum(N[(r, m)] for m in months)
             if pa > 0 and pb > 0:
                 rho[r] = na / (na + n0) * math.log(pb / pa)
         for m in months:
             pa = sum(A[(r, m)] * math.exp(mu + rho.get(r, 0.0)) for r in every_region)
             pb = sum(B[(r, m)] for r in every_region)
-            na = sum(A[(r, m)] for r in every_region)
+            na = sum(N[(r, m)] for r in every_region)
             if pa > 0 and pb > 0:
                 sigma[m] = na / (na + n0) * math.log(pb / pa)
     return {"mu": mu, "rho": rho, "sigma": sigma}
@@ -218,6 +272,7 @@ def fit(con: duckdb.DuckDBPyConnection) -> dict:
     record["evaluation"] = ev
     record["verdict"] = ev["leave_one_year_out"]["national"]["verdict"]
     record["distribution"] = distribution(con)
+    record["frp"] = fit_frp(frp_table(con))
     months = months_in(range(config.FIT_START.year, config.FIT_END.year + 1))
     record["series_national"] = [[y, m, a, b] for y, m, a, b in series(table, full, months)]
     record["fitted"] = dt.date.today().isoformat()
@@ -234,4 +289,7 @@ def run() -> None:
     log.info("month factors %s", record["month_factor"])
     log.info("leave-one-year-out: r_log %s malr %s bias %s peaks %d/%d -> %s", nat["r_log"], nat["malr"],
              nat["bias"], nat["peak_matches"], nat["peak_years"], nat["verdict"])
+    frp = record["frp"]["evaluation"]["leave_one_year_out"]["national"]
+    log.info("FRP base factor %.3f, leave-one-year-out: r_log %s malr %s bias %s -> %s", record["frp"]["base_factor"],
+             frp["r_log"], frp["malr"], frp["bias"], frp["verdict"])
     log.info("wrote %s", config.params_path())
