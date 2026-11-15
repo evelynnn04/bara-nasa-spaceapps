@@ -116,9 +116,9 @@ Of the 724,101 events of the vegetation record:
 | Cause | Events | Share |
 |---|---|---|
 | Land clearing | 152,754 | 21 % |
-| Wildfire | 143,411 | 20 % |
+| Wildfire | 143,408 | 20 % |
 | Agricultural burning | 92,663 | 13 % |
-| Unknown | 335,273 | 46 % |
+| Unknown | 335,276 | 46 % |
 
 The split follows the known geography of burning: agricultural burning is the most common named
 cause in Java, Bali and Nusa Tenggara, land clearing in Sumatra, and wildfire in Kalimantan,
