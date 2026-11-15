@@ -8,12 +8,13 @@ import { AreaPicker } from "./area-picker";
 import { CalendarView } from "./calendar-view";
 import { DatePicker } from "./date-picker";
 import { formatDay, parts, toDay } from "./dates";
+import { CAUSES, causeCredit, causeLabel, type Cause } from "./attribution";
 import { EventsView } from "./events-view";
 import { downloadCsv, slug, toCsv } from "./export";
 import { watchData } from "./freshness";
 import { UNIT_SHORT, fmtCompact, fmtVal } from "./format";
 import { initFx, pulse } from "./fx";
-import { initTooltips } from "./tooltip";
+import { initTooltips, openTip } from "./tooltip";
 import { MapView } from "./map-view";
 import { RAMPS, accentVars, breaksFrom, type RampName } from "./ramps";
 import { SelectMenu } from "./select-menu";
@@ -52,6 +53,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     ramp: "ember",
     daynight: "all",
     hotspots: meta.default_hotspots ?? "vegetation",
+    cause: null,
     step: null,
   };
   const initial = readUrlState(defaults, (id) => regions.byId.has(id), recordStart, recordEnd);
@@ -59,9 +61,10 @@ function boot(boundaries: Boundaries, meta: Meta): void {
   let ramp: RampName = initial.ramp;
   let daynight: DayNight = initial.daynight;
   let hotspots: Hotspots = initial.hotspots;
+  let cause: Cause | null = initial.cause;
   let step: Interval | null = initial.step;
   const counting = () => ({ daynight, hotspots });
-  const saveUrl = () => writeUrlState({ filters, ramp, daynight, hotspots, step }, defaults);
+  const saveUrl = () => writeUrlState({ filters, ramp, daynight, hotspots, cause, step }, defaults);
   /** The selected area's daily record for the current filters; null while it loads or after it failed. */
   let sel: Selection | null = null;
   /** The same record over all its dates, for the cards that do not follow the date picker. */
@@ -278,9 +281,17 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       renderMapLegend();
       showError("the map cells", err);
     });
-    api.events(filters, hotspots, ctl.signal, 3).then((r) => {
+    // The cause filter is only sent once the attribution is known to be built; the backend refuses it before.
+    const info = api.attribution();
+    info.then((i) => api.events(filters, hotspots, ctl.signal, 3, i.available ? cause : null)).then(async (r) => {
+      const i = await info;
       if (!current()) return;
-      events.render(r.events);
+      events.render(r.events, { cause: i.available ? cause : null });
+      // The disclaimer sits behind a warning icon in the card header, shown while any listed event has a cause
+      const disclaimer = r.events.some((e) => e.attribution) ? (r.attribution_disclaimer ?? i.disclaimer) : null;
+      const note = $("#cause-note");
+      note.hidden = !disclaimer;
+      note.setAttribute("title", disclaimer ?? "");
       setLoad(["events"], "ready");
     }, (err) => {
       if (!current()) return;
@@ -417,6 +428,20 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     if (!record) return;
     calendar.render(record, ramp);
     anomaly.render(record, ramp, false);
+  });
+
+  api.attribution().then((info) => {
+    if (!info.available) return;
+    const label = (c: Cause) => (c === "unknown" ? "Unclear" : causeLabel(c));
+    const causeOptions = [{ value: "", label: "All causes" }, ...CAUSES.map((c) => ({ value: c, label: label(c) }))];
+    $("#cause-menu").hidden = false;
+    map.addCredit("cause-credit", causeCredit(info.sources));
+    // Touch screens have no hover, so a tap opens the disclaimer
+    $("#cause-note").addEventListener("click", (e) => openTip(e.currentTarget as Element));
+    new SelectMenu($("#cause-menu"), "Cause", causeOptions, cause ?? "", (value) => {
+      cause = (value || null) as Cause | null;
+      update({});
+    });
   });
 
   function renderMapLegend(): void {

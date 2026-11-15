@@ -1,9 +1,18 @@
 import type { FireEvent } from "./api";
+import { causeLabel, whySummary, type Cause } from "./attribution";
 import { formatDay, toDay } from "./dates";
 import { UNIT_SHORT, escapeXml, fmtVal } from "./format";
 import type { RegionIndex } from "./regions";
+import { openTip } from "./tooltip";
 
-/** "Largest fire events": the biggest events active in the selected period (place, hotspots, dates), each one clickable. */
+/** What the events card needs besides the events: the active cause filter. */
+export interface EventsContext {
+  cause: Cause | null;
+}
+
+const NO_CONTEXT: EventsContext = { cause: null };
+
+/** "Largest fire events": the biggest events active in the selected period (place, hotspots, dates), each one clickable, with its likely cause. */
 export class EventsView {
   private events: FireEvent[] = [];
 
@@ -13,6 +22,12 @@ export class EventsView {
     onPick: (e: FireEvent) => void,
   ) {
     root.addEventListener("click", (ev) => {
+      const why = (ev.target as Element).closest<HTMLButtonElement>("[data-why]");
+      if (why) {
+        // Touch screens have no hover, so a tap opens the same card
+        openTip(why);
+        return;
+      }
       const btn = (ev.target as Element).closest<HTMLButtonElement>("[data-event]");
       if (!btn) return;
       const e = this.events.find((x) => x.event === +btn.dataset.event!);
@@ -30,23 +45,32 @@ export class EventsView {
     return { name: province?.name ?? `${e.lat.toFixed(2)}°, ${e.lon.toFixed(2)}°`, province: "" };
   }
 
-  render(events: FireEvent[]): void {
+  render(events: FireEvent[], ctx: EventsContext = NO_CONTEXT): void {
     this.events = events;
     if (!events.length) {
-      this.root.innerHTML = `<p class="reading">No fire events in this area and period.</p>`;
+      const what = ctx.cause ? (ctx.cause === "unknown" ? "fire events with an unclear cause" : `${causeLabel(ctx.cause).toLowerCase()} events`) : "fire events";
+      this.root.innerHTML = `<p class="reading">No ${what} in this area and period.</p>`;
       return;
     }
     const items = events
       .map((e) => {
         const span = e.start === e.end ? formatDay(toDay(e.start)) : `${formatDay(toDay(e.start))} – ${formatDay(toDay(e.end))}`;
         const place = this.place(e);
-        return `<li><button type="button" class="ev-item" data-event="${e.event}" aria-pressed="false">
+        return `<li class="ev-row"><button type="button" class="ev-item" data-event="${e.event}" aria-pressed="false">
           <span class="ev-main"><span class="ev-place">${escapeXml(place.name)}</span>
             ${place.province ? `<span class="mini-note">${escapeXml(place.province)}</span>` : ""}
             <span class="mini-note">${span}</span></span>
-          <span class="ev-v">${fmtVal(e.harmonised)}<span class="mini-note">${UNIT_SHORT}</span></span></button></li>`;
+          <span class="ev-v">${fmtVal(e.harmonised)}<span class="mini-note">${UNIT_SHORT}</span></span></button>
+          ${causeIcon(e)}</li>`;
       })
       .join("");
     this.root.innerHTML = `<ol class="ev-list">${items}</ol>`;
   }
+}
+
+/** A small icon in the corner of an event, coloured by its likely cause, whose hover card says why. */
+function causeIcon(e: FireEvent): string {
+  const a = e.attribution;
+  if (!a) return "";
+  return `<button type="button" class="ev-why" data-why data-cause="${escapeXml(a.category)}" title="${escapeXml(whySummary(a))}">Why</button>`;
 }
