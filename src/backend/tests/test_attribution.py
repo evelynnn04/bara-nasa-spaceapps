@@ -9,7 +9,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import api, attribution, context, store
-from app.context import climate, hansen
 from app.main import app
 from app.pipeline import aggregate, events
 
@@ -84,10 +83,34 @@ def test_missing_context_leaves_indicators_unavailable_and_the_cause_unknown():
 
 
 def test_equal_support_for_two_causes_stays_unknown():
-    res = attribution.evaluate(evidence(cells=200, duration_days=30, forest2000=0.9, forest_loss=0.2, peat=0.5,
-                                        oni=2.0, dmi=0.5))
+    res = attribution.evaluate(evidence(island_group="Sulawesi-Maluku", cells=200, duration_days=30, forest2000=0.9,
+                                        forest_loss=0.2, **land(forest=0.9), peat=0.5,
+                                        rain3=3.0, rain3_normal=6.0, oni=2.0, dmi=0.5))
     assert res["scores"]["land_clearing"] == res["scores"]["wildfire"] == 3
     assert res["category"] == "unknown"
+
+
+LARGE_CLEARING = dict(cells=50, duration_days=10, forest2000=0.8, forest_loss=0.18, **land(forest=0.9),
+                      peat=0.0, rain3=9.0, rain3_normal=9.0, oni=0.0, dmi=0.0)
+
+
+@pytest.mark.parametrize("signal", [{}, {"oni": 1.0}, {"rain3": 3.0, "rain3_normal": 3.5}, {"peat": 0.5}])
+def test_large_clearing_fire_with_one_wildfire_signal_stays_land_clearing(signal):
+    res = attribution.evaluate(evidence(**{**LARGE_CLEARING, **signal}))
+    assert res["category"] == "land_clearing"
+    assert ids(res, met=False) >= {"natural_vegetation", "large_long"}
+
+
+def test_large_fire_on_uncleared_forest_keeps_its_wildfire_points():
+    res = attribution.evaluate(evidence(**{**LARGE_CLEARING, "forest_loss": 0.0, "rain3": 3.0, "rain3_normal": 6.0,
+                                           "oni": 1.0}))
+    assert res["category"] == "wildfire" and {"natural_vegetation", "large_long"} <= ids(res)
+
+
+def test_cleared_forest_is_still_burnable_land_for_wildfire():
+    res = attribution.evaluate(evidence(**{**LARGE_CLEARING, "forest_loss": 0.03, "forest2000": 0.3,
+                                           "rain3": 1.5, "rain3_normal": 6.0, "oni": 2.0}))
+    assert res["category"] == "wildfire" and "natural_vegetation" not in ids(res)
 
 
 def test_every_indicator_cites_known_sources_and_max_points_add_up():
@@ -97,6 +120,8 @@ def test_every_indicator_cites_known_sources_and_max_points_add_up():
 
 
 def test_climate_index_files_are_parsed():
+    pytest.importorskip("numpy")
+    from app.context import climate
     oni = climate.parse_oni("SEAS  YR   TOTAL   ANOM\n  DJF 2015  27.20   0.55\n  JAS 2015  28.67   1.90\n")
     assert oni == {dt.date(2015, 1, 1): 0.55, dt.date(2015, 8, 1): 1.90}
     dmi = climate.parse_dmi("1870 2026\n2026  0.1 0.2 -9999.000 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1\n")
@@ -104,6 +129,8 @@ def test_climate_index_files_are_parsed():
 
 
 def test_hansen_tile_names():
+    pytest.importorskip("numpy")
+    from app.context import hansen
     assert hansen.tile_name(0, 100) == "00N_100E"
     assert hansen.tile_name(-10, 120) == "10S_120E"
     assert hansen.tile_name(10, 90) == "10N_090E"

@@ -33,8 +33,7 @@ import duckdb
 
 from . import config, store
 from . import context
-from .context import hansen
-from .context.modis import GROUPS
+from .context import CANOPY_MIN, GROUPS, HANSEN_LAST_YEAR
 from .db import quote
 
 log = logging.getLogger("app.attribution")
@@ -113,8 +112,12 @@ class Indicator:
     weaker_of: str | None = None
 
 
+#: Land cover groups of natural vegetation.
+NATURAL = ("forest", "shrub_savanna", "grassland", "wetland")
+
+
 def _natural(e: dict) -> float:
-    return e["forest"] + e["shrub_savanna"] + e["grassland"] + e["wetland"]
+    return sum(e[k] for k in NATURAL)
 
 
 def _farmland(e: dict) -> float:
@@ -124,6 +127,20 @@ def _farmland(e: dict) -> float:
 def excess_loss(e: dict) -> float:
     """Forest loss around the fire beyond the cells' usual loss over as many years, at least 0."""
     return max(e["forest_loss"] - e["forest_loss_expected"], 0.0)
+
+
+def _cleared(e: dict) -> bool:
+    """Whether the fire coincides with forest clearing (a land clearing key indicator holds); False
+    when forest loss is unknown."""
+    return e.get("forest_loss") is not None and e.get("forest_loss_expected") is not None         and excess_loss(e) >= LOSS_SOME
+
+
+def _burnable(e: dict) -> bool:
+    """Whether the burned land can carry a wildfire: mostly peat, or mostly natural vegetation the
+    year before (cleared or not)."""
+    if e.get("peat") is not None and e["peat"] >= 0.3:
+        return True
+    return all(e.get(k) is not None for k in NATURAL) and _natural(e) >= 0.5
 
 
 #: Excess forest loss, as a share of the burned cells, that counts as clearing evidence (strong / some).
@@ -187,14 +204,17 @@ INDICATORS: tuple[Indicator, ...] = (
               "At least 30% of the burned area is peatland, where fire spreads underground and is hard to control",
               ("peat",), lambda e: e["peat"] >= 0.3,
               ("gumbricht2017", "page2002", "field2016")),
+    # These two also describe a large clearing fire, so they hold only without clearing evidence.
     Indicator("natural_vegetation", "wildfire", 1,
-              "At least half of the burned area was forest, shrubland, savanna, grassland or wetland the year before",
-              ("forest", "shrub_savanna", "grassland", "wetland"), lambda e: _natural(e) >= 0.5,
-              ("mcd12q1",)),
+              "At least half of the burned area was forest, shrubland, savanna, grassland or wetland the year before, "
+              f"and forest loss around the fire was within {LOSS_SOME:.0%} of the burned area of the usual loss",
+              NATURAL, lambda e: _natural(e) >= 0.5 and not _cleared(e),
+              ("mcd12q1", "hansen2013")),
     Indicator("large_long", "wildfire", 1,
-              "The fire spread over at least 20 cells or lasted at least 7 days",
-              ("cells", "duration_days"), lambda e: e["cells"] >= 20 or e["duration_days"] >= 7,
-              ("field2016",)),
+              "The fire spread over at least 20 cells or lasted at least 7 days, and forest loss around it was "
+              f"within {LOSS_SOME:.0%} of the burned area of the usual loss",
+              ("cells", "duration_days"), lambda e: (e["cells"] >= 20 or e["duration_days"] >= 7) and not _cleared(e),
+              ("field2016", "hansen2013")),
 )
 
 #: Fields that may be missing (null) when a dataset does not cover the event.
@@ -226,8 +246,7 @@ def evaluate(e: dict) -> dict:
                 keyed.add(ind.category)
         results.append({"id": ind.id, "category": ind.category, "points": ind.points, "met": met,
                         "text": ind.text, "sources": list(ind.sources)})
-    # Wildfire also needs burnable land: peat or natural vegetation.
-    if not any(r["met"] for r in results if r["id"] in ("peatland", "natural_vegetation")):
+    if not _burnable(e):
         keyed.discard("wildfire")
     if not keyed:
         return {"category": "unknown", "confidence": None, "scores": scores, "indicators": results}
@@ -282,7 +301,7 @@ def features_sql(have: set[str]) -> str:
     else:
         select.append("NULL::DOUBLE AS forest2000")
     if "forest_loss" in have:
-        last = hansen.LAST_YEAR
+        last = HANSEN_LAST_YEAR
         lo, hi, years = "c.year - 1", f"least(c.year + 1, {last})", last - 2000
         parts.append(f"""l AS (
             SELECT hotspots, event, sum(w * win) AS v, sum(w * other / ({years} - n) * n) AS b FROM (
@@ -406,7 +425,7 @@ def describe(e: dict) -> dict:
         "indicators": res["indicators"],
         "evidence": {
             "forest_cover_2000": None if e.get("forest2000") is None else
-            {"share": _r(e["forest2000"], 3), "canopy_min_percent": hansen.CANOPY_MIN, "source": "hansen2013"},
+            {"share": _r(e["forest2000"], 3), "canopy_min_percent": CANOPY_MIN, "source": "hansen2013"},
             "forest_loss": None if e.get("forest_loss") is None else
             {"share": _r(e["forest_loss"]), "expected_share": _r(e["forest_loss_expected"]),
              "excess_share": _r(excess_loss(e)), "years": [e["loss_from"], e["loss_to"]], "source": "hansen2013"},
@@ -436,7 +455,8 @@ def method() -> dict:
         },
         "indicators": [{"id": i.id, "category": i.category, "points": i.points, "key": i.key, "text": i.text,
                         "sources": list(i.sources)} for i in INDICATORS],
-        "wildfire_also_needs": "peatland or natural_vegetation",
+        "wildfire_also_needs": "burnable land: peat >= 30% or natural vegetation >= 50% the year before, "
+                               "cleared or not",
         "sources": SOURCES,
         "doc": "docs/attribution.md",
     }
