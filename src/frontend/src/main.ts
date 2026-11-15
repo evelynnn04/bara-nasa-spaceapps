@@ -103,7 +103,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
 
   const calendar = new CalendarView($("#calendar"));
   const analytics = new AnalyticsView($("#an-summary"));
-  const anomaly = new AnomalyView($("#anomaly"));
+  const anomaly = new AnomalyView($("#anomaly"), $("#an-patterns"));
   const agreement = new AgreementView($("#agreement"));
   const map = new MapView($("#map"), {
     onPolygon: (polygon) => update({ polygon }),
@@ -211,7 +211,7 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     if ($("#dl-note").dataset.loadError) setNote("");
     updateCount();
 
-    const seriesCards = ["calendar", "an-summary", "anomaly"];
+    const seriesCards = ["calendar", "an-summary", "an-patterns", "anomaly"];
     setLoad(seriesCards, "busy");
     api.series(filters, daynight).then((s) => {
       if (!current()) return;

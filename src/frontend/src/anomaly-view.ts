@@ -15,8 +15,8 @@ const VERDICT: Record<Verdict, { label: string; tone: "critical" | "warning" | "
 };
 
 /**
- * Historical comparison over the whole record: the yearly trend and fire-prone months, then a chosen
- * month or year against its historical average and median, with unusual activity flagged.
+ * Historical patterns (yearly trend and fire-prone months) and the historical comparison of a chosen
+ * month or year against its average and median, both over the whole record, in two cards.
  */
 export class AnomalyView {
   private sel: Selection | null = null;
@@ -29,16 +29,14 @@ export class AnomalyView {
   private readonly verdict: HTMLElement;
   private readonly chart: HTMLElement;
   private readonly notes: HTMLElement;
-  private readonly patterns: HTMLElement;
   /** Width the comparison chart was last drawn at. */
   private chartW = 0;
   /** Width the pattern chart was last drawn at. */
   private patternsW = 0;
 
-  constructor(private readonly root: HTMLElement) {
+  /** `patterns` is the separate Historical patterns card, drawn from the same record. */
+  constructor(private readonly root: HTMLElement, private readonly patterns: HTMLElement) {
     root.innerHTML = `
-      <div class="an-patterns"></div>
-      <p class="d-label an-compare-label">Compare a month or year</p>
       <div class="an-bar">
         <div class="seg" role="group" aria-label="Compare a month or a year">
           <button type="button" class="seg-btn" data-kind="month" aria-pressed="true">Month</button>
@@ -56,7 +54,6 @@ export class AnomalyView {
     this.verdict = root.querySelector(".verdict")!;
     this.chart = root.querySelector(".an-chart")!;
     this.notes = root.querySelector(".an-notes")!;
-    this.patterns = root.querySelector(".an-patterns")!;
 
     root.querySelector(".seg")!.addEventListener("click", (e) => {
       const btn = (e.target as Element).closest<HTMLButtonElement>("[data-kind]");
