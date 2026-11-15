@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CellsResponse } from "./api";
-import { axisTicks, defaultInterval, frameAt, labelledTicks, sharedScale, shiftDate, timeFrames } from "./timeline";
-import { toDay } from "./dates";
+import { defaultInterval, labelledTicks, sharedScale, timeFrames } from "./timeline";
 
 describe("defaultInterval", () => {
   it("opens in days, months or years by the length of the selected dates", () => {
@@ -38,25 +37,6 @@ describe("timeFrames", () => {
   });
 });
 
-describe("frameAt", () => {
-  const frames = timeFrames("2026-01-15", "2026-04-10", "month");
-  it("finds the step holding a date and clamps dates outside the steps", () => {
-    expect(frameAt(frames, "2026-02-28")).toBe(1);
-    expect(frameAt(frames, "2026-01-15")).toBe(0);
-    expect(frameAt(frames, "2025-12-01")).toBe(0);
-    expect(frameAt(frames, "2026-05-01")).toBe(3);
-  });
-});
-
-describe("shiftDate", () => {
-  it("moves by days, months or years and keeps the day inside shorter months", () => {
-    expect(shiftDate("2026-02-28", "day", 1)).toBe("2026-03-01");
-    expect(shiftDate("2026-01-31", "month", 1)).toBe("2026-02-28");
-    expect(shiftDate("2026-03-15", "month", -3)).toBe("2025-12-15");
-    expect(shiftDate("2024-02-29", "year", 1)).toBe("2025-02-28");
-  });
-});
-
 describe("labelledTicks", () => {
   it("labels every step when they fit, else evenly spaced ones ending on the last", () => {
     expect(labelledTicks(4, 6)).toEqual([0, 1, 2, 3]);
@@ -64,28 +44,6 @@ describe("labelledTicks", () => {
     expect(labelledTicks(25, 6)).toEqual([0, 5, 10, 15, 20, 24]);
     expect(labelledTicks(23, 6)).toEqual([0, 5, 10, 15, 22]);
     expect(labelledTicks(0, 6)).toEqual([]);
-  });
-});
-
-describe("axisTicks", () => {
-  const d = toDay;
-  it("marks years with months between them", () => {
-    const t = axisTicks(d("2025-11-01"), d("2026-02-01"), "year", 0.5);
-    expect(t.map((x) => [x.day, x.major, x.strong])).toEqual([
-      [d("2025-11-01"), false, undefined],
-      [d("2025-12-01"), false, undefined],
-      [d("2026-01-01"), true, "2026"],
-      [d("2026-02-01"), false, undefined],
-    ]);
-  });
-
-  it("marks months, with days between them only when they are far enough apart", () => {
-    expect(axisTicks(d("2026-09-29"), d("2026-10-02"), "month", 3).map((x) => [x.major, x.strong, x.rest])).toEqual([[true, "OCT", "2026"]]);
-    expect(axisTicks(d("2026-09-30"), d("2026-10-01"), "month", 5).map((x) => x.major)).toEqual([false, true]);
-  });
-
-  it("marks every day, leaving the two days after a month label bare", () => {
-    expect(axisTicks(d("2026-10-31"), d("2026-11-04"), "day", 28).map((x) => x.strong ?? "")).toEqual(["31", "NOV", "", "", "4"]);
   });
 });
 

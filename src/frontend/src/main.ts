@@ -169,9 +169,14 @@ function boot(boundaries: Boundaries, meta: Meta): void {
     document.querySelectorAll<HTMLButtonElement>(".hf-mode [data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === filters.mode)));
     document.querySelectorAll<HTMLButtonElement>("[data-dn]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.dn === daynight)));
     picker.setDisabled(filters.mode !== "area", "Drawn on map");
-    fromIn.set(filters.start);
-    toIn.set(filters.end);
-    $("#cap-dates").textContent = formatRange(toDay(filters.start), toDay(filters.end));
+    showDates(filters.start, filters.end);
+  }
+
+  /** Writes dates into the date fields and the left column caption. */
+  function showDates(start: string, end: string): void {
+    fromIn.set(start);
+    toIn.set(end);
+    $("#cap-dates").textContent = formatRange(toDay(start), toDay(end));
   }
 
   function showError(what: string, err: Error): void {
@@ -323,7 +328,9 @@ function boot(boundaries: Boundaries, meta: Meta): void {
       await Promise.all(Array.from({ length: 4 }, worker));
       return sharedScale(out, RAMPS[ramp].steps.length);
     },
-  });
+    preview: showDates,
+    pick: (start, end) => update({ start, end }),
+  }, recordStart, recordEnd);
 
   /** Drops the timeline steps loaded for earlier filters and lays the timeline over the new dates. */
   function resetTimeline(): void {

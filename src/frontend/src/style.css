@@ -1038,610 +1038,277 @@ button.dp-title:hover,
   font-weight: 400;
 }
 
-/* Map timeline: collapsed to a pill above the footer, or open as a bar along the bottom of the map with a large
-   date selector, step size and arrows, animation button, zoomable axis, zoom control and collapse button.
-   While it is open the cards, the footer and the map controls move up by its height. */
+/* Dates and map timeline: one thin strip along the bottom of the map. The date fields and the brush over the
+   whole record both set the selected dates; the play and step buttons walk the map through them.
+   The cards, the footer and the map controls sit above it. */
 :root {
-  --tl-bar-h: 70px;
-}
-
-body.has-timeline {
+  --tl-bar-h: 44px;
   --tl-h: calc(var(--tl-bar-h) + 10px);
 }
 
 .g-time {
   position: absolute;
   z-index: 6;
-  left: 50%;
-  bottom: 52px;
-  display: flex;
-  justify-content: center;
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-body.has-timeline .g-time {
   left: var(--edge);
   right: var(--edge);
   bottom: 10px;
-  transform: none;
-}
-
-.g-time > * {
-  pointer-events: auto;
-}
-
-body.has-timeline .g-main {
-  bottom: calc(var(--main-bottom) + var(--tl-h));
-}
-
-body.has-timeline .g-foot {
-  bottom: calc(10px + var(--tl-h));
-}
-
-body.has-timeline .g-map .maplibregl-ctrl-bottom-right {
-  bottom: calc(var(--edge) + var(--tl-h));
-}
-
-body.has-timeline .g-map .maplibregl-ctrl-bottom-left {
-  bottom: calc(2px + var(--tl-h));
-}
-
-.g-time[hidden],
-.tl-bar[hidden],
-.tl-panel[hidden],
-.tl-open[hidden],
-.tl-menu[hidden],
-.tl-field[hidden] {
-  display: none;
-}
-
-.pill.tl-open,
-.tl-bar,
-.tl-panel,
-.tl-menu {
+  display: flex;
+  align-items: center;
+  gap: 4px 10px;
+  min-height: var(--tl-bar-h);
+  padding: 0 10px 0 6px;
   border: 1px solid var(--glass-line);
+  border-radius: 999px;
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-hi);
 }
 
-.pill.tl-open {
-  min-height: 36px;
-  font-weight: 400;
+.g-main {
+  bottom: calc(var(--main-bottom) + var(--tl-h));
 }
 
-.pill.tl-open .ico {
-  width: 13px;
-  height: 13px;
+.g-foot {
+  bottom: calc(10px + var(--tl-h));
 }
 
-/* The bar: fixed blocks left and right, the axis takes the rest */
-.tl-bar {
+.g-map .maplibregl-ctrl-bottom-right {
+  bottom: calc(var(--edge) + var(--tl-h));
+}
+
+.g-map .maplibregl-ctrl-bottom-left {
+  bottom: calc(2px + var(--tl-h));
+}
+
+.tl-dates {
   display: flex;
-  align-items: stretch;
-  width: 100%;
-  height: var(--tl-bar-h);
-  border-radius: 12px;
-  overflow: visible;
-}
-
-.tl-datebox,
-.tl-nav,
-.tl-animate,
-.tl-zoom,
-.tl-hide {
-  display: flex;
-  align-items: center;
   flex: none;
 }
 
-.tl-datebox {
-  padding: 0 6px 0 12px;
-}
-
-/* Date fields: an up arrow above and a down arrow below each value */
-.tl-date {
-  display: flex;
-  gap: 4px;
-}
-
-.tl-field {
-  display: grid;
-  justify-items: center;
-}
-
-.tl-arrow {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  min-width: 22px;
-  height: 14px;
-  padding: 0;
-  border: 0;
+/* The date fields sit on the strip's own glass, so they drop theirs */
+.tl-dates .hf-date {
+  min-height: 32px;
+  padding-inline: 10px;
+  border-color: transparent;
   background: none;
-  color: var(--ink-2);
-  cursor: pointer;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
 }
 
-.tl-arrow .ico {
+.tl-dates .hf-date:hover,
+.tl-dates .dp.is-open .hf-date {
+  background: var(--glass-line);
+}
+
+.tl-dates .dp-pop {
+  top: auto;
+  bottom: calc(100% + 12px);
+  transform: translateY(6px) scale(0.98);
+  transform-origin: bottom left;
+}
+
+.tl {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tl-ctl {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.tl-ctl .icon-btn {
+  border-color: transparent;
+}
+
+.tl-ctl .icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tl-ctl .ico {
   width: 14px;
   height: 14px;
 }
 
-.tl-arrow:hover:not(:disabled) {
-  color: var(--accent);
+.tl-ctl .ico-fill {
+  fill: currentColor;
+  stroke: none;
 }
 
-.tl-arrow:disabled {
-  opacity: 0.3;
-  cursor: default;
+.tl-play {
+  color: var(--accent-ink);
 }
 
-.tl-input {
-  padding: 0 2px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-size: 26px;
-  font-weight: 500;
-  line-height: 1.15;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  text-transform: uppercase;
-}
-
-.tl-input:hover {
-  background: var(--accent-wash);
-}
-
-.tl-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 0;
-  background: var(--accent-wash);
-}
-
-/* Step size over the previous, next and latest arrows */
-.tl-nav {
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  padding: 0 4px;
-}
-
-.tl-interval-wrap {
-  position: relative;
-  align-self: flex-start;
-  padding-left: 8px;
-}
-
-.tl-interval {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: var(--fs-small);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  cursor: pointer;
-}
-
-.tl-interval:hover,
-.tl-interval[aria-expanded="true"] {
-  color: var(--ink);
-}
-
-.tl-interval-n {
-  margin-right: 4px;
-  color: var(--accent);
-}
-
-.tl-menu {
-  position: absolute;
-  z-index: 3;
-  bottom: calc(100% + 10px);
-  left: 0;
-  display: grid;
-  min-width: 110px;
-  padding: 4px;
-  border-radius: 10px;
-}
-
-.tl-menu button {
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: var(--fs-small);
-  text-align: left;
-  cursor: pointer;
-}
-
-.tl-menu button:hover,
-.tl-menu button:focus-visible {
-  background: var(--accent-wash);
-  color: var(--ink);
-  outline: none;
-}
-
-.tl-menu button[aria-checked="true"] {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.tl-arrows {
-  display: flex;
-}
-
-.tl-chev {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 34px;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.tl-chev .ico {
-  width: 24px;
-  height: 24px;
-  stroke-width: 2.4;
-}
-
-.tl-chev:hover:not(:disabled) {
-  background: var(--accent-wash);
-  color: var(--accent);
-}
-
-.tl-chev:disabled {
-  opacity: 0.25;
-  cursor: default;
-}
-
-.tl-animate {
-  justify-content: center;
-  width: 52px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.tl-animate .ico {
-  width: 26px;
-  height: 26px;
-}
-
-.tl-animate:hover,
-.tl-animate[aria-expanded="true"] {
-  background: var(--accent-wash);
-  color: var(--accent);
-}
-
-/* Axis: a window onto the track; the track holds the activity strip on top and the tick grid below it */
-.tl-axis {
+/* Monthly activity over the whole record, year marks below it, and the brush holding the selected dates */
+.tl-track {
   position: relative;
   flex: 1;
-  min-width: 140px;
-  overflow: hidden;
-  border-right: 1px solid var(--glass-line);
-  border-left: 1px solid var(--glass-line);
-  background: rgba(255, 240, 225, 0.025);
+  height: 34px;
+  min-width: 80px;
   cursor: pointer;
   touch-action: none;
   user-select: none;
 }
 
-.tl-axis.is-panning {
-  cursor: grabbing;
-}
-
-.tl-axis:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.tl-track {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  will-change: transform;
-}
-
-/* Activity strip: one bar per day, the band along the top of the axis */
 .tl-activity {
   position: absolute;
-  top: 0;
+  top: 2px;
   left: 0;
   width: 100%;
-  height: 20px;
-  border-bottom: 1px solid rgba(255, 122, 46, 0.45);
-  background: rgba(255, 122, 46, 0.1);
+  height: calc(100% - 15px);
   fill: var(--accent);
-  overflow: visible;
+  opacity: 0.6;
 }
 
-.tl-grid {
+.tl-years {
   position: absolute;
-  top: 20px;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  inset: 0;
+  pointer-events: none;
 }
 
-.tl-line {
+.tl-years i {
   position: absolute;
-  top: 0;
+  bottom: 9px;
   width: 1px;
-  height: 6px;
+  height: 4px;
   background: var(--line-2);
 }
 
-.tl-line.is-major {
-  height: 12px;
-  background: var(--ink-3);
-}
-
-/* Month and year boundaries run the full height, with the label at their foot */
-.tl-line.is-labelled {
-  height: 100%;
-  background: rgba(255, 240, 225, 0.35);
-}
-
-.tl-line > span {
+.tl-years span {
   position: absolute;
-  bottom: 4px;
-  left: 5px;
+  top: 5px;
+  left: 0;
   color: var(--ink-3);
-  font-size: var(--fs-small);
+  font: var(--fs-caption)/1 var(--sans);
   font-style: normal;
+  font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
+}
+
+.tl-brush {
+  position: absolute;
+  top: 0;
+  bottom: 11px;
+  min-width: 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--cream) 16%, transparent);
+  box-shadow: inset 0 0 0 1px var(--cream);
+  cursor: grab;
+}
+
+.tl-track.is-dragging,
+.tl-track.is-dragging .tl-brush {
+  cursor: grabbing;
+}
+
+/* A wide hit area around a thin grip at each end of the brush */
+.tl-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  cursor: ew-resize;
+}
+
+.tl-handle[data-end="a"] {
+  left: -7px;
+}
+
+.tl-handle[data-end="b"] {
+  right: -7px;
+}
+
+.tl-handle::after {
+  content: "";
+  position: absolute;
+  inset: 5px 5px;
+  border-radius: 2px;
+  background: var(--cream);
+}
+
+.tl-handle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.tl-head {
+  position: absolute;
+  top: -2px;
+  bottom: 9px;
+  min-width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--page-solid);
+  pointer-events: none;
+}
+
+.tl-head[hidden],
+.tl-now[hidden] {
+  display: none;
+}
+
+.tl-now {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding-left: 10px;
+  border-radius: 999px;
+  background: var(--glass-line);
+  color: var(--ink);
+  font-size: var(--fs-small);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.tl-line:not(.is-labelled) > span {
-  top: 13px;
-  bottom: auto;
-  left: 0;
-  font-size: var(--fs-caption);
-  transform: translateX(-50%);
-}
-
-.tl-line b {
-  color: var(--ink);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-/* The step under the pick, shaded */
-.tl-span {
-  position: absolute;
-  top: 20px;
-  bottom: 0;
-  background: rgba(255, 240, 225, 0.06);
-  pointer-events: none;
-}
-
-/* Animation range: a shaded band with a handle at each end, shown while the animation panel is open */
-.tl-band {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  border-right: 2px solid var(--accent);
-  border-left: 2px solid var(--accent);
-  background: rgba(255, 122, 46, 0.16);
-  pointer-events: none;
-}
-
-.tl-bar:not(.is-animating) .tl-band {
-  display: none;
-}
-
-.tl-handle {
-  position: absolute;
-  top: 0;
-  width: 18px;
-  height: 14px;
-  background: var(--accent);
-  clip-path: polygon(0 0, 100% 0, 50% 100%);
-  cursor: ew-resize;
-  pointer-events: auto;
-}
-
-.tl-handle[data-end="a"] {
-  left: -10px;
-}
-
-.tl-handle[data-end="b"] {
-  right: -10px;
-}
-
-/* Pick: a line down the axis with a tab hanging from the activity strip */
-.tl-pick {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  margin-left: -1px;
-  background: var(--ink);
-  box-shadow: 0 0 8px var(--accent-glow);
-  pointer-events: none;
-  transition: left var(--dur-1) var(--ease-out);
-}
-
-.tl-axis.is-dragging .tl-pick,
-.tl-axis.is-panning .tl-pick {
-  transition: none;
-}
-
-.tl-pick-head {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  width: 30px;
-  height: 26px;
-  border-radius: 7px 7px 4px 4px;
-  background:
-    linear-gradient(90deg, transparent 10px, var(--page) 10px 11.5px, transparent 11.5px 14.25px, var(--page) 14.25px 15.75px, transparent 15.75px 18.5px, var(--page) 18.5px 20px, transparent 20px) center 7px / 100% 12px no-repeat,
-    var(--ink);
-  clip-path: polygon(50% 0, 100% 30%, 100% 100%, 0 100%, 0 30%);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-  cursor: grab;
-  transform: translateX(-50%);
-  pointer-events: auto;
-}
-
-.tl-zoom {
+.tl-clear {
   display: grid;
-  grid-template-rows: auto auto auto;
-  justify-items: center;
-  align-content: center;
-  gap: 1px;
-  width: 58px;
-}
-
-.tl-zoom-label {
-  color: var(--ink-2);
-  font-size: var(--fs-small);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-}
-
-.tl-hide {
-  justify-content: center;
-  width: 34px;
+  place-items: center;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 0;
-  border-left: 1px solid var(--glass-line);
-  border-radius: 0 12px 12px 0;
+  border-radius: 50%;
   background: none;
-  color: var(--ink);
+  color: var(--ink-2);
   cursor: pointer;
 }
 
-.tl-hide .ico {
-  width: 18px;
-  height: 18px;
-  stroke-width: 2.2;
-}
-
-.tl-hide:hover {
-  background: var(--accent-wash);
-  color: var(--accent);
-}
-
-/* Animation panel, opening above the camera button */
-.tl-panel {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  left: 0;
-  display: grid;
-  gap: 8px;
-  width: min(400px, 100%);
-  padding: 10px 12px;
-  border-radius: 14px;
-}
-
-.tl-panel-head,
-.tl-panel-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tl-panel-head {
-  justify-content: space-between;
-}
-
-.tl-panel-title {
-  margin: 0;
-  color: var(--ink-2);
-  font-size: var(--fs-small);
-}
-
-.tl-panel-title strong {
-  color: var(--accent);
-  letter-spacing: 0.05em;
-}
-
-.tl-panel-close {
-  width: 26px;
-  height: 26px;
-}
-
-.tl-panel-close .ico,
-.tl-loop .ico {
-  width: 13px;
-  height: 13px;
-}
-
-.tl-play {
-  width: 34px;
-  height: 34px;
-  border-color: var(--accent);
-  background: var(--accent-wash);
+.tl-clear:hover {
   color: var(--ink);
 }
 
-.tl-play .ico {
-  width: 14px;
-  height: 14px;
-}
-
-.tl-loop {
-  width: 30px;
-  height: 30px;
-}
-
-.tl-loop[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent-wash);
-  color: var(--ink);
-}
-
-.tl-speed {
-  flex: 1;
-  min-width: 60px;
-  accent-color: var(--accent);
-}
-
-.tl-speed-label,
-.tl-to {
-  color: var(--ink-3);
-  font-size: var(--fs-caption);
-  white-space: nowrap;
-}
-
-.tl-panel-dates {
-  justify-content: center;
-}
-
-.tl-panel .tl-input {
-  font-size: 16px;
-}
-
-.tl-panel .tl-arrow .ico {
+.tl-clear .ico {
   width: 12px;
   height: 12px;
 }
 
+.tl-interval {
+  flex: none;
+}
+
 .tl-status {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  max-width: min(420px, 100%);
   margin: 0;
-  color: var(--ink-3);
-  font-size: var(--fs-caption);
+  padding: 6px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--glass-solid);
+  color: var(--ink-2);
+  font-size: var(--fs-small);
 }
 
 .tl-status:empty {
@@ -2030,16 +1697,8 @@ body:has(.card-dialog[open]) {
 
 @media (max-width: 1099px) {
   .g-time {
-    bottom: 10px;
-  }
-
-  body.has-timeline .g-time {
     left: 10px;
     right: 10px;
-  }
-
-  body.has-timeline .g-map .maplibregl-ctrl-bottom-right {
-    bottom: calc(10px + var(--tl-h));
   }
 
   .g-top {
@@ -2110,7 +1769,7 @@ body:has(.card-dialog[open]) {
 
   .g-map .maplibregl-ctrl-bottom-left,
   .g-map .maplibregl-ctrl-bottom-right {
-    bottom: 10px;
+    bottom: calc(10px + var(--tl-h));
   }
 
   .g-map .maplibregl-ctrl-bottom-right {
@@ -2126,6 +1785,24 @@ body:has(.card-dialog[open]) {
 @media (max-width: 700px) {
   :root {
     --edge: 16px;
+    --tl-bar-h: 86px;
+  }
+
+  /* The strip wraps into two rows: the date fields, then the play buttons, track and step size */
+  .g-time {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 4px 8px;
+    border-radius: 20px;
+  }
+
+  .tl {
+    flex-basis: 100%;
+    gap: 6px;
+  }
+
+  .tl-years span {
+    display: none;
   }
 
   .g-top {
